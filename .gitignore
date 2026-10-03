@@ -27,3 +27,8 @@ rustc-ice-*.txt
 # Added by cargo
 
 /target
+
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
