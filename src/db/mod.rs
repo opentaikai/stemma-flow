@@ -1,8 +1,10 @@
 //! Local storage layer: SQLite schema, connection setup and entity models.
 
 pub mod models;
+pub mod schema;
 
 pub use models::{Citation, Event, Family, Person};
+pub use schema::init_db;
 
 use std::path::Path;
 
