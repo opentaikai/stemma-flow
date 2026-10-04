@@ -9,7 +9,7 @@ queries on trees with 10,000+ individuals.
 ```bash
 cargo build   # compile
 cargo test    # run the unit tests
-cargo run     # open the desktop window (welcome dashboard on first launch)
+cargo run     # open the desktop window (reopens the last tree, welcome dashboard otherwise)
 ```
 
 ## Storage layer
@@ -81,13 +81,17 @@ citations and child links, while spouses are detached with `ON DELETE SET NULL`.
 
 ## Welcome dashboard & tree lifecycle
 
-On launch the window starts **without** an active tree and shows a centered
-welcome dashboard (`gui::welcome`) instead of an empty canvas. The view
-switches the moment a tree becomes usable:
+On launch the window reopens the last tree it used whenever that database
+still loads; otherwise it shows a centered welcome dashboard
+(`gui::welcome`) instead of an empty canvas. The view switches the moment
+a tree becomes usable:
 
 - **Create New Family Tree** — native save dialog (`*.db`/`*.sqlite`),
   schema initialisation (`app::create_tree`, milliseconds, runs inline) and
   the canvas appears within the same frame.
+- **Open Tree** — native open dialog (`*.db`/`*.sqlite`) for an existing
+  database; the file is validated first and switches the view on success
+  (also available as `File > Open Tree…`).
 - **Import GEDCOM File** — background worker picks the source `*.ged`, then
   a fresh target database, runs the streaming importer and activates the
   result through the `TreeReady` job event; progress shows in the status
@@ -95,12 +99,13 @@ switches the moment a tree becomes usable:
 - **Recent trees** — opened or imported databases are remembered (capped
   at 8, deduplicated) through `eframe`'s built-in persistence and listed on
   the dashboard and under `File > Recent`; clicking one re-opens it, and
-  entries whose file no longer loads are dropped automatically.
-- The `File` menu lists **New Family Tree…**, **Import GEDCOM…** (into a
-  fresh database from the dashboard; into the open tree once one is
-  active), **Export GEDCOM…** (enabled once a tree is open), **Recent**,
-  **Close Tree** (unloads the active database and returns to the
-  dashboard) and **Quit**.
+  entries whose file no longer loads are dropped automatically. The most
+  recent entry is what the app reopens on launch.
+- The `File` menu lists **New Family Tree…**, **Open Tree…**,
+  **Import GEDCOM…** (into a fresh database from the dashboard; into the
+  open tree once one is active), **Export GEDCOM…** (enabled once a tree is
+  open), **Recent**, **Close Tree** (unloads the active database and
+  returns to the dashboard) and **Quit**.
 
 ## Interactive tree canvas
 
