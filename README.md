@@ -27,3 +27,15 @@ cargo run     # create/open stemma-flow.db and initialise the schema
 Relationships are modelled through events and the `family_children` junction
 table. Foreign keys cascade deletes from people/families down to events,
 citations and child links, while spouses are detached with `ON DELETE SET NULL`.
+
+## Graph layer
+
+`src/model` holds the in-memory graph state the `egui` canvas renders:
+
+- `model::GenealogyDb` wraps a `petgraph::stable_graph::StableGraph` plus a
+  UUID -> `NodeIndex` map, so removing a person never invalidates the indices
+  of everyone else.
+- Edges carry `Relationship::ParentChild` (directional) or
+  `Relationship::Spouse` (reciprocal); `add_parent_child` rejects self-links
+  and cycles so the family graph stays acyclic.
+- Traversals: `get_parents`, `get_children`, `get_spouses`, `get_ancestors`.
