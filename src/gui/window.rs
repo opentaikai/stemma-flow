@@ -86,7 +86,11 @@ impl TreeWindow {
                 }
                 if ui.button("Import GEDCOM\u{2026}").clicked() {
                     ui.close();
-                    self.app.begin_import_new();
+                    if self.app.active_db().is_some() {
+                        self.app.begin_import();
+                    } else {
+                        self.app.begin_import_new();
+                    }
                 }
                 let can_export = self.app.active_db().is_some() && !self.app.is_busy();
                 if ui
@@ -112,33 +116,6 @@ impl TreeWindow {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
-
-            if self.app.active_db().is_some() {
-                ui.separator();
-                let busy = self.app.is_busy();
-                if ui
-                    .add_enabled(!busy, egui::Button::new("Import GEDCOM\u{2026}"))
-                    .clicked()
-                {
-                    self.app.begin_import();
-                }
-                ui.separator();
-                match self.app.selected_person_id() {
-                    Some(person_id) => {
-                        let name = self
-                            .scene
-                            .nodes
-                            .iter()
-                            .find(|node| node.person_id == person_id)
-                            .map(|node| node.display_name.as_str())
-                            .unwrap_or(person_id);
-                        ui.label(format!("Selected: {name}"));
-                    }
-                    None => {
-                        ui.label("No selection");
-                    }
-                }
-            }
         });
     }
 
@@ -310,7 +287,7 @@ impl App for TreeWindow {
             ui.ctx().request_repaint();
         }
 
-        egui::Panel::top("toolbar").show(ui, |ui| self.top_panel(ui, frame));
+        egui::Panel::top("menu_bar").show(ui, |ui| self.top_panel(ui, frame));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         if self.app.active_db().is_some() {
             egui::CentralPanel::default().show(ui, |ui| self.canvas(ui));

@@ -97,21 +97,21 @@ switches the moment a tree becomes usable:
   the dashboard and under `File > Recent`; clicking one re-opens it, and
   entries whose file no longer loads are dropped automatically.
 - The `File` menu lists **New Family Tree…**, **Import GEDCOM…** (into a
-  fresh database), **Export GEDCOM…** (enabled once a tree is open),
-  **Recent**, **Close Tree** (unloads the active database and returns to
-  the dashboard) and **Quit**.
+  fresh database from the dashboard; into the open tree once one is
+  active), **Export GEDCOM…** (enabled once a tree is open), **Recent**,
+  **Close Tree** (unloads the active database and returns to the
+  dashboard) and **Quit**.
 
 ## Interactive tree canvas
 
-With a tree open the `eframe` window (1200x800) shows a toolbar
-(Import into tree, selection indicator), a status bar and the tree:
+With a tree open the `eframe` window (1200x800) shows a `File` menu, a
+status bar and the tree:
 
 - **Pan** with the middle mouse button or by dragging the background with
   the left button (drags that start on a person do not pan).
 - **Zoom** with the mouse wheel, cursor-anchored, 0.3x - 3.0x.
 - **Select** with a left click; the selected node gets a blue accent
-  border and the toolbar shows their name. Clicking empty space clears
-  the selection.
+  border. Clicking empty space clears the selection.
 
 `src/gui` builds it from straight SQLite data each time an import
 finishes:
@@ -128,6 +128,6 @@ finishes:
 - `gui::welcome::show` renders the dashboard card (logo, title, tagline,
   actions, recent list) and returns a `WelcomeAction` for the shell to
   execute.
-- `gui::window::TreeWindow` wires it into `eframe::App`: the menu bar and
-  toolbar, welcome/canvas viewport switching, background-job polling,
-  scene reloads, recent-tree persistence and input handling.
+- `gui::window::TreeWindow` wires it into `eframe::App`: the `File`
+  menu, welcome/canvas viewport switching, background-job polling, scene
+  reloads, recent-tree persistence and input handling.
