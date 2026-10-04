@@ -15,10 +15,13 @@ use super::inspector::{
 };
 use super::layout::{self, TreeScene};
 use super::nodes::{hit_test, paint_nodes};
+use super::settings;
 use super::tabs;
+use super::theme;
 use super::watchlist::{self, PersonRow, WatchEvent};
 use super::welcome::{self, WelcomeAction};
 use crate::app::{self, StemmaApp, UiStatus};
+use crate::config::AppConfig;
 use crate::db::people::{PersonDetails, VitalDates};
 use crate::db::{self, FamilyTree};
 
@@ -45,6 +48,9 @@ pub struct TreeWindow {
     inspector: InspectorForm,
     inspected: Option<String>,
     pending_relation: Option<RelationForm>,
+    config: AppConfig,
+    show_settings: bool,
+    pending_apply: bool,
 }
 
 impl TreeWindow {
@@ -72,6 +78,9 @@ impl TreeWindow {
             inspector: InspectorForm::default(),
             inspected: None,
             pending_relation: None,
+            config: AppConfig::load(),
+            show_settings: false,
+            pending_apply: true,
         };
         if let Some(last) = window.recent.first().cloned() {
             if loadable(&last) {
@@ -90,6 +99,14 @@ impl TreeWindow {
         let active = self.app.active_db().map(Path::to_path_buf);
         if active != self.seen_db || self.app.import_generation() != self.seen_generation {
             self.reload_scene();
+        }
+    }
+
+    /// One-shot startup apply of the persisted theme/zoom settings.
+    fn apply_pending_config(&mut self, ctx: &egui::Context) {
+        if self.pending_apply {
+            theme::apply_config_to_ctx(ctx, &self.config);
+            self.pending_apply = false;
         }
     }
 
@@ -162,6 +179,11 @@ impl TreeWindow {
                         ui.close();
                         self.app.close_tree();
                     }
+                }
+                ui.separator();
+                if ui.button("Settings\u{2026}").clicked() {
+                    ui.close();
+                    self.show_settings = true;
                 }
                 ui.separator();
                 if ui.button("Quit").clicked() {
@@ -475,6 +497,7 @@ impl TreeWindow {
 
 impl App for TreeWindow {
     fn ui(&mut self, ui: &mut Ui, frame: &mut Frame) {
+        self.apply_pending_config(ui.ctx());
         self.app.poll();
         self.sync_scene();
         if self.app.is_busy() {
@@ -502,6 +525,11 @@ impl App for TreeWindow {
         }
         if self.app.active_db().is_some() {
             self.show_relation_window(ui.ctx());
+        }
+        if self.show_settings
+            && let Some(error) = settings::show(ui.ctx(), &mut self.config, &mut self.show_settings)
+        {
+            self.app.set_status(UiStatus::Error(error));
         }
     }
 
@@ -744,6 +772,30 @@ mod tests {
             restored.recent, window.recent,
             "the saved list comes back through eframe persistence"
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn startup_applies_the_loaded_config_once() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.config.theme = crate::config::ThemeMode::Dark;
+        window.pending_apply = true;
+
+        let ctx = egui::Context::default();
+        window.apply_pending_config(&ctx);
+
+        assert_eq!(ctx.theme(), egui::Theme::Dark, "settings hit the context");
+        assert!(!window.pending_apply, "applied exactly once");
+        window.apply_pending_config(&ctx);
+        assert!(!window.pending_apply);
 
         let _ = std::fs::remove_file(&db_file);
     }
