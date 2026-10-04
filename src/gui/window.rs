@@ -1,6 +1,7 @@
 //! The main egui window: menu bar, status bar, welcome dashboard and the
 //! interactive canvas.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use eframe::{App, Frame};
@@ -11,9 +12,12 @@ use super::connectors::paint_connectors;
 use super::dialogs;
 use super::layout::{self, TreeScene};
 use super::nodes::{hit_test, paint_nodes};
+use super::tabs;
+use super::watchlist::{self, PersonRow, WatchEvent};
 use super::welcome::{self, WelcomeAction};
 use crate::app::{self, StemmaApp, UiStatus};
-use crate::db;
+use crate::db::people::{PersonDetails, VitalDates};
+use crate::db::{self, FamilyTree};
 
 const HINT_TEXT: &str = "Import a GEDCOM file to begin";
 const HINT_COLOR: Color32 = Color32::from_gray(150);
@@ -30,6 +34,11 @@ pub struct TreeWindow {
     recent: Vec<PathBuf>,
     pending_framing: bool,
     drag_started_on_node: bool,
+    tab: tabs::AppTab,
+    watch: watchlist::WatchState,
+    tree: FamilyTree,
+    dates: HashMap<String, VitalDates>,
+    rows: Vec<PersonRow>,
 }
 
 impl TreeWindow {
@@ -49,6 +58,11 @@ impl TreeWindow {
             recent,
             pending_framing: false,
             drag_started_on_node: false,
+            tab: tabs::AppTab::default(),
+            watch: watchlist::WatchState::default(),
+            tree: FamilyTree::default(),
+            dates: HashMap::new(),
+            rows: Vec::new(),
         };
         if let Some(last) = window.recent.first().cloned() {
             if loadable(&last) {
@@ -70,16 +84,24 @@ impl TreeWindow {
         }
     }
 
-    /// Loads people, families and children from the active database and
-    /// queues an initial re-centre of the viewport.
+    /// Loads people, families, vitals and dates from the active database,
+    /// refreshes the watch-list rows and queues a re-centre of the viewport.
     fn reload_scene(&mut self) {
-        self.scene = self
+        let loaded = self
             .app
             .active_db()
             .and_then(|path| db::open_connection(path).ok())
-            .and_then(|conn| db::load_family_tree(&conn).ok())
-            .map(|tree| layout::build_scene(&tree))
-            .unwrap_or_else(empty_scene);
+            .and_then(|conn| {
+                let tree = db::load_family_tree(&conn).ok()?;
+                let dates = db::people::load_vital_dates(&conn).ok()?;
+                Some((tree, dates))
+            });
+        let (tree, dates) = loaded.unwrap_or_else(|| (FamilyTree::default(), HashMap::new()));
+        self.scene = layout::build_scene(&tree);
+        self.rows = watchlist::rows(&tree, &dates);
+        self.tree = tree;
+        self.dates = dates;
+        self.watch.mark_dirty();
         self.seen_db = self.app.active_db().map(Path::to_path_buf);
         self.seen_generation = self.app.import_generation();
         self.pending_framing = true;
@@ -128,6 +150,12 @@ impl TreeWindow {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
+            if let Some(path) = self.app.active_db() {
+                let label = format!("Active Tree: {}", welcome::display_name(path));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new(label).weak());
+                });
+            }
         });
     }
 
@@ -234,6 +262,41 @@ impl TreeWindow {
         }
     }
 
+    /// Renders the Watch List tab and applies the grid's events.
+    fn watch_list(&mut self, ui: &mut Ui) {
+        let events = watchlist::show(
+            ui,
+            &mut self.watch,
+            &self.rows,
+            self.app.selected_person_id(),
+        );
+        for event in events {
+            match event {
+                WatchEvent::Select(person_id) => self.app.set_selected_person(Some(person_id)),
+                WatchEvent::AddPerson => self.add_person(),
+                WatchEvent::Delete(person_id) => self.delete_person(&person_id),
+            }
+        }
+    }
+
+    /// Instant add: inserts an unnamed person and focuses it.
+    fn add_person(&mut self) {
+        match self.app.add_person(&PersonDetails::unnamed()) {
+            Ok(person_id) => {
+                self.app.set_selected_person(Some(person_id));
+                self.reload_scene();
+            }
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    fn delete_person(&mut self, person_id: &str) {
+        match self.app.delete_person(person_id) {
+            Ok(()) => self.reload_scene(),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
     fn canvas(&mut self, ui: &mut Ui) {
         let (response, painter) =
             ui.allocate_painter(ui.available_size_before_wrap(), Sense::click_and_drag());
@@ -308,9 +371,15 @@ impl App for TreeWindow {
         }
 
         egui::Panel::top("menu_bar").show(ui, |ui| self.top_panel(ui, frame));
+        if self.app.active_db().is_some() {
+            egui::Panel::top("tab_bar").show(ui, |ui| tabs::show(ui, &mut self.tab));
+        }
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         if self.app.active_db().is_some() {
-            egui::CentralPanel::default().show(ui, |ui| self.canvas(ui));
+            egui::CentralPanel::default().show(ui, |ui| match self.tab {
+                tabs::AppTab::Graph => self.canvas(ui),
+                tabs::AppTab::WatchList => self.watch_list(ui),
+            });
         } else {
             self.welcome(ui, frame);
         }
@@ -555,6 +624,70 @@ mod tests {
             restored.recent, window.recent,
             "the saved list comes back through eframe persistence"
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn adding_a_person_selects_it_and_refreshes_the_watch_rows() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let before = window.rows.len();
+        let generation = window.app.import_generation();
+
+        window.add_person();
+
+        assert_eq!(window.rows.len(), before + 1, "the grid sees the new row");
+        let selected = window
+            .app
+            .selected_person_id()
+            .expect("the new person is selected");
+        assert!(
+            window.rows.iter().any(|row| row.id == selected),
+            "the selection points at a row"
+        );
+        assert!(
+            window.app.import_generation() > generation,
+            "the scene generation bumped"
+        );
+        assert!(
+            matches!(window.app.status(), UiStatus::Success(_)),
+            "the status reports success"
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn deleting_the_selected_person_clears_the_selection() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one imported person").id.clone();
+        window.app.set_selected_person(Some(person_id.clone()));
+
+        window.delete_person(&person_id);
+
+        assert!(window.rows.is_empty(), "the row is gone");
+        assert_eq!(
+            window.app.selected_person_id(),
+            None,
+            "selection cleared with the person"
+        );
+        assert!(matches!(window.app.status(), UiStatus::Success(_)));
 
         let _ = std::fs::remove_file(&db_file);
     }

@@ -9,6 +9,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use crate::db;
+use crate::db::people::{self, PersonDetails};
 use crate::gedcom::{ImportReport, export_to_gedcom, import_gedcom};
 use crate::gui::dialogs;
 
@@ -113,8 +114,8 @@ impl StemmaApp {
         self.selected_person_id = person_id;
     }
 
-    /// Incremented on every successful import so the canvas knows when to
-    /// rebuild its scene.
+    /// Incremented on every successful import or person mutation so the
+    /// canvas knows when to rebuild its scene.
     pub fn import_generation(&self) -> u64 {
         self.import_generation
     }
@@ -139,6 +140,38 @@ impl StemmaApp {
             return;
         }
         self.begin(Job::Export, self.active_db.clone());
+    }
+
+    /// Inserts an unlinked person into the active tree.
+    pub fn add_person(&mut self, details: &PersonDetails) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let person_id = people::insert_person(&mut conn, details)?;
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success(format!(
+            "Added {}",
+            details.display_name()
+        )));
+        Ok(person_id)
+    }
+
+    /// Removes a person; FK cascades clean up events, citations and links.
+    pub fn delete_person(&mut self, person_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        people::delete_person(&mut conn, person_id)?;
+        if self.selected_person_id.as_deref() == Some(person_id) {
+            self.selected_person_id = None;
+        }
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success("Person deleted".to_string()));
+        Ok(())
+    }
+
+    fn require_active_db(&self) -> Result<PathBuf, String> {
+        self.active_db
+            .clone()
+            .ok_or_else(|| "No tree is open".to_string())
     }
 
     fn begin(&mut self, job: Job, db_path: Option<PathBuf>) {
