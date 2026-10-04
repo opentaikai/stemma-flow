@@ -34,7 +34,8 @@ pub struct TreeWindow {
 
 impl TreeWindow {
     /// Restores the recent-trees list from `storage` (when the persistence
-    /// feature is on) and loads the initial scene.
+    /// feature is on), reopens the most recent entry when its database
+    /// still loads, and loads the initial scene.
     pub fn new(app: StemmaApp, storage: Option<&dyn eframe::Storage>) -> Self {
         let recent = storage
             .and_then(|storage| eframe::get_value::<Vec<PathBuf>>(storage, RECENT_TREES_KEY))
@@ -49,6 +50,13 @@ impl TreeWindow {
             pending_framing: false,
             drag_started_on_node: false,
         };
+        if let Some(last) = window.recent.first().cloned() {
+            if loadable(&last) {
+                window.app.activate_tree(last);
+            } else {
+                window.recent.remove(0);
+            }
+        }
         window.reload_scene();
         window
     }
@@ -495,11 +503,51 @@ mod tests {
     }
 
     #[test]
+    fn launch_reopens_the_last_tree_when_it_still_loads() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut storage = MapStorage::default();
+        eframe::set_value(&mut storage, RECENT_TREES_KEY, &vec![db_file.clone()]);
+
+        let window = TreeWindow::new(StemmaApp::new(), Some(&storage));
+        assert_eq!(window.app.active_db(), Some(db_file.as_path()));
+        assert_eq!(
+            window.scene.nodes.len(),
+            1,
+            "the scene loads during construction"
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn launch_falls_back_to_the_dashboard_when_the_last_tree_is_gone() {
+        let missing = temp_path("db");
+
+        let mut storage = MapStorage::default();
+        eframe::set_value(&mut storage, RECENT_TREES_KEY, &vec![missing.clone()]);
+
+        let window = TreeWindow::new(StemmaApp::new(), Some(&storage));
+        assert_eq!(window.app.active_db(), None, "the dashboard shows instead");
+        assert!(window.recent.is_empty(), "the dead entry is dropped");
+    }
+
+    #[test]
     fn recent_trees_survive_a_storage_roundtrip() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
         let mut storage = MapStorage::default();
         let mut window = TreeWindow::new(StemmaApp::new(), None);
         welcome::push_recent(&mut window.recent, "/tmp/tree-a.db", welcome::RECENT_CAP);
-        welcome::push_recent(&mut window.recent, "/tmp/tree-b.db", welcome::RECENT_CAP);
+        welcome::push_recent(&mut window.recent, db_file.clone(), welcome::RECENT_CAP);
         App::save(&mut window, &mut storage);
 
         let restored = TreeWindow::new(StemmaApp::new(), Some(&storage));
@@ -507,5 +555,7 @@ mod tests {
             restored.recent, window.recent,
             "the saved list comes back through eframe persistence"
         );
+
+        let _ = std::fs::remove_file(&db_file);
     }
 }
