@@ -39,3 +39,19 @@ citations and child links, while spouses are detached with `ON DELETE SET NULL`.
   `Relationship::Spouse` (reciprocal); `add_parent_child` rejects self-links
   and cycles so the family graph stays acyclic.
 - Traversals: `get_parents`, `get_children`, `get_spouses`, `get_ancestors`.
+
+## GEDCOM 5.5.1
+
+`src/gedcom` streams GEDCOM files in and out of the database:
+
+- `gedcom::import_gedcom(&mut conn, reader)` parses line-by-line from any
+  `BufRead` (low memory even for 50MB+ files), translates `@I1@`/`@F1@`
+  pointers to UUIDs and writes everything inside a single transaction — I/O
+  or database errors roll back the whole import. Recoverable problems
+  (dangling pointers, malformed lines) come back as warnings in the returned
+  `ImportReport`.
+- `gedcom::export_to_gedcom(&conn)` serialises `people`, `families`,
+  `family_children` and `events` back into a deterministic GEDCOM 5.5.1
+  document (`HEAD`, `INDI`, `FAM`, `TRLR`).
+- Family links are recovered from `HUSB`/`WIFE`/`CHIL`, backfilled from
+  `FAMC`, and `FAMS` fills empty spouse slots when `SEX` makes it unambiguous.
