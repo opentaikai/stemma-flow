@@ -114,7 +114,8 @@ a tree becomes usable:
   **Import GEDCOM…** (into a fresh database from the dashboard; into the
   open tree once one is active), **Export GEDCOM…** (enabled once a tree is
   open), **Recent**, **Close Tree** (unloads the active database and
-  returns to the dashboard) and **Quit**. The menu bar keeps a muted
+  returns to the dashboard), **Settings…** (the appearance dialog) and
+  **Quit**. The menu bar keeps a muted
   **Active Tree: &lt;file&gt;** label on its right edge whenever a database
   is loaded.
 
@@ -163,8 +164,36 @@ mutation finishes:
   filter/sort state and emits selection/add/delete events, and
   `gui::inspector` draws the side panel, the profile editors shared with
   the relation pop-up, and the connection counts.
+- `gui::settings` renders the `File > Settings…` dialog and
+  `gui::theme::apply_config_to_ctx` pushes the chosen theme preference and
+  zoom factor into the `egui::Context`; both run live, no restart needed.
 - `gui::window::TreeWindow` wires it into `eframe::App`: the `File`
   menu, tab switching, background-job polling, scene reloads (a quiet
   variant keeps pan/zoom through profile edits), watch-list events, the
-  inspector panel and relation pop-up, recent-tree persistence and input
-  handling.
+  inspector panel and relation pop-up, recent-tree persistence, the
+  startup settings apply and input handling.
+
+## Settings & appearance
+
+`File > Settings…` opens a modal dialog with an **Appearance** section:
+
+- **Theme** — Light, Dark or System; System follows the OS dark/light
+  preference through egui's `ThemePreference`.
+- **Font size** — a 10–24pt slider driving `ctx.set_zoom_factor` (14pt
+  maps to 1.0), so every tab, panel and window rescales in real time.
+
+Theme changes apply to the context immediately and persist to
+`<config_dir>/stemma-flow/config.toml` resolved with `dirs::config_dir()`
+(`~/.config/stemma-flow/config.toml` on Linux). The font-size slider stays
+live in the dialog but only rescales the app once the mouse button is
+released, and its number input commits only on Enter or when focus moves
+away (Escape cancels) — so neither dragging nor typing makes the
+interface jump (one disk write per commit instead of one per drag frame).
+`src/config.rs` creates
+the file on first launch, rewrites it when missing or corrupt, resets
+insane font sizes to the 14pt baseline, and writes atomically through a
+temporary file plus rename. Read/write failures fall back to in-memory
+defaults — a read-only filesystem only surfaces a status-bar message and
+never crashes the app. The stored config is loaded when the window starts
+and applied before the first frame paints, so preferences survive
+restarts without any manual step.
