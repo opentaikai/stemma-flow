@@ -1,7 +1,9 @@
 //! GEDCOM 5.5.1 import and export engine.
 
+pub mod export;
 pub mod import;
 
+pub use export::export_to_gedcom;
 pub use import::import_gedcom;
 
 use thiserror::Error;
