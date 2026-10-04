@@ -358,6 +358,108 @@ fn test_cascading_deletes() -> rusqlite::Result<()> {
 }
 
 #[test]
+fn test_transactional_updates() -> rusqlite::Result<()> {
+    // Commit: parents, family link and birth event persist together.
+    let mut conn = setup_test_db()?;
+    let tx = conn.transaction()?;
+
+    let father = Person::new("Sven", "Tranberg", "M");
+    let mother = Person::new("Alva", "Tranberg", "F");
+    let child = Person::new("Nils", "Tranberg", "M");
+    insert_person(&tx, &father)?;
+    insert_person(&tx, &mother)?;
+    insert_person(&tx, &child)?;
+
+    let family = Family::new(Some(father.id.clone()), Some(mother.id.clone()));
+    insert_family(&tx, &family)?;
+    link_child(&tx, &family.id, &child.id)?;
+
+    let birth = Event::new("BIRTH", Some(child.id.clone()), None);
+    tx.execute(
+        "INSERT INTO events (id, event_type, person_id) VALUES (?1, ?2, ?3)",
+        params![birth.id, birth.event_type, birth.person_id],
+    )?;
+    tx.commit()?;
+
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM people")?,
+        3,
+        "committed person and both parents must persist"
+    );
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM families")?,
+        1,
+        "committed family must persist"
+    );
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM family_children")?,
+        1,
+        "committed child link must persist"
+    );
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM events")?,
+        1,
+        "committed birth event must persist"
+    );
+    let stored_person: Option<String> = conn.query_row(
+        "SELECT person_id FROM events WHERE id = ?1",
+        [&birth.id],
+        |row| row.get(0),
+    )?;
+    assert_eq!(
+        stored_person.as_deref(),
+        Some(child.id.as_str()),
+        "birth event must stay linked to the person after commit"
+    );
+
+    // Rollback: a failing write mid-transaction leaves no partial data.
+    let mut conn = setup_test_db()?;
+    let tx = conn.transaction()?;
+
+    let father = Person::new("Sven", "Tranberg", "M");
+    let child = Person::new("Nils", "Tranberg", "M");
+    insert_person(&tx, &father)?;
+    insert_person(&tx, &child)?;
+    let family = Family::new(Some(father.id.clone()), None);
+    insert_family(&tx, &family)?;
+    link_child(&tx, &family.id, &child.id)?;
+    let birth = Event::new("BIRTH", Some(child.id.clone()), None);
+    tx.execute(
+        "INSERT INTO events (id, event_type, person_id) VALUES (?1, ?2, ?3)",
+        params![birth.id, birth.event_type, birth.person_id],
+    )?;
+
+    let duplicate = insert_person(&tx, &child);
+    assert!(
+        duplicate.is_err(),
+        "Expected primary key violation to simulate a failed step"
+    );
+    tx.rollback()?;
+
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM people")?,
+        0,
+        "rollback must not persist people"
+    );
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM families")?,
+        0,
+        "rollback must not persist families"
+    );
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM family_children")?,
+        0,
+        "rollback must not persist child links"
+    );
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM events")?,
+        0,
+        "rollback must not persist events"
+    );
+    Ok(())
+}
+
+#[test]
 fn test_gender_constraint_and_timestamp_defaults() -> rusqlite::Result<()> {
     let conn = setup_test_db()?;
 
