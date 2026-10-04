@@ -42,6 +42,8 @@ pub struct StemmaApp {
     busy: bool,
     status: UiStatus,
     rx: Option<Receiver<JobEvent>>,
+    selected_person_id: Option<String>,
+    import_generation: u64,
 }
 
 impl StemmaApp {
@@ -51,6 +53,8 @@ impl StemmaApp {
             busy: false,
             status: UiStatus::Idle,
             rx: None,
+            selected_person_id: None,
+            import_generation: 0,
         }
     }
 
@@ -60,6 +64,27 @@ impl StemmaApp {
 
     pub fn status(&self) -> &UiStatus {
         &self.status
+    }
+
+    /// Database backing this session, used by the canvas to reload scenes.
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
+    }
+
+    /// Person under the most recent canvas click, if any.
+    pub fn selected_person_id(&self) -> Option<&str> {
+        self.selected_person_id.as_deref()
+    }
+
+    /// Records the canvas selection; `None` clears it.
+    pub fn set_selected_person(&mut self, person_id: Option<String>) {
+        self.selected_person_id = person_id;
+    }
+
+    /// Incremented on every successful import so the canvas knows when to
+    /// rebuild its scene.
+    pub fn import_generation(&self) -> u64 {
+        self.import_generation
     }
 
     /// Opens the native open dialog and streams the chosen file into the
@@ -90,24 +115,33 @@ impl StemmaApp {
     }
 
     /// Applies every job event that arrived since the last frame.
-    pub fn poll(&mut self) {
+    ///
+    /// Returns `true` when at least one event was applied.
+    pub fn poll(&mut self) -> bool {
         let events: Vec<JobEvent> = match &self.rx {
             Some(rx) => rx.try_iter().collect(),
-            None => return,
+            None => return false,
         };
+        if events.is_empty() {
+            return false;
+        }
         for event in events {
             self.apply_event(event);
         }
+        true
     }
 
     /// Applies a single job event to the presentation state.
     pub fn apply_event(&mut self, event: JobEvent) {
         self.busy = false;
         self.status = match event {
-            JobEvent::Imported(report) => UiStatus::Success(format!(
-                "Imported {} people, {} families, {} events, {} citations",
-                report.people, report.families, report.events, report.citations
-            )),
+            JobEvent::Imported(report) => {
+                self.import_generation += 1;
+                UiStatus::Success(format!(
+                    "Imported {} people, {} families, {} events, {} citations",
+                    report.people, report.families, report.events, report.citations
+                ))
+            }
             JobEvent::Exported { bytes, path } => {
                 UiStatus::Success(format!("Exported {bytes} bytes to {}", path.display()))
             }
@@ -240,6 +274,32 @@ mod tests {
         let result = perform_import(&missing, Path::new("/nonexistent/file.ged"));
         assert!(result.is_err(), "missing input file must fail cleanly");
         let _ = std::fs::remove_file(missing);
+    }
+
+    #[test]
+    fn poll_applies_events_and_tracks_import_generation() {
+        let mut app = StemmaApp::new("stemma-flow.db");
+        assert!(!app.poll(), "without a channel there is nothing to apply");
+        assert_eq!(app.import_generation(), 0);
+        assert_eq!(app.selected_person_id(), None);
+
+        let (tx, rx) = channel();
+        app.rx = Some(rx);
+        let _ = tx.send(JobEvent::Imported(ImportReport {
+            people: 2,
+            families: 1,
+            child_links: 1,
+            events: 0,
+            citations: 0,
+            warnings: Vec::new(),
+        }));
+        assert!(app.poll(), "queued events must be applied");
+        assert_eq!(app.import_generation(), 1, "imports bump the generation");
+        assert!(!app.poll(), "a drained channel applies nothing");
+
+        app.set_selected_person(Some("i1".to_string()));
+        assert_eq!(app.selected_person_id(), Some("i1"));
+        assert_eq!(app.db_path(), Path::new("stemma-flow.db"));
     }
 
     #[test]

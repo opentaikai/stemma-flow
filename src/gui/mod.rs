@@ -5,3 +5,4 @@ pub mod connectors;
 pub mod dialogs;
 pub mod layout;
 pub mod nodes;
+pub mod window;
