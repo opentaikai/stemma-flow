@@ -21,6 +21,16 @@ pub(crate) struct Line<'a> {
     pub payload: &'a str,
 }
 
+/// A `2 SOUR` citation attached to an event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SourceRef {
+    /// `@X@` pointer into a level-0 `SOUR` record.
+    pub xref: Option<String>,
+    /// Inline citation text for unlinked `2 SOUR Text` payloads.
+    pub text: Option<String>,
+    pub page: Option<String>,
+}
+
 /// An event recovered from a `BIRT`/`DEAT`/`MARR` sub-block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ParsedEvent {
@@ -28,6 +38,7 @@ pub(crate) struct ParsedEvent {
     pub event_type: String,
     pub date: Option<String>,
     pub place: Option<String>,
+    pub source_refs: Vec<SourceRef>,
 }
 
 /// A parsed `0 @I1@ INDI` record.
@@ -52,11 +63,20 @@ pub(crate) struct FamRecord {
     pub events: Vec<ParsedEvent>,
 }
 
+/// A parsed `0 @S1@ SOUR` record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SourRecord {
+    pub xref: String,
+    pub title: String,
+    pub note: Option<String>,
+}
+
 /// A completed level-0 record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Record {
     Indi(IndiRecord),
     Fam(FamRecord),
+    Sour(SourRecord),
 }
 
 impl IndiRecord {
@@ -155,10 +175,14 @@ enum Current {
         rec: Box<FamRecord>,
         event_slot: Option<usize>,
     },
+    Sour(SourRecord),
     Skipped,
 }
 
 /// Streams completed records out of a GEDCOM text stream.
+///
+/// Yields `INDI`/`FAM` records plus the `SOUR` records that event citations
+/// point at.
 pub(crate) struct RecordReader<R: BufRead> {
     lines: std::io::Lines<R>,
     line_no: usize,
@@ -256,13 +280,28 @@ impl<R: BufRead> RecordReader<R> {
                     }
                 };
             }
+            "SOUR" => {
+                self.current = match line.xref {
+                    Some(xref) => Some(Current::Sour(SourRecord {
+                        xref: xref.to_string(),
+                        title: String::new(),
+                        note: None,
+                    })),
+                    None => {
+                        let message =
+                            format!("line {}: SOUR record without @XREF@ skipped", self.line_no);
+                        self.warnings.push(message);
+                        Some(Current::Skipped)
+                    }
+                };
+            }
             "TRLR" => {
                 self.saw_trlr = true;
                 self.done = true;
                 self.current = None;
             }
             _ => {
-                // HEAD, SOUR, REPO, OBJE, NOTE, ...: skip the whole block.
+                // HEAD, REPO, OBJE, NOTE, ...: skip the whole block.
                 self.current = Some(Current::Skipped);
             }
         }
@@ -273,6 +312,22 @@ impl<R: BufRead> RecordReader<R> {
         let mut warning: Option<String> = None;
         match &mut self.current {
             None | Some(Current::Skipped) => {}
+            Some(Current::Sour(sour)) => {
+                if line.level == 1 {
+                    match line.tag {
+                        "TITL" => sour.title = line.payload.to_string(),
+                        "NOTE" => sour.note = Some(line.payload.to_string()),
+                        "CONT" => {
+                            let continuation = line.payload.to_string();
+                            sour.note = match sour.note.take() {
+                                Some(existing) => Some(format!("{existing}\n{continuation}")),
+                                None => Some(continuation),
+                            };
+                        }
+                        _ => {}
+                    }
+                }
+            }
             Some(Current::Indi { rec, event_slot }) => {
                 if line.level == 1 {
                     *event_slot = None;
@@ -291,6 +346,7 @@ impl<R: BufRead> RecordReader<R> {
                                 event_type: event_type.to_string(),
                                 date: None,
                                 place: None,
+                                source_refs: Vec::new(),
                             });
                             *event_slot = Some(rec.events.len() - 1);
                         }
@@ -316,6 +372,7 @@ impl<R: BufRead> RecordReader<R> {
                                 event_type: "MARRIAGE".to_string(),
                                 date: None,
                                 place: None,
+                                source_refs: Vec::new(),
                             });
                             *event_slot = Some(rec.events.len() - 1);
                         }
@@ -335,6 +392,7 @@ impl<R: BufRead> RecordReader<R> {
         match self.current.take() {
             Some(Current::Indi { rec, .. }) => Some(Record::Indi(*rec)),
             Some(Current::Fam { rec, .. }) => Some(Record::Fam(*rec)),
+            Some(Current::Sour(sour)) => Some(Record::Sour(sour)),
             Some(Current::Skipped) | None => None,
         }
     }
@@ -388,6 +446,29 @@ fn fill_event(events: &mut [ParsedEvent], slot: usize, line: Line<'_>) {
         match line.tag {
             "DATE" => event.date = optional_payload(line.payload),
             "PLAC" => event.place = optional_payload(line.payload),
+            "SOUR" => {
+                let is_pointer = line.payload.len() >= 3
+                    && line.payload.starts_with('@')
+                    && line.payload.ends_with('@');
+                if is_pointer {
+                    event.source_refs.push(SourceRef {
+                        xref: Some(line.payload.to_string()),
+                        text: None,
+                        page: None,
+                    });
+                } else if !line.payload.is_empty() {
+                    event.source_refs.push(SourceRef {
+                        xref: None,
+                        text: Some(line.payload.to_string()),
+                        page: None,
+                    });
+                }
+            }
+            "PAGE" => {
+                if let Some(last) = event.source_refs.last_mut() {
+                    last.page = optional_payload(line.payload);
+                }
+            }
             _ => {}
         }
     }
@@ -411,6 +492,13 @@ struct FamilyLinks {
     children: Vec<String>,
 }
 
+/// A `2 SOUR @X@` pointer waiting for its level-0 `SOUR` record.
+struct PendingCitation {
+    event_id: String,
+    xref: String,
+    page: Option<String>,
+}
+
 /// Streams a GEDCOM 5.5.1 document from `reader` into `conn`.
 ///
 /// Runs entirely inside a single transaction: any I/O or database error rolls
@@ -426,6 +514,9 @@ pub fn import_gedcom<R: BufRead>(
     let mut id_map: HashMap<String, String> = HashMap::new();
     let mut person_links: Vec<PersonLinks> = Vec::new();
     let mut family_links: Vec<FamilyLinks> = Vec::new();
+    let mut sour_meta: HashMap<String, (String, Option<String>)> = HashMap::new();
+    let mut sour_order: Vec<String> = Vec::new();
+    let mut pending_citations: Vec<PendingCitation> = Vec::new();
 
     // Pass 1: stream records into the tables, recording xref -> UUID mappings.
     while let Some(record) = reader.next_record()? {
@@ -443,7 +534,14 @@ pub fn import_gedcom<R: BufRead>(
                 )?;
                 report.people += 1;
                 for event in &indi.events {
-                    insert_event(&tx, event, Some(&id), None, &mut report)?;
+                    let event_id = insert_event(&tx, event, Some(&id), None, &mut report)?;
+                    collect_source_refs(
+                        &tx,
+                        event,
+                        &event_id,
+                        &mut report,
+                        &mut pending_citations,
+                    )?;
                 }
                 id_map.insert(indi.xref.clone(), id.clone());
                 person_links.push(PersonLinks {
@@ -464,7 +562,14 @@ pub fn import_gedcom<R: BufRead>(
                 tx.execute("INSERT INTO families (id) VALUES (?1)", [&id])?;
                 report.families += 1;
                 for event in &fam.events {
-                    insert_event(&tx, event, None, Some(&id), &mut report)?;
+                    let event_id = insert_event(&tx, event, None, Some(&id), &mut report)?;
+                    collect_source_refs(
+                        &tx,
+                        event,
+                        &event_id,
+                        &mut report,
+                        &mut pending_citations,
+                    )?;
                 }
                 id_map.insert(fam.xref.clone(), id.clone());
                 family_links.push(FamilyLinks {
@@ -474,6 +579,15 @@ pub fn import_gedcom<R: BufRead>(
                     wife: fam.wife,
                     children: fam.children,
                 });
+            }
+            Record::Sour(sour) => {
+                if sour_meta.contains_key(&sour.xref) {
+                    let message = format!("duplicate SOUR {} skipped", sour.xref);
+                    report.warnings.push(message);
+                    continue;
+                }
+                sour_meta.insert(sour.xref.clone(), (sour.title, sour.note));
+                sour_order.push(sour.xref);
             }
         }
     }
@@ -563,8 +677,97 @@ pub fn import_gedcom<R: BufRead>(
         }
     }
 
+    // Resolve event source pointers against the collected SOUR records.
+    // Insertion follows document order so repeated exports stay deterministic.
+    let mut refs_by_source: HashMap<&str, Vec<&PendingCitation>> = HashMap::new();
+    for citation in &pending_citations {
+        if sour_meta.contains_key(&citation.xref) {
+            refs_by_source
+                .entry(&citation.xref)
+                .or_default()
+                .push(citation);
+        } else {
+            report
+                .warnings
+                .push(format!("dangling SOUR pointer {}", citation.xref));
+        }
+    }
+    for xref in &sour_order {
+        let Some((title, note)) = sour_meta.get(xref.as_str()) else {
+            continue;
+        };
+        match refs_by_source.get(xref.as_str()) {
+            Some(refs) => {
+                for citation in refs {
+                    insert_citation(
+                        &tx,
+                        title,
+                        citation.page.as_deref(),
+                        note.as_deref(),
+                        Some(&citation.event_id),
+                        &mut report,
+                    )?;
+                }
+            }
+            None => insert_citation(&tx, title, None, note.as_deref(), None, &mut report)?,
+        }
+    }
+
     tx.commit()?;
     Ok(report)
+}
+
+/// Persists inline source texts immediately and queues `@X@` pointers for the
+/// SOUR resolution pass.
+fn collect_source_refs(
+    conn: &Connection,
+    event: &ParsedEvent,
+    event_id: &str,
+    report: &mut ImportReport,
+    pending: &mut Vec<PendingCitation>,
+) -> rusqlite::Result<()> {
+    for source in &event.source_refs {
+        if let Some(xref) = &source.xref {
+            pending.push(PendingCitation {
+                event_id: event_id.to_string(),
+                xref: xref.clone(),
+                page: source.page.clone(),
+            });
+        } else if let Some(title) = &source.text {
+            insert_citation(
+                conn,
+                title,
+                source.page.as_deref(),
+                None,
+                Some(event_id),
+                report,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn insert_citation(
+    conn: &Connection,
+    source_title: &str,
+    page_or_reference: Option<&str>,
+    notes: Option<&str>,
+    event_id: Option<&str>,
+    report: &mut ImportReport,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO citations (id, source_title, page_or_reference, notes, event_id)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            Uuid::new_v4().to_string(),
+            source_title,
+            page_or_reference,
+            notes,
+            event_id
+        ],
+    )?;
+    report.citations += 1;
+    Ok(())
 }
 
 fn insert_event(
@@ -573,12 +776,13 @@ fn insert_event(
     person_id: Option<&str>,
     family_id: Option<&str>,
     report: &mut ImportReport,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<String> {
+    let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO events (id, event_type, date, place, person_id, family_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
-            Uuid::new_v4().to_string(),
+            id,
             event.event_type,
             event.date,
             event.place,
@@ -587,5 +791,5 @@ fn insert_event(
         ],
     )?;
     report.events += 1;
-    Ok(())
+    Ok(id)
 }

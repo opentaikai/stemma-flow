@@ -2,7 +2,7 @@
 
 use std::io::{BufReader, Cursor};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 
 use super::import::parse_name;
 use super::{GedcomError, export_to_gedcom, import_gedcom};
@@ -83,6 +83,23 @@ const BOMB: &str = "\
 1 NAME Bomb /Person/
 0 TRLR
 ";
+
+const DANGLING_SOUR: &str = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Fine /Person/
+1 BIRT
+2 DATE 1 JAN 1900
+2 SOUR @S9@
+0 TRLR
+";
+
+fn expected_header() -> String {
+    format!(
+        "0 HEAD\n1 SOUR STEMMA_FLOW\n2 VERS {}\n1 GEDC\n2 VERS 5.5.1\n2 FORM LINEAGE-LINKED\n1 CHAR UTF-8\n",
+        env!("CARGO_PKG_VERSION")
+    )
+}
 
 fn setup_test_db() -> rusqlite::Result<Connection> {
     let conn = Connection::open_in_memory()?;
@@ -307,7 +324,7 @@ fn export_round_trips_imported_data() -> Result<(), GedcomError> {
     let exported = export_to_gedcom(&conn)?;
 
     assert!(
-        exported.starts_with("0 HEAD\n1 SOUR STEMMA_FLOW\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n"),
+        exported.starts_with(&expected_header()),
         "GEDCOM 5.5.1 header must come first: {exported:?}"
     );
     assert!(
@@ -404,6 +421,132 @@ fn parse_name_handles_nonstandard_input() {
         ("Anna Maria".to_string(), "von R".to_string())
     );
     assert_eq!(parse_name(""), (String::new(), String::new()));
+}
+
+#[test]
+fn export_emits_gedcom_551_header() -> Result<(), GedcomError> {
+    let conn = setup_test_db().map_err(GedcomError::Db)?;
+    let exported = export_to_gedcom(&conn)?;
+
+    let expected = format!("{}0 TRLR\n", expected_header());
+    assert_eq!(
+        exported, expected,
+        "an empty database must export as HEAD + TRLR only"
+    );
+    Ok(())
+}
+
+#[test]
+fn citations_round_trip_through_sour_records() -> Result<(), GedcomError> {
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut conn, Cursor::new(SAMPLE))?;
+
+    let birth_id: String = conn
+        .query_row(
+            "SELECT id FROM events WHERE event_type = 'BIRTH'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    conn.execute(
+        "INSERT INTO citations (id, source_title, page_or_reference, notes, event_id)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            "cit-cited",
+            "Parish Church Book",
+            "12",
+            "Abbot 1900",
+            birth_id
+        ],
+    )
+    .map_err(GedcomError::Db)?;
+    conn.execute(
+        "INSERT INTO citations (id, source_title, page_or_reference, notes, event_id)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            "cit-standalone",
+            "Municipal Archive",
+            "roll 7",
+            None::<String>,
+            None::<String>
+        ],
+    )
+    .map_err(GedcomError::Db)?;
+
+    let exported = export_to_gedcom(&conn)?;
+    for expected in [
+        "0 @S1@ SOUR",
+        "1 TITL Parish Church Book",
+        "1 NOTE Abbot 1900",
+        "2 SOUR @S1@",
+        "3 PAGE 12",
+        "0 @S2@ SOUR",
+        "1 TITL Municipal Archive",
+    ] {
+        assert!(
+            exported.contains(expected),
+            "export must contain {expected:?}: {exported:?}"
+        );
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert_eq!(report.citations, 2, "both SOUR records must be restored");
+    assert!(
+        report.warnings.is_empty(),
+        "citation export must re-import cleanly: {:?}",
+        report.warnings
+    );
+
+    let cited: (String, Option<String>, Option<String>) = fresh
+        .query_row(
+            "SELECT c.source_title, c.page_or_reference, c.notes
+             FROM citations c
+             JOIN events e ON e.id = c.event_id
+             WHERE e.event_type = 'BIRTH'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(
+        cited,
+        (
+            "Parish Church Book".to_string(),
+            Some("12".to_string()),
+            Some("Abbot 1900".to_string())
+        ),
+        "citation fields must survive the round trip"
+    );
+    let standalone: i64 = scalar_count(
+        &fresh,
+        "SELECT COUNT(*) FROM citations WHERE event_id IS NULL",
+    )
+    .map_err(GedcomError::Db)?;
+    assert_eq!(standalone, 1, "the uncited SOUR must stay standalone");
+
+    assert_eq!(
+        export_to_gedcom(&fresh)?,
+        exported,
+        "import -> export must preserve the document byte for byte"
+    );
+    Ok(())
+}
+
+#[test]
+fn import_warns_on_dangling_source_pointer() -> Result<(), GedcomError> {
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(DANGLING_SOUR))?;
+
+    assert_eq!(report.citations, 0, "no citation may be fabricated");
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("dangling SOUR pointer @S9@")),
+        "missing SOUR target must be reported: {:?}",
+        report.warnings
+    );
+    Ok(())
 }
 
 #[test]
