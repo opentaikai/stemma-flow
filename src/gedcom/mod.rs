@@ -3,6 +3,9 @@
 pub mod export;
 pub mod import;
 
+#[cfg(test)]
+mod tests;
+
 pub use export::export_to_gedcom;
 pub use import::import_gedcom;
 
