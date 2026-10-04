@@ -39,3 +39,36 @@ citations and child links, while spouses are detached with `ON DELETE SET NULL`.
   `Relationship::Spouse` (reciprocal); `add_parent_child` rejects self-links
   and cycles so the family graph stays acyclic.
 - Traversals: `get_parents`, `get_children`, `get_spouses`, `get_ancestors`.
+
+## GEDCOM 5.5.1
+
+`src/gedcom` streams GEDCOM files in and out of the database:
+
+- `gedcom::import_gedcom(&mut conn, reader)` parses line-by-line from any
+  `BufRead` (low memory even for 50MB+ files), translates `@I1@`/`@F1@`
+  pointers to UUIDs and writes everything inside a single transaction — I/O
+  or database errors roll back the whole import. Recoverable problems
+  (dangling pointers, malformed lines) come back as warnings in the returned
+  `ImportReport`.
+- `gedcom::export_to_gedcom(&conn)` serialises `people`, `families`,
+  `family_children`, `events` and `citations` back into a deterministic
+  GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, `SOUR` records, `INDI`
+  and `FAM` records, then `TRLR`.
+- Family links are recovered from `HUSB`/`WIFE`/`CHIL`, backfilled from
+  `FAMC`, and `FAMS` fills empty spouse slots when `SEX` makes it unambiguous.
+- Citations serialise as `0 @S@ SOUR` records (`1 TITL`, `1 NOTE`) that
+  citing events reference with `2 SOUR @S@` + `3 PAGE`; re-import restores
+  them losslessly, warnings cover dangling source pointers.
+
+## Native file dialogs & background jobs
+
+- `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path}` open
+  the native open/save dialog through `rfd` filtered to `*.ged`/`*.gedcom`
+  (save defaults to `family_tree.ged`); cancelling the dialog yields `None`
+  rather than an error.
+- `app::StemmaApp` runs the dialog, file I/O and SQLite work on a spawned
+  worker thread and reports through an `mpsc` channel that `poll()` drains
+  each frame, so the future egui shell never blocks: `begin_import()`,
+  `begin_export()`, `status()`, `is_busy()`.
+- `app::{perform_import, perform_export}` expose the dialog-free worker path
+  (used by the unit tests) for streaming imports and UTF-8 exports.
