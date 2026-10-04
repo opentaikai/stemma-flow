@@ -85,12 +85,8 @@ fn card(ui: &mut Ui, recent: &[PathBuf], action: &mut Option<WelcomeAction>) {
                 *action = Some(WelcomeAction::CreateNew);
             }
             ui.add_space(8.0);
-            let import = egui::Button::new(
-                RichText::new("\u{2193} Import GEDCOM File")
-                    .size(15.0)
-                    .strong(),
-            )
-            .fill(ACCENT);
+            let import = egui::Button::new(RichText::new("Import GEDCOM File").size(15.0).strong())
+                .fill(ACCENT);
             if ui.add_sized([width, BUTTON_HEIGHT], import).clicked() {
                 *action = Some(WelcomeAction::ImportGedcom);
             }
