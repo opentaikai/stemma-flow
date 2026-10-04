@@ -9,7 +9,7 @@ queries on trees with 10,000+ individuals.
 ```bash
 cargo build   # compile
 cargo test    # run the unit tests
-cargo run     # open the desktop window (creates stemma-flow.db on first run)
+cargo run     # open the desktop window (reopens the last tree, welcome dashboard otherwise)
 ```
 
 ## Storage layer
@@ -62,30 +62,61 @@ citations and child links, while spouses are detached with `ON DELETE SET NULL`.
 
 ## Native file dialogs & background jobs
 
-- `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path}` open
-  the native open/save dialog through `rfd` filtered to `*.ged`/`*.gedcom`
-  (save defaults to `family_tree.ged`); cancelling the dialog yields `None`
+- `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path,
+  prompt_new_tree_path}` open the native open/save dialog through `rfd`
+  filtered to `*.ged`/`*.gedcom` (save defaults to `family_tree.ged`) or
+  `*.db`/`*.sqlite` for new trees; cancelling the dialog yields `None`
   rather than an error.
-- `app::StemmaApp` runs the dialog, file I/O and SQLite work on a spawned
-  worker thread and reports through an `mpsc` channel that `poll()` drains
-  each frame, so the render loop never blocks: `begin_import()`,
-  `begin_export()`, `status()`, `is_busy()`, plus the canvas-facing
-  `selected_person_id()` and `import_generation()` (bumped on every
-  successful import so the tree can reload itself).
-- `app::{perform_import, perform_export}` expose the dialog-free worker path
-  (used by the unit tests) for streaming imports and UTF-8 exports.
+- `app::StemmaApp` tracks the active tree as `Option<PathBuf>` and runs the
+  dialogs, file I/O and SQLite work on a spawned worker thread, reporting
+  through an `mpsc` channel that `poll()` drains each frame, so the render
+  loop never blocks: `begin_import()` (into the active tree),
+  `begin_import_new()` (fresh database), `begin_export()`,
+  `activate_tree()`, `close_tree()`, `status()`, `is_busy()`, plus the
+  canvas-facing `selected_person_id()` and `import_generation()` (bumped
+  on every successful import so the tree can reload itself).
+- `app::{create_tree, perform_import, perform_export}` expose the
+  dialog-free paths (used by the unit tests) for schema creation, streaming
+  imports and UTF-8 exports.
+
+## Welcome dashboard & tree lifecycle
+
+On launch the window reopens the last tree it used whenever that database
+still loads; otherwise it shows a centered welcome dashboard
+(`gui::welcome`) instead of an empty canvas. The view switches the moment
+a tree becomes usable:
+
+- **Create New Family Tree** — native save dialog (`*.db`/`*.sqlite`),
+  schema initialisation (`app::create_tree`, milliseconds, runs inline) and
+  the canvas appears within the same frame.
+- **Open Tree** — native open dialog (`*.db`/`*.sqlite`) for an existing
+  database; the file is validated first and switches the view on success
+  (also available as `File > Open Tree…`).
+- **Import GEDCOM File** — background worker picks the source `*.ged`, then
+  a fresh target database, runs the streaming importer and activates the
+  result through the `TreeReady` job event; progress shows in the status
+  bar while the UI stays responsive.
+- **Recent trees** — opened or imported databases are remembered (capped
+  at 8, deduplicated) through `eframe`'s built-in persistence and listed on
+  the dashboard and under `File > Recent`; clicking one re-opens it, and
+  entries whose file no longer loads are dropped automatically. The most
+  recent entry is what the app reopens on launch.
+- The `File` menu lists **New Family Tree…**, **Open Tree…**,
+  **Import GEDCOM…** (into a fresh database from the dashboard; into the
+  open tree once one is active), **Export GEDCOM…** (enabled once a tree is
+  open), **Recent**, **Close Tree** (unloads the active database and
+  returns to the dashboard) and **Quit**.
 
 ## Interactive tree canvas
 
-`cargo run` opens an `eframe` window (1200x800) with a toolbar
-(Import/Export GEDCOM, selection indicator), a status bar and the tree:
+With a tree open the `eframe` window (1200x800) shows a `File` menu, a
+status bar and the tree:
 
 - **Pan** with the middle mouse button or by dragging the background with
   the left button (drags that start on a person do not pan).
 - **Zoom** with the mouse wheel, cursor-anchored, 0.3x - 3.0x.
 - **Select** with a left click; the selected node gets a blue accent
-  border and the toolbar shows their name. Clicking empty space clears
-  the selection.
+  border. Clicking empty space clears the selection.
 
 `src/gui` builds it from straight SQLite data each time an import
 finishes:
@@ -99,5 +130,9 @@ finishes:
   orthogonal drops (union -> branch row -> children) as pure geometry.
 - `gui::nodes` hit-tests clicks back-to-front and paints nodes, borders
   and zoom-scaled names, culling everything outside the viewport.
-- `gui::window::TreeWindow` wires it into `eframe::App`: toolbar
-  actions, background-job polling, scene reloads and input handling.
+- `gui::welcome::show` renders the dashboard card (logo, title, tagline,
+  actions, recent list) and returns a `WelcomeAction` for the shell to
+  execute.
+- `gui::window::TreeWindow` wires it into `eframe::App`: the `File`
+  menu, welcome/canvas viewport switching, background-job polling, scene
+  reloads, recent-tree persistence and input handling.

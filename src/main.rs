@@ -3,16 +3,9 @@ use std::error::Error;
 use eframe::egui;
 
 use stemma_flow::app::StemmaApp;
-use stemma_flow::db;
 use stemma_flow::gui::window::TreeWindow;
 
-const DB_PATH: &str = "stemma-flow.db";
-
 fn main() -> Result<(), Box<dyn Error>> {
-    let conn = db::open_connection(DB_PATH)?;
-    db::init_db(&conn)?;
-    drop(conn);
-
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Stemma Flow")
@@ -22,7 +15,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     eframe::run_native(
         "Stemma Flow",
         options,
-        Box::new(|_cc| Ok(Box::new(TreeWindow::new(StemmaApp::new(DB_PATH))))),
+        Box::new(|cc| {
+            let app = StemmaApp::new();
+            Ok(Box::new(TreeWindow::new(app, cc.storage)))
+        }),
     )?;
     Ok(())
 }
