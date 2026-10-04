@@ -88,6 +88,14 @@ impl TreeWindow {
                     ui.close();
                     self.app.begin_import_new();
                 }
+                let can_export = self.app.active_db().is_some() && !self.app.is_busy();
+                if ui
+                    .add_enabled(can_export, egui::Button::new("Export GEDCOM\u{2026}"))
+                    .clicked()
+                {
+                    ui.close();
+                    self.app.begin_export();
+                }
                 if !self.recent.is_empty() {
                     self.recent_menu(ui, frame);
                 }
@@ -113,12 +121,6 @@ impl TreeWindow {
                     .clicked()
                 {
                     self.app.begin_import();
-                }
-                if ui
-                    .add_enabled(!busy, egui::Button::new("Export GEDCOM\u{2026}"))
-                    .clicked()
-                {
-                    self.app.begin_export();
                 }
                 ui.separator();
                 match self.app.selected_person_id() {

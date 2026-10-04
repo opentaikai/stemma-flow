@@ -96,14 +96,15 @@ switches the moment a tree becomes usable:
   at 8, deduplicated) through `eframe`'s built-in persistence and listed on
   the dashboard and under `File > Recent`; clicking one re-opens it, and
   entries whose file no longer loads are dropped automatically.
-- The `File` menu also offers **Close Tree** (unloads the active database
-  and returns to the dashboard) and **Quit**.
+- The `File` menu lists **New Family Tree…**, **Import GEDCOM…** (into a
+  fresh database), **Export GEDCOM…** (enabled once a tree is open),
+  **Recent**, **Close Tree** (unloads the active database and returns to
+  the dashboard) and **Quit**.
 
 ## Interactive tree canvas
 
 With a tree open the `eframe` window (1200x800) shows a toolbar
-(Import into tree/Export GEDCOM, selection indicator), a status bar and
-the tree:
+(Import into tree, selection indicator), a status bar and the tree:
 
 - **Pan** with the middle mouse button or by dragging the background with
   the left button (drags that start on a person do not pan).
