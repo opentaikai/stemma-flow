@@ -138,7 +138,8 @@ fn logo(ui: &mut Ui) {
     painter.circle_filled(child, radius, ACCENT);
 }
 
-fn display_name(path: &Path) -> String {
+/// The file name shown for a tree path in lists and menus.
+pub fn display_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())

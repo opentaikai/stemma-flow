@@ -80,6 +80,12 @@ impl StemmaApp {
         &self.status
     }
 
+    /// Overwrites the presentation status, e.g. when an inline action is
+    /// cancelled before any background job starts.
+    pub fn set_status(&mut self, status: UiStatus) {
+        self.status = status;
+    }
+
     /// The tree database currently open, if any.
     pub fn active_db(&self) -> Option<&Path> {
         self.active_db.as_deref()
