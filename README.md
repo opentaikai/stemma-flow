@@ -28,6 +28,12 @@ Relationships are modelled through events and the `family_children` junction
 table. Foreign keys cascade deletes from people/families down to events,
 citations and child links, while spouses are detached with `ON DELETE SET NULL`.
 
+`db::people` layers transactional person operations on top: `insert_person`,
+`update_person`, `delete_person` (the FK cascade removes events, citations
+and child links; emptied spouse slots detach), the one-step relational
+creators `link_parent`, `link_spouse`, `link_child`, plus `load_vital_dates`
+which groups `BIRTH`/`DEATH` event dates by person id.
+
 ## Graph layer
 
 `src/model` holds the in-memory graph state the `egui` canvas renders:
@@ -72,9 +78,12 @@ citations and child links, while spouses are detached with `ON DELETE SET NULL`.
   through an `mpsc` channel that `poll()` drains each frame, so the render
   loop never blocks: `begin_import()` (into the active tree),
   `begin_import_new()` (fresh database), `begin_export()`,
-  `activate_tree()`, `close_tree()`, `status()`, `is_busy()`, plus the
-  canvas-facing `selected_person_id()` and `import_generation()` (bumped
-  on every successful import so the tree can reload itself).
+  `activate_tree()`, `close_tree()`, `status()`, `is_busy()`. Person edits
+  go through the synchronous `add_person`, `delete_person`, `edit_person`,
+  `add_parent`, `add_spouse` and `add_child`, each opening its own
+  connection, writing through `db::people` and bumping
+  `import_generation()` (also bumped by imports) so every view reloads; the
+  canvas-facing `selected_person_id()` tracks the focused person.
 - `app::{create_tree, perform_import, perform_export}` expose the
   dialog-free paths (used by the unit tests) for schema creation, streaming
   imports and UTF-8 exports.
@@ -105,21 +114,38 @@ a tree becomes usable:
   **Import GEDCOM…** (into a fresh database from the dashboard; into the
   open tree once one is active), **Export GEDCOM…** (enabled once a tree is
   open), **Recent**, **Close Tree** (unloads the active database and
-  returns to the dashboard) and **Quit**.
+  returns to the dashboard) and **Quit**. The menu bar keeps a muted
+  **Active Tree: &lt;file&gt;** label on its right edge whenever a database
+  is loaded.
 
-## Interactive tree canvas
+## Graph View, Watch List & inspector
 
-With a tree open the `eframe` window (1200x800) shows a `File` menu, a
-status bar and the tree:
+With a tree open the `eframe` window (1200x800) shows a tab bar with two
+views (the app always launches on Graph View):
 
-- **Pan** with the middle mouse button or by dragging the background with
-  the left button (drags that start on a person do not pan).
-- **Zoom** with the mouse wheel, cursor-anchored, 0.3x - 3.0x.
-- **Select** with a left click; the selected node gets a blue accent
-  border. Clicking empty space clears the selection.
+- **Graph View** — the interactive canvas: **Pan** with the middle mouse
+  button or by dragging the background with the left button (drags that
+  start on a person do not pan), **Zoom** with the mouse wheel,
+  cursor-anchored, 0.3x - 3.0x, and **Select** with a left click; the
+  selected node gets a blue accent border. Clicking empty space clears the
+  selection.
+- **Watch List** — an `egui_extras::TableBuilder` grid listing every
+  person with Given Name, Surname, Gender, Birth Date, Death Date and an
+  Actions cell. The filter box narrows rows by either name
+  (case-insensitive), header clicks toggle ascending/descending sort, rows
+  are virtualized for large trees, and clicking a row (or **Edit**)
+  selects the person. **Delete** asks for confirmation before the cascading
+  delete removes the person, their events, citations and child links.
+  **+ Add Independent Person** inserts an unnamed person and focuses it.
+- **Person Inspector** — a right-side panel shown whenever a person is
+  selected: buffered profile fields (given name, surname, gender, birth,
+  death) committed with **Save Changes**, connection counts, and
+  **+ Add Parent**, **+ Add Spouse**, **+ Add Child** buttons whose pop-up
+  creates and links the relative in one step (parents choose a
+  Father/Mother role that presets the gender).
 
-`src/gui` builds it from straight SQLite data each time an import
-finishes:
+`src/gui` builds it from straight SQLite data each time an import or person
+mutation finishes:
 
 - `gui::canvas::ViewportState` owns pan/zoom with canvas<->screen
   transforms, cursor-anchored zooming and off-screen culling tests.
@@ -133,6 +159,12 @@ finishes:
 - `gui::welcome::show` renders the dashboard card (logo, title, tagline,
   actions, recent list) and returns a `WelcomeAction` for the shell to
   execute.
+- `gui::tabs` renders the tab row, `gui::watchlist` owns the grid's
+  filter/sort state and emits selection/add/delete events, and
+  `gui::inspector` draws the side panel, the profile editors shared with
+  the relation pop-up, and the connection counts.
 - `gui::window::TreeWindow` wires it into `eframe::App`: the `File`
-  menu, welcome/canvas viewport switching, background-job polling, scene
-  reloads, recent-tree persistence and input handling.
+  menu, tab switching, background-job polling, scene reloads (a quiet
+  variant keeps pan/zoom through profile edits), watch-list events, the
+  inspector panel and relation pop-up, recent-tree persistence and input
+  handling.
