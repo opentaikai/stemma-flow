@@ -7,4 +7,5 @@ edition = "2024"
 petgraph = "0.8"
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
+thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
