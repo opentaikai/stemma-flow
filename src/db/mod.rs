@@ -1,6 +1,7 @@
 //! Local storage layer: SQLite schema, connection setup and entity models.
 
 pub mod models;
+pub mod people;
 pub mod schema;
 
 pub use models::{Citation, Event, Family, Person};
