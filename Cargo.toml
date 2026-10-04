@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+dirs = "6"
 eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "persistence", "wayland", "x11"] }
 egui = "0.36.2"
 egui_extras = { version = "0.36.2", default-features = false }
@@ -12,4 +13,5 @@ rfd = "0.17.2"
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+toml = "1.1"
 uuid = { version = "1", features = ["v4"] }
