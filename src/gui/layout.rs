@@ -396,9 +396,9 @@ impl<'a> LayoutBuilder<'a> {
         let unions = self.build_unions();
         let bounds = nodes
             .iter()
-            .fold(Rect::from_min_size(Pos2::ZERO, Vec2::ZERO), |acc, node| {
-                acc.union(node.bounds)
-            });
+            .map(|node| node.bounds)
+            .reduce(Rect::union)
+            .unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, Vec2::ZERO));
         TreeScene {
             nodes,
             unions,
