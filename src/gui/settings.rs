@@ -7,11 +7,14 @@ use crate::gui::theme;
 
 /// Renders the settings window while `open` is true.
 ///
-/// Every widget change applies to the context immediately and persists to
-/// `config.toml`; a returned message is a save failure for the status bar
-/// (the app keeps running on the in-memory config either way).
+/// Theme changes apply to the context immediately; the font-size slider
+/// stays live in the dialog but only rescales the app (and saves) once the
+/// mouse button is released, so the interface does not jump mid-drag.
+/// A returned message is a save failure for the status bar (the app keeps
+/// running on the in-memory config either way).
 pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<String> {
-    let mut changed = false;
+    let mut theme_changed = false;
+    let mut font_apply = false;
     Window::new("Settings")
         .id(egui::Id::new("settings_window"))
         .collapsible(false)
@@ -32,23 +35,26 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
                         .selectable_value(&mut config.theme, mode, label)
                         .changed()
                     {
-                        changed = true;
+                        theme_changed = true;
                     }
                 }
             });
 
             ui.horizontal(|ui| {
                 ui.label("Font size:");
-                if ui
-                    .add(egui::Slider::new(&mut config.font_size, 10.0..=24.0).suffix("pt"))
-                    .changed()
-                {
-                    changed = true;
+                let response =
+                    ui.add(egui::Slider::new(&mut config.font_size, 10.0..=24.0).suffix("pt"));
+                if font_apply_pending(
+                    response.drag_stopped(),
+                    response.changed(),
+                    response.dragged(),
+                ) {
+                    font_apply = true;
                 }
             });
         });
 
-    if !changed {
+    if !(theme_changed || font_apply) {
         return None;
     }
     theme::apply_config_to_ctx(ctx, config);
@@ -56,6 +62,12 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
         Ok(()) => None,
         Err(error) => Some(format!("Settings could not be saved: {error}")),
     }
+}
+
+/// Applies the font size on slider release and on non-drag edits such as
+/// keyboard arrows; mid-drag frames defer so the zoom stays stable.
+fn font_apply_pending(drag_stopped: bool, changed: bool, dragged: bool) -> bool {
+    drag_stopped || (changed && !dragged)
 }
 
 #[cfg(test)]
@@ -97,5 +109,29 @@ mod tests {
         assert!(output.shapes.is_empty(), "nothing to draw");
         assert_eq!(outcome, None);
         assert!(!open, "stays closed");
+    }
+
+    #[test]
+    fn font_size_applies_on_release_and_on_keyboard_changes_only() {
+        assert!(
+            font_apply_pending(true, false, false),
+            "mouse release applies even when the last drag frame already set the value"
+        );
+        assert!(
+            font_apply_pending(true, true, false),
+            "release with a final value change applies"
+        );
+        assert!(
+            !font_apply_pending(false, true, true),
+            "mid-drag frames defer the zoom"
+        );
+        assert!(
+            font_apply_pending(false, true, false),
+            "keyboard/track clicks without dragging apply immediately"
+        );
+        assert!(
+            !font_apply_pending(false, false, false),
+            "an idle slider applies nothing"
+        );
     }
 }

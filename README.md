@@ -182,9 +182,12 @@ mutation finishes:
 - **Font size** — a 10–24pt slider driving `ctx.set_zoom_factor` (14pt
   maps to 1.0), so every tab, panel and window rescales in real time.
 
-Each widget change applies to the context immediately and persists to
+Theme changes apply to the context immediately and persist to
 `<config_dir>/stemma-flow/config.toml` resolved with `dirs::config_dir()`
-(`~/.config/stemma-flow/config.toml` on Linux). `src/config.rs` creates
+(`~/.config/stemma-flow/config.toml` on Linux). The font-size slider stays
+live in the dialog but only rescales the app once the mouse button is
+released, so the interface does not jump mid-drag (one disk write per
+release instead of one per drag frame). `src/config.rs` creates
 the file on first launch, rewrites it when missing or corrupt, resets
 insane font sizes to the 14pt baseline, and writes atomically through a
 temporary file plus rename. Read/write failures fall back to in-memory
