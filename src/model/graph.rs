@@ -212,3 +212,204 @@ impl GenealogyDb {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GM: &str = "gm";
+    const GP: &str = "gp";
+    const PA: &str = "pa";
+    const OT: &str = "ot";
+    const CH: &str = "ch";
+
+    fn person(id: &str, given_name: &str) -> PersonNode {
+        PersonNode {
+            id: id.to_string(),
+            given_name: given_name.to_string(),
+            surname: "Testerson".to_string(),
+            gender: "U".to_string(),
+        }
+    }
+
+    fn ids_of(people: Vec<PersonNode>) -> HashSet<String> {
+        people.into_iter().map(|person| person.id).collect()
+    }
+
+    fn id_set(ids: &[&str]) -> HashSet<String> {
+        ids.iter().map(|id| id.to_string()).collect()
+    }
+
+    /// gm --spouse-- gp       pa --spouse-- ot
+    ///       \      /
+    ///          pa
+    ///          |
+    ///          ch
+    ///
+    /// `gm` and `gp` are the parents of `pa`; `pa` and `ot` are the parents
+    /// of `ch`.
+    fn pedigree() -> Result<GenealogyDb, String> {
+        let mut db = GenealogyDb::new();
+        for id in [GM, GP, PA, OT, CH] {
+            db.add_person(person(id, id));
+        }
+        db.add_parent_child(GM, PA)?;
+        db.add_parent_child(GP, PA)?;
+        db.add_parent_child(PA, CH)?;
+        db.add_parent_child(OT, CH)?;
+        db.add_spouses(GM, GP)?;
+        db.add_spouses(PA, OT)?;
+        Ok(db)
+    }
+
+    #[test]
+    fn new_starts_empty() {
+        let db = GenealogyDb::new();
+        assert_eq!(db.graph.node_count(), 0);
+        assert_eq!(db.graph.edge_count(), 0);
+        assert!(db.id_to_node.is_empty());
+
+        let default = GenealogyDb::default();
+        assert_eq!(default.graph.node_count(), 0);
+        assert!(default.id_to_node.is_empty());
+    }
+
+    #[test]
+    fn add_person_inserts_and_updates_in_place() {
+        let mut db = GenealogyDb::new();
+
+        let index = db.add_person(person("id-1", "Lars"));
+        assert_eq!(db.graph.node_count(), 1);
+        assert_eq!(db.id_to_node.get("id-1"), Some(&index));
+
+        let again = db.add_person(person("id-1", "Lars-Erik"));
+        assert_eq!(again, index, "existing uuid must keep its index");
+        assert_eq!(db.graph.node_count(), 1, "no duplicate node");
+        let name = db
+            .graph
+            .node_weight(index)
+            .map(|node| node.given_name.as_str());
+        assert_eq!(name, Some("Lars-Erik"));
+    }
+
+    #[test]
+    fn add_parent_child_links_and_reports_bad_ids() -> Result<(), String> {
+        let mut db = GenealogyDb::new();
+        let a = db.add_person(person("a", "Anna"));
+        let b = db.add_person(person("b", "Bo"));
+
+        db.add_parent_child("a", "b")?;
+        assert!(db.graph.contains_edge(a, b));
+        assert!(!db.graph.contains_edge(b, a));
+
+        db.add_parent_child("a", "b")?;
+        assert_eq!(db.graph.edge_count(), 1, "relinking must not duplicate");
+
+        assert!(db.add_parent_child("ghost", "b").is_err());
+        assert!(db.add_parent_child("a", "ghost").is_err());
+
+        match db.add_parent_child("a", "a") {
+            Err(message) => assert!(message.contains("own parent")),
+            Ok(()) => panic!("self-link must be rejected"),
+        }
+        assert_eq!(db.graph.edge_count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn cycles_are_prevented_without_mutating_the_graph() -> Result<(), String> {
+        let mut db = pedigree()?;
+        let edges_before = db.graph.edge_count();
+
+        for (parent, child) in [(PA, GM), (CH, GP), (CH, GM)] {
+            match db.add_parent_child(parent, child) {
+                Err(message) => assert!(message.contains("cycle")),
+                Ok(()) => panic!("cycle {parent} -> {child} must be rejected"),
+            }
+        }
+        assert_eq!(db.graph.edge_count(), edges_before);
+
+        // A shortcut to an existing descendant is not a cycle.
+        db.add_parent_child(GM, CH)?;
+        assert_eq!(db.graph.edge_count(), edges_before + 1);
+        assert_eq!(ids_of(db.get_parents(CH)), id_set(&[PA, OT, GM]));
+        Ok(())
+    }
+
+    #[test]
+    fn add_spouses_links_both_directions_idempotently() -> Result<(), String> {
+        let mut db = GenealogyDb::new();
+        let a = db.add_person(person("a", "Astrid"));
+        let b = db.add_person(person("b", "Bjorn"));
+
+        db.add_spouses("a", "b")?;
+        assert!(db.graph.contains_edge(a, b));
+        assert!(db.graph.contains_edge(b, a));
+        assert_eq!(db.graph.edge_count(), 2);
+
+        db.add_spouses("a", "b")?;
+        assert_eq!(db.graph.edge_count(), 2, "relinking must not duplicate");
+        assert_eq!(ids_of(db.get_spouses("a")), id_set(&["b"]));
+        assert_eq!(ids_of(db.get_spouses("b")), id_set(&["a"]));
+
+        match db.add_spouses("a", "a") {
+            Err(message) => assert!(message.contains("own spouse")),
+            Ok(()) => panic!("self-spouse must be rejected"),
+        }
+        assert!(db.add_spouses("a", "ghost").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn traversals_return_connected_people() -> Result<(), String> {
+        let db = pedigree()?;
+
+        assert_eq!(ids_of(db.get_parents(PA)), id_set(&[GM, GP]));
+        assert_eq!(ids_of(db.get_parents(GM)), id_set(&[]));
+        assert_eq!(ids_of(db.get_children(CH)), id_set(&[]));
+        assert_eq!(ids_of(db.get_children(PA)), id_set(&[CH]));
+        assert_eq!(ids_of(db.get_spouses(PA)), id_set(&[OT]));
+        assert_eq!(
+            ids_of(db.get_ancestors(CH)),
+            id_set(&[PA, OT, GM, GP]),
+            "all four grandparents exactly once"
+        );
+        assert_eq!(ids_of(db.get_ancestors(GM)), id_set(&[]));
+
+        assert!(db.get_parents("ghost").is_empty());
+        assert!(db.get_children("ghost").is_empty());
+        assert!(db.get_spouses("ghost").is_empty());
+        assert!(db.get_ancestors("ghost").is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn remove_person_drops_edges_and_preserves_other_indices() -> Result<(), String> {
+        let mut db = pedigree()?;
+        let pa_idx = *db.id_to_node.get(PA).ok_or("pa missing")?;
+        let ch_idx = *db.id_to_node.get(CH).ok_or("ch missing")?;
+
+        let removed = db.remove_person(PA).ok_or("pa not removed")?;
+        assert_eq!(removed.id, PA);
+        assert!(!db.id_to_node.contains_key(PA));
+        assert_eq!(db.graph.node_count(), 4);
+
+        assert!(db.graph.node_weight(pa_idx).is_none(), "slot freed");
+        assert!(
+            db.graph.node_weight(ch_idx).is_some(),
+            "other indices stay valid"
+        );
+        assert_eq!(ids_of(db.get_parents(CH)), id_set(&[OT]));
+        assert!(db.get_children(GM).is_empty());
+        assert_eq!(ids_of(db.get_spouses(OT)), id_set(&[]));
+
+        for (id, idx) in &db.id_to_node {
+            let node = db.graph.node_weight(*idx).ok_or("stale index")?;
+            assert_eq!(&node.id, id);
+        }
+
+        let reused = db.add_person(person(PA, "Par"));
+        assert!(db.graph.node_weight(reused).is_some());
+        Ok(())
+    }
+}
