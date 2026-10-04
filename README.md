@@ -9,7 +9,7 @@ queries on trees with 10,000+ individuals.
 ```bash
 cargo build   # compile
 cargo test    # run the unit tests
-cargo run     # create/open stemma-flow.db and initialise the schema
+cargo run     # open the desktop window (creates stemma-flow.db on first run)
 ```
 
 ## Storage layer
@@ -68,7 +68,36 @@ citations and child links, while spouses are detached with `ON DELETE SET NULL`.
   rather than an error.
 - `app::StemmaApp` runs the dialog, file I/O and SQLite work on a spawned
   worker thread and reports through an `mpsc` channel that `poll()` drains
-  each frame, so the future egui shell never blocks: `begin_import()`,
-  `begin_export()`, `status()`, `is_busy()`.
+  each frame, so the render loop never blocks: `begin_import()`,
+  `begin_export()`, `status()`, `is_busy()`, plus the canvas-facing
+  `selected_person_id()` and `import_generation()` (bumped on every
+  successful import so the tree can reload itself).
 - `app::{perform_import, perform_export}` expose the dialog-free worker path
   (used by the unit tests) for streaming imports and UTF-8 exports.
+
+## Interactive tree canvas
+
+`cargo run` opens an `eframe` window (1200x800) with a toolbar
+(Import/Export GEDCOM, selection indicator), a status bar and the tree:
+
+- **Pan** with the middle mouse button or by dragging the background with
+  the left button (drags that start on a person do not pan).
+- **Zoom** with the mouse wheel, cursor-anchored, 0.3x - 3.0x.
+- **Select** with a left click; the selected node gets a blue accent
+  border and the toolbar shows their name. Clicking empty space clears
+  the selection.
+
+`src/gui` builds it from straight SQLite data each time an import
+finishes:
+
+- `gui::canvas::ViewportState` owns pan/zoom with canvas<->screen
+  transforms, cursor-anchored zooming and off-screen culling tests.
+- `gui::layout::build_scene` layers generations (Kahn ordering with
+  cycle fallbacks), places couples side by side and centres children
+  under the family union point; names are truncated to fit the nodes.
+- `gui::connectors::build_segments` routes spouse bars and three-segment
+  orthogonal drops (union -> branch row -> children) as pure geometry.
+- `gui::nodes` hit-tests clicks back-to-front and paints nodes, borders
+  and zoom-scaled names, culling everything outside the viewport.
+- `gui::window::TreeWindow` wires it into `eframe::App`: toolbar
+  actions, background-job polling, scene reloads and input handling.

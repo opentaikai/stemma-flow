@@ -500,3 +500,48 @@ fn open_connection_enables_foreign_keys_and_wal() -> rusqlite::Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn load_family_tree_returns_rows_in_order() -> rusqlite::Result<()> {
+    let conn = setup_test_db()?;
+
+    let empty = super::load_family_tree(&conn)?;
+    assert!(
+        empty.people.is_empty() && empty.families.is_empty() && empty.child_links.is_empty(),
+        "an empty database loads as an empty tree"
+    );
+
+    let fixture = family_tree(&conn)?;
+    let loaded = super::load_family_tree(&conn)?;
+
+    let ids: Vec<&str> = loaded
+        .people
+        .iter()
+        .map(|person| person.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            fixture.husband.id.as_str(),
+            fixture.wife.id.as_str(),
+            fixture.child.id.as_str()
+        ],
+        "people must load in insertion order"
+    );
+
+    assert_eq!(loaded.families.len(), 1);
+    let Some(family) = loaded.families.first() else {
+        panic!("family row must be present");
+    };
+    assert_eq!(family.id, fixture.family.id);
+    assert_eq!(
+        family.husband_id.as_deref(),
+        Some(fixture.husband.id.as_str())
+    );
+    assert_eq!(family.wife_id.as_deref(), Some(fixture.wife.id.as_str()));
+    assert_eq!(
+        loaded.child_links,
+        vec![(fixture.family.id.clone(), fixture.child.id.clone())]
+    );
+    Ok(())
+}
