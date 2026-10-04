@@ -32,3 +32,12 @@ pub fn prompt_new_tree_path() -> Option<PathBuf> {
         .set_file_name("family_tree.db")
         .save_file()
 }
+
+/// Opens the native open dialog for an existing SQLite tree database.
+///
+/// Returns `None` when the user cancels the dialog.
+pub fn pick_tree_open_path() -> Option<PathBuf> {
+    FileDialog::new()
+        .add_filter("SQLite Database", &["db", "sqlite"])
+        .pick_file()
+}

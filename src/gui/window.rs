@@ -84,6 +84,10 @@ impl TreeWindow {
                     ui.close();
                     self.create_new_tree(frame);
                 }
+                if ui.button("Open Tree\u{2026}").clicked() {
+                    ui.close();
+                    self.open_tree(frame);
+                }
                 if ui.button("Import GEDCOM\u{2026}").clicked() {
                     ui.close();
                     if self.app.active_db().is_some() {
@@ -135,7 +139,7 @@ impl TreeWindow {
             }
         });
         if let Some(path) = chosen {
-            self.open_recent(path, frame);
+            self.open_tree_at(path, frame);
         }
     }
 
@@ -166,9 +170,19 @@ impl TreeWindow {
         };
         match action {
             WelcomeAction::CreateNew => self.create_new_tree(frame),
+            WelcomeAction::OpenTree => self.open_tree(frame),
             WelcomeAction::ImportGedcom => self.app.begin_import_new(),
-            WelcomeAction::OpenRecent(path) => self.open_recent(path, frame),
+            WelcomeAction::OpenRecent(path) => self.open_tree_at(path, frame),
         }
+    }
+
+    /// Inline open flow: pick an existing database file and switch to it.
+    fn open_tree(&mut self, frame: &mut Frame) {
+        let Some(path) = dialogs::pick_tree_open_path() else {
+            self.app.set_status(UiStatus::Cancelled);
+            return;
+        };
+        self.open_tree_at(path, frame);
     }
 
     /// Inline create flow: pick a destination, initialise the schema and
@@ -187,12 +201,10 @@ impl TreeWindow {
         }
     }
 
-    /// Opens a recent tree, dropping entries whose file no longer loads.
-    fn open_recent(&mut self, path: PathBuf, frame: &mut Frame) {
-        let loadable = db::open_connection(&path)
-            .map(|conn| db::load_family_tree(&conn).is_ok())
-            .unwrap_or(false);
-        if !loadable {
+    /// Opens the tree at `path`, dropping recent entries whose file no
+    /// longer loads.
+    fn open_tree_at(&mut self, path: PathBuf, frame: &mut Frame) {
+        if !loadable(&path) {
             self.app
                 .set_status(UiStatus::Error(format!("Cannot open {}", path.display())));
             self.recent.retain(|entry| *entry != path);
@@ -307,6 +319,13 @@ fn empty_scene() -> TreeScene {
         unions: Vec::new(),
         bounds: Rect::from_min_size(Pos2::ZERO, vec2(0.0, 0.0)),
     }
+}
+
+/// True when `path` is a readable database carrying the stemma-flow schema.
+fn loadable(path: &Path) -> bool {
+    db::open_connection(path)
+        .map(|conn| db::load_family_tree(&conn).is_ok())
+        .unwrap_or(false)
 }
 
 /// Pan that places `target` at the centre of the viewport (inverse of
@@ -456,6 +475,23 @@ mod tests {
 
         let _ = std::fs::remove_file(&db_one);
         let _ = std::fs::remove_file(&db_two);
+    }
+
+    #[test]
+    fn loadable_rejects_files_that_are_not_databases() {
+        let junk = temp_path("db");
+        std::fs::write(&junk, b"this is not sqlite").expect("junk file must be writable");
+        assert!(!loadable(&junk), "garbage bytes are not a tree");
+
+        let good = temp_path("db");
+        import_people(
+            &good,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+        assert!(loadable(&good), "an imported database opens");
+
+        let _ = std::fs::remove_file(&junk);
+        let _ = std::fs::remove_file(&good);
     }
 
     #[test]

@@ -15,7 +15,7 @@ const CARD_MARGIN_X: i8 = 28;
 const CARD_MARGIN_Y: i8 = 32;
 const BUTTON_HEIGHT: f32 = 44.0;
 const LOGO_SIZE: f32 = 72.0;
-const BASE_CARD_HEIGHT: f32 = 340.0;
+const BASE_CARD_HEIGHT: f32 = 392.0;
 const RECENT_ROW_HEIGHT: f32 = 26.0;
 const MIN_TOP_SPACE: f32 = 16.0;
 const TAGLINE: &str = "Fast, open-source, event-centric genealogy software";
@@ -24,6 +24,7 @@ const TAGLINE: &str = "Fast, open-source, event-centric genealogy software";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WelcomeAction {
     CreateNew,
+    OpenTree,
     ImportGedcom,
     OpenRecent(PathBuf),
 }
@@ -83,6 +84,12 @@ fn card(ui: &mut Ui, recent: &[PathBuf], action: &mut Option<WelcomeAction>) {
             .fill(ACCENT);
             if ui.add_sized([width, BUTTON_HEIGHT], create).clicked() {
                 *action = Some(WelcomeAction::CreateNew);
+            }
+            ui.add_space(8.0);
+            let open =
+                egui::Button::new(RichText::new("Open Tree").size(15.0).strong()).fill(ACCENT);
+            if ui.add_sized([width, BUTTON_HEIGHT], open).clicked() {
+                *action = Some(WelcomeAction::OpenTree);
             }
             ui.add_space(8.0);
             let import = egui::Button::new(RichText::new("Import GEDCOM File").size(15.0).strong())
