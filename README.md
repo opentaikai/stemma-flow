@@ -186,8 +186,10 @@ Theme changes apply to the context immediately and persist to
 `<config_dir>/stemma-flow/config.toml` resolved with `dirs::config_dir()`
 (`~/.config/stemma-flow/config.toml` on Linux). The font-size slider stays
 live in the dialog but only rescales the app once the mouse button is
-released, so the interface does not jump mid-drag (one disk write per
-release instead of one per drag frame). `src/config.rs` creates
+released, and its number input commits only on Enter or when focus moves
+away (Escape cancels) — so neither dragging nor typing makes the
+interface jump (one disk write per commit instead of one per drag frame).
+`src/config.rs` creates
 the file on first launch, rewrites it when missing or corrupt, resets
 insane font sizes to the 14pt baseline, and writes atomically through a
 temporary file plus rename. Read/write failures fall back to in-memory

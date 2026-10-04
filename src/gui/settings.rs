@@ -7,11 +7,12 @@ use crate::gui::theme;
 
 /// Renders the settings window while `open` is true.
 ///
-/// Theme changes apply to the context immediately; the font-size slider
-/// stays live in the dialog but only rescales the app (and saves) once the
-/// mouse button is released, so the interface does not jump mid-drag.
-/// A returned message is a save failure for the status bar (the app keeps
-/// running on the in-memory config either way).
+/// Theme changes apply to the context immediately. The font-size slider
+/// rescales the app (and saves) once the mouse button is released, and its
+/// number input commits only on Enter or focus loss — so neither dragging
+/// nor typing makes the interface jump. A returned message is a save
+/// failure for the status bar (the app keeps running on the in-memory
+/// config either way).
 pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<String> {
     let mut theme_changed = false;
     let mut font_apply = false;
@@ -42,8 +43,11 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
 
             ui.horizontal(|ui| {
                 ui.label("Font size:");
-                let response =
-                    ui.add(egui::Slider::new(&mut config.font_size, 10.0..=24.0).suffix("pt"));
+                let response = ui.add(
+                    egui::Slider::new(&mut config.font_size, 10.0..=24.0)
+                        .suffix("pt")
+                        .update_while_editing(false),
+                );
                 if font_apply_pending(
                     response.drag_stopped(),
                     response.changed(),
@@ -65,7 +69,9 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
 }
 
 /// Applies the font size on slider release and on non-drag edits such as
-/// keyboard arrows; mid-drag frames defer so the zoom stays stable.
+/// keyboard steps and text-input commits (Enter/focus loss — egui only
+/// writes the value then, via `update_while_editing(false)`); mid-drag and
+/// mid-typing frames defer so the zoom stays stable.
 fn font_apply_pending(drag_stopped: bool, changed: bool, dragged: bool) -> bool {
     drag_stopped || (changed && !dragged)
 }
