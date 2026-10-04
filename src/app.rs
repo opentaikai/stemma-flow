@@ -16,7 +16,16 @@ use crate::gui::dialogs;
 #[derive(Debug)]
 pub enum JobEvent {
     Imported(ImportReport),
-    Exported { bytes: usize, path: PathBuf },
+    /// A freshly created tree database finished importing; the UI should
+    /// make it the active tree.
+    TreeReady {
+        report: ImportReport,
+        path: PathBuf,
+    },
+    Exported {
+        bytes: usize,
+        path: PathBuf,
+    },
     Cancelled,
     Failed(String),
 }
@@ -32,13 +41,16 @@ pub enum UiStatus {
 }
 
 enum Job {
+    /// Stream a GEDCOM file into the already active tree.
     Import,
+    /// Pick a source file and a fresh target database, then import into it.
+    ImportNew,
     Export,
 }
 
 /// Application state shared between the UI shell and job workers.
 pub struct StemmaApp {
-    db_path: PathBuf,
+    active_db: Option<PathBuf>,
     busy: bool,
     status: UiStatus,
     rx: Option<Receiver<JobEvent>>,
@@ -47,9 +59,11 @@ pub struct StemmaApp {
 }
 
 impl StemmaApp {
-    pub fn new(db_path: impl Into<PathBuf>) -> Self {
+    /// Starts without an active tree; the welcome dashboard shows until
+    /// [`Self::activate_tree`] or a background import opens one.
+    pub fn new() -> Self {
         Self {
-            db_path: db_path.into(),
+            active_db: None,
             busy: false,
             status: UiStatus::Idle,
             rx: None,
@@ -66,9 +80,21 @@ impl StemmaApp {
         &self.status
     }
 
-    /// Database backing this session, used by the canvas to reload scenes.
-    pub fn db_path(&self) -> &Path {
-        &self.db_path
+    /// The tree database currently open, if any.
+    pub fn active_db(&self) -> Option<&Path> {
+        self.active_db.as_deref()
+    }
+
+    /// Makes `path` the active tree and clears any stale selection.
+    pub fn activate_tree(&mut self, path: impl Into<PathBuf>) {
+        self.active_db = Some(path.into());
+        self.selected_person_id = None;
+    }
+
+    /// Unloads the active tree so the welcome dashboard takes over.
+    pub fn close_tree(&mut self) {
+        self.active_db = None;
+        self.selected_person_id = None;
     }
 
     /// Person under the most recent canvas click, if any.
@@ -87,30 +113,39 @@ impl StemmaApp {
         self.import_generation
     }
 
-    /// Opens the native open dialog and streams the chosen file into the
-    /// database on a worker thread.
+    /// Streams the chosen file into the active tree on a worker thread.
     pub fn begin_import(&mut self) {
-        self.begin(Job::Import);
+        if self.active_db.is_none() {
+            return;
+        }
+        self.begin(Job::Import, self.active_db.clone());
     }
 
-    /// Opens the native save dialog and writes the database as GEDCOM on a
-    /// worker thread.
+    /// Picks a source GEDCOM plus a brand-new target database and imports
+    /// into it on a worker thread; the resulting tree becomes active.
+    pub fn begin_import_new(&mut self) {
+        self.begin(Job::ImportNew, None);
+    }
+
+    /// Writes the active database as GEDCOM on a worker thread.
     pub fn begin_export(&mut self) {
-        self.begin(Job::Export);
+        if self.active_db.is_none() {
+            return;
+        }
+        self.begin(Job::Export, self.active_db.clone());
     }
 
-    fn begin(&mut self, job: Job) {
+    fn begin(&mut self, job: Job, db_path: Option<PathBuf>) {
         if self.busy {
             return;
         }
         self.busy = true;
         self.status = UiStatus::Running(match job {
-            Job::Import => "Choosing file to import\u{2026}",
+            Job::Import | Job::ImportNew => "Choosing file to import\u{2026}",
             Job::Export => "Choosing export destination\u{2026}",
         });
         let (tx, rx) = channel();
         self.rx = Some(rx);
-        let db_path = self.db_path.clone();
         thread::spawn(move || job.run(db_path, &tx));
     }
 
@@ -142,6 +177,14 @@ impl StemmaApp {
                     report.people, report.families, report.events, report.citations
                 ))
             }
+            JobEvent::TreeReady { report, path } => {
+                self.activate_tree(path);
+                self.import_generation += 1;
+                UiStatus::Success(format!(
+                    "Imported {} people, {} families, {} events, {} citations",
+                    report.people, report.families, report.events, report.citations
+                ))
+            }
             JobEvent::Exported { bytes, path } => {
                 UiStatus::Success(format!("Exported {bytes} bytes to {}", path.display()))
             }
@@ -151,26 +194,67 @@ impl StemmaApp {
     }
 }
 
+impl Default for StemmaApp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Job {
-    fn run(self, db_path: PathBuf, tx: &Sender<JobEvent>) {
-        let event = match self {
-            Job::Import => match dialogs::pick_gedcom_import_path() {
-                None => JobEvent::Cancelled,
-                Some(source) => match perform_import(&db_path, &source) {
-                    Ok(report) => JobEvent::Imported(report),
-                    Err(message) => JobEvent::Failed(message),
-                },
-            },
-            Job::Export => match dialogs::prompt_gedcom_export_path() {
-                None => JobEvent::Cancelled,
-                Some(dest) => match perform_export(&db_path, &dest) {
-                    Ok(bytes) => JobEvent::Exported { bytes, path: dest },
-                    Err(message) => JobEvent::Failed(message),
-                },
-            },
-        };
+    fn run(self, db_path: Option<PathBuf>, tx: &Sender<JobEvent>) {
+        let event = self.run_with(db_path);
         let _ = tx.send(event);
     }
+
+    fn run_with(self, db_path: Option<PathBuf>) -> JobEvent {
+        match self {
+            Job::Import => {
+                let Some(db_path) = db_path else {
+                    return JobEvent::Failed("No tree is open".to_string());
+                };
+                match dialogs::pick_gedcom_import_path() {
+                    None => JobEvent::Cancelled,
+                    Some(source) => match perform_import(&db_path, &source) {
+                        Ok(report) => JobEvent::Imported(report),
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::ImportNew => match dialogs::pick_gedcom_import_path() {
+                None => JobEvent::Cancelled,
+                Some(source) => match dialogs::prompt_new_tree_path() {
+                    None => JobEvent::Cancelled,
+                    Some(target) => match perform_import(&target, &source) {
+                        Ok(report) => JobEvent::TreeReady {
+                            report,
+                            path: target,
+                        },
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                },
+            },
+            Job::Export => {
+                let Some(db_path) = db_path else {
+                    return JobEvent::Failed("No tree is open".to_string());
+                };
+                match dialogs::prompt_gedcom_export_path() {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match perform_export(&db_path, &dest) {
+                        Ok(bytes) => JobEvent::Exported { bytes, path: dest },
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// Creates a fresh database file at `path` with the schema initialised.
+///
+/// This is the dialog-free half of the "Create New Family Tree" action.
+pub fn create_tree(path: &Path) -> Result<(), String> {
+    let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+    db::init_db(&conn).map_err(|error| error.to_string())
 }
 
 /// Opens `source` and streams it into the database at `db_path`.
@@ -278,10 +362,19 @@ mod tests {
 
     #[test]
     fn poll_applies_events_and_tracks_import_generation() {
-        let mut app = StemmaApp::new("stemma-flow.db");
+        let mut app = StemmaApp::new();
         assert!(!app.poll(), "without a channel there is nothing to apply");
         assert_eq!(app.import_generation(), 0);
         assert_eq!(app.selected_person_id(), None);
+        assert_eq!(app.active_db(), None, "starts without a tree");
+
+        app.activate_tree("stemma-flow.db");
+        assert_eq!(app.active_db(), Some(Path::new("stemma-flow.db")));
+        assert_eq!(
+            app.import_generation(),
+            0,
+            "opening a tree does not rewrite data"
+        );
 
         let (tx, rx) = channel();
         app.rx = Some(rx);
@@ -299,12 +392,59 @@ mod tests {
 
         app.set_selected_person(Some("i1".to_string()));
         assert_eq!(app.selected_person_id(), Some("i1"));
-        assert_eq!(app.db_path(), Path::new("stemma-flow.db"));
+        app.close_tree();
+        assert_eq!(app.active_db(), None, "closing returns to the dashboard");
+        assert_eq!(app.selected_person_id(), None, "closing clears selection");
+    }
+
+    #[test]
+    fn tree_ready_event_activates_the_new_database() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        app.apply_event(JobEvent::TreeReady {
+            report: ImportReport {
+                people: 4,
+                families: 1,
+                child_links: 2,
+                events: 0,
+                citations: 0,
+                warnings: Vec::new(),
+            },
+            path: PathBuf::from("/tmp/fresh.db"),
+        });
+        assert_eq!(app.active_db(), Some(Path::new("/tmp/fresh.db")));
+        assert_eq!(
+            app.import_generation(),
+            1,
+            "the fresh import marks the scene stale"
+        );
+        assert!(matches!(app.status(), UiStatus::Success(_)));
+    }
+
+    #[test]
+    fn begin_without_an_active_tree_is_a_noop() {
+        let mut app = StemmaApp::new();
+        app.begin_import();
+        app.begin_export();
+        assert!(!app.is_busy(), "jobs need an open tree");
+        assert_eq!(app.status(), &UiStatus::Idle);
+    }
+
+    #[test]
+    fn create_tree_initialises_an_empty_schema() -> Result<(), String> {
+        let path = temp_path("db");
+        create_tree(&path)?;
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        let tree = db::load_family_tree(&conn).map_err(|error| error.to_string())?;
+        assert!(tree.people.is_empty(), "a fresh tree has no people");
+        assert!(tree.families.is_empty(), "a fresh tree has no families");
+        let _ = std::fs::remove_file(path);
+        Ok(())
     }
 
     #[test]
     fn apply_event_drives_status_transitions() {
-        let mut app = StemmaApp::new("stemma-flow.db");
+        let mut app = StemmaApp::new();
         assert_eq!(app.status(), &UiStatus::Idle);
         assert!(!app.is_busy());
 

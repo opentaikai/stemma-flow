@@ -45,11 +45,13 @@ impl TreeWindow {
         }
     }
 
-    /// Loads people, families and children from the database and queues an
-    /// initial re-centre of the viewport.
+    /// Loads people, families and children from the active database and
+    /// queues an initial re-centre of the viewport.
     fn reload_scene(&mut self) {
-        self.scene = db::open_connection(self.app.db_path())
-            .ok()
+        self.scene = self
+            .app
+            .active_db()
+            .and_then(|path| db::open_connection(path).ok())
             .and_then(|conn| db::load_family_tree(&conn).ok())
             .map(|tree| layout::build_scene(&tree))
             .unwrap_or_else(empty_scene);
@@ -236,11 +238,22 @@ mod tests {
     }
 
     #[test]
-    fn window_starts_with_an_empty_scene_when_the_database_is_new() {
-        let path = temp_path("db");
-        let window = TreeWindow::new(StemmaApp::new(&path));
+    fn window_starts_with_an_empty_scene_when_no_tree_is_active() {
+        let window = TreeWindow::new(StemmaApp::new());
         assert!(window.scene.nodes.is_empty());
         assert!(window.pending_framing, "first frame must centre the view");
+    }
+
+    #[test]
+    fn window_ignores_a_database_file_that_cannot_be_read() {
+        let path = temp_path("db");
+        let mut app = StemmaApp::new();
+        app.activate_tree(&path);
+        let window = TreeWindow::new(app);
+        assert!(
+            window.scene.nodes.is_empty(),
+            "an unreadable tree degrades to an empty scene"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -255,7 +268,9 @@ mod tests {
         .expect("temp gedcom must be writable");
         let report = crate::app::perform_import(&db_file, &ged_file).expect("import must succeed");
 
-        let mut window = TreeWindow::new(StemmaApp::new(&db_file));
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app);
         assert_eq!(
             window.scene.nodes.len(),
             1,

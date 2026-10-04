@@ -13,6 +13,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     db::init_db(&conn)?;
     drop(conn);
 
+    let mut app = StemmaApp::new();
+    app.activate_tree(DB_PATH);
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Stemma Flow")
@@ -22,7 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     eframe::run_native(
         "Stemma Flow",
         options,
-        Box::new(|_cc| Ok(Box::new(TreeWindow::new(StemmaApp::new(DB_PATH))))),
+        Box::new(|_cc| Ok(Box::new(TreeWindow::new(app)))),
     )?;
     Ok(())
 }

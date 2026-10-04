@@ -22,3 +22,13 @@ pub fn prompt_gedcom_export_path() -> Option<PathBuf> {
         .set_file_name("family_tree.ged")
         .save_file()
 }
+
+/// Opens the native save dialog for a new SQLite tree database.
+///
+/// Returns `None` when the user cancels the dialog.
+pub fn prompt_new_tree_path() -> Option<PathBuf> {
+    FileDialog::new()
+        .add_filter("SQLite Database", &["db", "sqlite"])
+        .set_file_name("family_tree.db")
+        .save_file()
+}
