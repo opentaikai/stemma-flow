@@ -10,6 +10,9 @@ use egui::{Align2, Color32, FontId, PointerButton, Pos2, Rect, Sense, Ui, Vec2, 
 use super::canvas::ViewportState;
 use super::connectors::paint_connectors;
 use super::dialogs;
+use super::inspector::{
+    self, InspectorAction, InspectorForm, RelationForm, RelationKind, RelationOutcome,
+};
 use super::layout::{self, TreeScene};
 use super::nodes::{hit_test, paint_nodes};
 use super::tabs;
@@ -39,6 +42,9 @@ pub struct TreeWindow {
     tree: FamilyTree,
     dates: HashMap<String, VitalDates>,
     rows: Vec<PersonRow>,
+    inspector: InspectorForm,
+    inspected: Option<String>,
+    pending_relation: Option<RelationForm>,
 }
 
 impl TreeWindow {
@@ -63,6 +69,9 @@ impl TreeWindow {
             tree: FamilyTree::default(),
             dates: HashMap::new(),
             rows: Vec::new(),
+            inspector: InspectorForm::default(),
+            inspected: None,
+            pending_relation: None,
         };
         if let Some(last) = window.recent.first().cloned() {
             if loadable(&last) {
@@ -84,9 +93,20 @@ impl TreeWindow {
         }
     }
 
+    /// Reloads the scene without re-centring the viewport, so edits keep
+    /// the user's current pan and zoom.
+    fn reload_scene_quiet(&mut self) {
+        self.reload_data();
+    }
+
     /// Loads people, families, vitals and dates from the active database,
     /// refreshes the watch-list rows and queues a re-centre of the viewport.
     fn reload_scene(&mut self) {
+        self.reload_data();
+        self.pending_framing = true;
+    }
+
+    fn reload_data(&mut self) {
         let loaded = self
             .app
             .active_db()
@@ -104,7 +124,6 @@ impl TreeWindow {
         self.watch.mark_dirty();
         self.seen_db = self.app.active_db().map(Path::to_path_buf);
         self.seen_generation = self.app.import_generation();
-        self.pending_framing = true;
     }
 
     fn top_panel(&mut self, ui: &mut Ui, frame: &mut Frame) {
@@ -297,6 +316,98 @@ impl TreeWindow {
         }
     }
 
+    /// Renders the inspector side panel for the selected person.
+    fn person_inspector(&mut self, ui: &mut Ui) {
+        self.sync_inspector_form();
+        let Some(person_id) = self.app.selected_person_id().map(str::to_string) else {
+            return;
+        };
+        let person = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == person_id);
+        let connections = inspector::connections(&self.tree, &person_id);
+        if let Some(action) = inspector::show(ui, person, &mut self.inspector, connections) {
+            match action {
+                InspectorAction::Save(details) => self.edit_person(&details),
+                InspectorAction::AddParent => {
+                    self.open_relation(&person_id, RelationKind::Parent);
+                }
+                InspectorAction::AddSpouse => {
+                    self.open_relation(&person_id, RelationKind::Spouse);
+                }
+                InspectorAction::AddChild => {
+                    self.open_relation(&person_id, RelationKind::Child);
+                }
+            }
+        }
+    }
+
+    /// Refills the buffer whenever the selection changes.
+    fn sync_inspector_form(&mut self) {
+        let selected = self.app.selected_person_id().map(str::to_string);
+        if selected == self.inspected {
+            return;
+        }
+        self.inspected = selected;
+        let person = self.inspected.as_ref().and_then(|person_id| {
+            self.tree
+                .people
+                .iter()
+                .find(|person| person.id == *person_id)
+        });
+        self.inspector = person
+            .map(|person| InspectorForm::from_person(person, &self.dates))
+            .unwrap_or_default();
+    }
+
+    /// Persists the buffered profile through the app layer.
+    fn edit_person(&mut self, details: &PersonDetails) {
+        let Some(person_id) = self.app.selected_person_id().map(str::to_string) else {
+            return;
+        };
+        match self.app.edit_person(&person_id, details) {
+            Ok(()) => self.reload_scene_quiet(),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    fn open_relation(&mut self, target: &str, kind: RelationKind) {
+        let target_label = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == target)
+            .map(inspector::person_label)
+            .unwrap_or_else(|| "(unnamed)".to_string());
+        self.pending_relation = Some(RelationForm::new(target, kind, &target_label));
+    }
+
+    fn show_relation_window(&mut self, ctx: &egui::Context) {
+        let Some(mut form) = self.pending_relation.take() else {
+            return;
+        };
+        match inspector::relation_window(ctx, &mut form) {
+            None => self.pending_relation = Some(form),
+            Some(RelationOutcome::Cancel) => {}
+            Some(RelationOutcome::Submit) => self.submit_relation(form),
+        }
+    }
+
+    fn submit_relation(&mut self, form: RelationForm) {
+        let details = form.details.to_details();
+        let result = match form.kind {
+            RelationKind::Parent => self.app.add_parent(&form.target, form.role, &details),
+            RelationKind::Spouse => self.app.add_spouse(&form.target, &details),
+            RelationKind::Child => self.app.add_child(&form.target, &details),
+        };
+        match result {
+            Ok(_) => self.reload_scene(),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
     fn canvas(&mut self, ui: &mut Ui) {
         let (response, painter) =
             ui.allocate_painter(ui.available_size_before_wrap(), Sense::click_and_drag());
@@ -375,6 +486,12 @@ impl App for TreeWindow {
             egui::Panel::top("tab_bar").show(ui, |ui| tabs::show(ui, &mut self.tab));
         }
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        if self.app.active_db().is_some() && self.app.selected_person_id().is_some() {
+            egui::Panel::right("person_inspector")
+                .min_size(240.0)
+                .default_size(260.0)
+                .show(ui, |ui| self.person_inspector(ui));
+        }
         if self.app.active_db().is_some() {
             egui::CentralPanel::default().show(ui, |ui| match self.tab {
                 tabs::AppTab::Graph => self.canvas(ui),
@@ -382,6 +499,9 @@ impl App for TreeWindow {
             });
         } else {
             self.welcome(ui, frame);
+        }
+        if self.app.active_db().is_some() {
+            self.show_relation_window(ui.ctx());
         }
     }
 
@@ -688,6 +808,70 @@ mod tests {
             "selection cleared with the person"
         );
         assert!(matches!(window.app.status(), UiStatus::Success(_)));
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn saving_inspector_edits_updates_the_row_and_vitals() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one imported person").id.clone();
+        window.app.set_selected_person(Some(person_id));
+        window.sync_inspector_form();
+        assert_eq!(window.inspector.given_name, "Johan", "buffer synced");
+
+        window.inspector.given_name = "Hans".to_string();
+        window.inspector.birth = "1870".to_string();
+        let details = window.inspector.to_details();
+        window.edit_person(&details);
+
+        let row = window.rows.first().expect("the row survived");
+        assert_eq!(row.given_name, "Hans");
+        assert_eq!(row.birth.as_deref(), Some("1870"), "vitals reloaded");
+        assert!(matches!(window.app.status(), UiStatus::Success(_)));
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn submitting_a_parent_relation_links_both_people() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one imported person").id.clone();
+        window.app.set_selected_person(Some(person_id.clone()));
+
+        let mut form = RelationForm::new(&person_id, RelationKind::Parent, "Johan Senior");
+        form.details.given_name = "Johan Senior".to_string();
+        form.details.surname = "Ahlberg".to_string();
+        window.submit_relation(form);
+
+        assert_eq!(window.tree.people.len(), 2, "the parent joined the tree");
+        assert_eq!(
+            inspector::connections(&window.tree, &person_id).parents,
+            1,
+            "the child gained one parent"
+        );
+        assert!(matches!(window.app.status(), UiStatus::Success(_)));
+        assert_eq!(
+            window.app.selected_person_id(),
+            Some(person_id.as_str()),
+            "focus stays on the child"
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }

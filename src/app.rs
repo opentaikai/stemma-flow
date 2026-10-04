@@ -9,7 +9,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use crate::db;
-use crate::db::people::{self, PersonDetails};
+use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::gedcom::{ImportReport, export_to_gedcom, import_gedcom};
 use crate::gui::dialogs;
 
@@ -172,6 +172,71 @@ impl StemmaApp {
         self.active_db
             .clone()
             .ok_or_else(|| "No tree is open".to_string())
+    }
+
+    /// Writes edited profile fields back over `person_id`.
+    pub fn edit_person(&mut self, person_id: &str, details: &PersonDetails) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        people::update_person(&mut conn, person_id, details)?;
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success(format!(
+            "Saved {}",
+            details.display_name()
+        )));
+        Ok(())
+    }
+
+    /// Creates a new parent of `child_id` under `role` in one step.
+    pub fn add_parent(
+        &mut self,
+        child_id: &str,
+        role: ParentRole,
+        details: &PersonDetails,
+    ) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let person_id = people::link_parent(&mut conn, child_id, role, details)?;
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success(format!(
+            "Added {}",
+            details.display_name()
+        )));
+        Ok(person_id)
+    }
+
+    /// Creates a partner for `person_id` in a new family record.
+    pub fn add_spouse(
+        &mut self,
+        person_id: &str,
+        details: &PersonDetails,
+    ) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let spouse_id = people::link_spouse(&mut conn, person_id, details)?;
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success(format!(
+            "Added {}",
+            details.display_name()
+        )));
+        Ok(spouse_id)
+    }
+
+    /// Adds a child to `person_id`'s primary family, creating it if needed.
+    pub fn add_child(
+        &mut self,
+        person_id: &str,
+        details: &PersonDetails,
+    ) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let child_id = people::link_child(&mut conn, person_id, details)?;
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success(format!(
+            "Added {}",
+            details.display_name()
+        )));
+        Ok(child_id)
     }
 
     fn begin(&mut self, job: Job, db_path: Option<PathBuf>) {
