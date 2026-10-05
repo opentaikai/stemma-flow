@@ -9,7 +9,9 @@ use crate::gedcom::GedcomError;
 struct PersonRow {
     id: String,
     given_name: String,
+    middle_name: String,
     surname: String,
+    nickname: String,
     gender: String,
 }
 
@@ -92,14 +94,18 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
     out.push_str("1 CHAR UTF-8\n");
 
     let mut people = Vec::new();
-    let mut stmt =
-        conn.prepare("SELECT id, given_name, surname, gender FROM people ORDER BY rowid")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, given_name, middle_name, surname, nickname, gender
+         FROM people ORDER BY rowid",
+    )?;
     let rows = stmt.query_map([], |row| {
         Ok(PersonRow {
             id: row.get(0)?,
             given_name: row.get(1)?,
-            surname: row.get(2)?,
-            gender: row.get(3)?,
+            middle_name: row.get(2)?,
+            surname: row.get(3)?,
+            nickname: row.get(4)?,
+            gender: row.get(5)?,
         })
     })?;
     for row in rows {
@@ -231,10 +237,23 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 
     for (index, person) in people.iter().enumerate() {
         out.push_str(&format!("0 @I{}@ INDI\n", index + 1));
-        out.push_str(&format!(
-            "1 NAME {} /{}/\n",
-            person.given_name, person.surname
-        ));
+        let given_part = [person.given_name.as_str(), person.middle_name.as_str()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str(&format!("1 NAME {given_part} /{}/\n", person.surname));
+        // Vendor name-part children keep the given name bare on re-import.
+        if !person.middle_name.is_empty() || !person.nickname.is_empty() {
+            out.push_str(&format!("2 GIVN {}\n", person.given_name));
+            if !person.middle_name.is_empty() {
+                out.push_str(&format!("2 _MIDN {}\n", person.middle_name));
+            }
+            if !person.nickname.is_empty() {
+                out.push_str(&format!("2 _PGVN {}\n", person.nickname));
+            }
+            out.push_str(&format!("2 SURN {}\n", person.surname));
+        }
         out.push_str(&format!("1 SEX {}\n", person.gender));
 
         if let Some(person_events) = events_by_person.get(person.id.as_str()) {

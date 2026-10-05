@@ -15,7 +15,11 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PersonDetails {
     pub given_name: String,
+    /// Patronymic or middle name; blank when the source has none.
+    pub middle_name: String,
     pub surname: String,
+    /// Preferred given name or nickname (GEDCOM `_PGVN`/`NICK`).
+    pub nickname: String,
     /// One of `"M"`, `"F"`, `"U"` (enforced by a CHECK constraint).
     pub gender: String,
     pub birth_date: Option<String>,
@@ -25,14 +29,18 @@ pub struct PersonDetails {
 impl PersonDetails {
     pub fn new(
         given_name: impl Into<String>,
+        middle_name: impl Into<String>,
         surname: impl Into<String>,
+        nickname: impl Into<String>,
         gender: impl Into<String>,
         birth_date: Option<String>,
         death_date: Option<String>,
     ) -> Self {
         Self {
             given_name: given_name.into().trim().to_string(),
+            middle_name: middle_name.into().trim().to_string(),
             surname: surname.into().trim().to_string(),
+            nickname: nickname.into().trim().to_string(),
             gender: gender.into(),
             birth_date: clean(birth_date),
             death_date: clean(death_date),
@@ -41,17 +49,24 @@ impl PersonDetails {
 
     /// Blank slate for the instant "Add Person" action.
     pub fn unnamed() -> Self {
-        Self::new("", "", "U", None, None)
+        Self::new("", "", "", "", "U", None, None)
     }
 
     /// Name used in status messages; falls back for blank records.
     pub fn display_name(&self) -> String {
-        let combined = format!("{} {}", self.given_name, self.surname);
-        let combined = combined.trim();
+        let combined = [
+            self.given_name.as_str(),
+            self.middle_name.as_str(),
+            self.surname.as_str(),
+        ]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
         if combined.is_empty() {
             "(unnamed)".to_string()
         } else {
-            combined.to_string()
+            combined
         }
     }
 }
@@ -124,11 +139,13 @@ pub fn update_person(
     let tx = conn.transaction().map_err(to_err)?;
     let changed = tx
         .execute(
-            "UPDATE people SET given_name = ?1, surname = ?2, gender = ?3,
-             updated_at = datetime('now') WHERE id = ?4",
+            "UPDATE people SET given_name = ?1, middle_name = ?2, surname = ?3,
+             nickname = ?4, gender = ?5, updated_at = datetime('now') WHERE id = ?6",
             params![
                 details.given_name,
+                details.middle_name,
                 details.surname,
+                details.nickname,
                 details.gender,
                 person_id
             ],
@@ -322,8 +339,16 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
 fn write_person(conn: &Connection, details: &PersonDetails) -> Result<String, String> {
     let id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO people (id, given_name, surname, gender) VALUES (?1, ?2, ?3, ?4)",
-        params![id, details.given_name, details.surname, details.gender],
+        "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            id,
+            details.given_name,
+            details.middle_name,
+            details.surname,
+            details.nickname,
+            details.gender
+        ],
     )
     .map_err(to_err)?;
     Ok(id)
@@ -429,7 +454,15 @@ mod tests {
     }
 
     fn details(given: &str, gender: &str) -> PersonDetails {
-        PersonDetails::new(given, "Tester", gender, Some("1940".to_string()), None)
+        PersonDetails::new(
+            given,
+            "",
+            "Tester",
+            "",
+            gender,
+            Some("1940".to_string()),
+            None,
+        )
     }
 
     fn count(conn: &Connection, sql: &str) -> i64 {
@@ -441,32 +474,57 @@ mod tests {
     fn person_details_trim_names_and_blank_dates() {
         let trimmed = PersonDetails::new(
             "  Ada  ",
+            "  Lynn  ",
             "  King ",
+            "  Addy ",
             "F",
             Some("   ".to_string()),
             Some("1815".to_string()),
         );
         assert_eq!(trimmed.given_name, "Ada");
+        assert_eq!(trimmed.middle_name, "Lynn");
         assert_eq!(trimmed.surname, "King");
+        assert_eq!(trimmed.nickname, "Addy");
         assert_eq!(trimmed.birth_date, None, "blank dates normalise away");
         assert_eq!(trimmed.death_date.as_deref(), Some("1815"));
-        assert_eq!(trimmed.display_name(), "Ada King");
+        assert_eq!(trimmed.display_name(), "Ada Lynn King");
         assert_eq!(PersonDetails::unnamed().display_name(), "(unnamed)");
     }
 
     #[test]
     fn insert_person_stores_profile_and_birth_event() {
         let mut conn = connection();
-        let id = insert_person(&mut conn, &details("Ada", "F")).expect("insert succeeds");
+        let profile = PersonDetails::new(
+            "Ada",
+            "Lynn",
+            "King",
+            "Addy",
+            "F",
+            Some("1940".to_string()),
+            None,
+        );
+        let id = insert_person(&mut conn, &profile).expect("insert succeeds");
 
-        let (given, gender): (String, String) = conn
-            .query_row(
-                "SELECT given_name, gender FROM people WHERE id = ?1",
+        let (given, middle, surname, nickname, gender): (String, String, String, String, String) =
+            conn.query_row(
+                "SELECT given_name, middle_name, surname, nickname, gender
+                 FROM people WHERE id = ?1",
                 params![id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .expect("person row exists");
         assert_eq!(given, "Ada");
+        assert_eq!(middle, "Lynn");
+        assert_eq!(surname, "King");
+        assert_eq!(nickname, "Addy");
         assert_eq!(gender, "F");
 
         let births = count(
@@ -485,8 +543,11 @@ mod tests {
     #[test]
     fn insert_person_rejects_unknown_gender() {
         let mut conn = connection();
-        let error = insert_person(&mut conn, &PersonDetails::new("X", "Y", "Z", None, None))
-            .expect_err("bad gender fails");
+        let error = insert_person(
+            &mut conn,
+            &PersonDetails::new("X", "", "Y", "", "Z", None, None),
+        )
+        .expect_err("bad gender fails");
         assert!(
             error.contains("gender"),
             "message names the problem: {error}"
@@ -504,18 +565,37 @@ mod tests {
         )
         .expect("timestamp rewrite");
 
-        let edited = PersonDetails::new("Augusta", "King", "F", None, Some("1815".to_string()));
+        let edited = PersonDetails::new(
+            "Augusta",
+            "Lee",
+            "King",
+            "Gus",
+            "F",
+            None,
+            Some("1815".to_string()),
+        );
         update_person(&mut conn, &id, &edited).expect("update succeeds");
 
-        let (given, surname, updated): (String, String, String) = conn
-            .query_row(
-                "SELECT given_name, surname, updated_at FROM people WHERE id = ?1",
+        let (given, middle, surname, nickname, updated): (String, String, String, String, String) =
+            conn.query_row(
+                "SELECT given_name, middle_name, surname, nickname, updated_at
+                 FROM people WHERE id = ?1",
                 params![id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .expect("person row exists");
         assert_eq!(given, "Augusta");
+        assert_eq!(middle, "Lee");
         assert_eq!(surname, "King");
+        assert_eq!(nickname, "Gus");
         assert_ne!(updated, "2000-01-01 00:00:00", "updated_at is touched");
 
         let birth: Option<Option<String>> = conn
@@ -757,7 +837,9 @@ mod tests {
         let mut conn = connection();
         let both = PersonDetails::new(
             "Ada",
+            "",
             "King",
+            "",
             "F",
             Some("1815".to_string()),
             Some("1852".to_string()),

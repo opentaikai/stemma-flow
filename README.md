@@ -20,7 +20,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   `journal_mode = WAL` and `foreign_keys = ON`.
 - `db::init_db(&conn)` creates the schema (5 tables, 7 indexes) in a single
   batch transaction: `people`, `families`, `family_children`, `events`,
-  `citations`.
+  `citations`. Databases from older builds are upgraded in place —
+  `init_db` adds the `people.middle_name`/`people.nickname` columns
+  (PRAGMA + ALTER) when they are missing, so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
   structs; ids are UUID strings.
 
@@ -54,8 +56,28 @@ which groups `BIRTH`/`DEATH` event dates by person id.
   `BufRead` (low memory even for 50MB+ files), translates `@I1@`/`@F1@`
   pointers to UUIDs and writes everything inside a single transaction — I/O
   or database errors roll back the whole import. Recoverable problems
-  (dangling pointers, malformed lines) come back as warnings in the returned
-  `ImportReport`.
+  (dangling pointers, malformed lines, unmapped tags) come back as warnings
+  in the returned `ImportReport`.
+- Real-world exports are tolerated instead of failing: physical
+  `CONC`/`CONT` lines are reassembled byte-wise before UTF-8 decoding
+  (wrappers break at a fixed byte width and can split multi-byte
+  characters), the `1 CHAR` header selects UTF-8, Windows-1251 or Latin-1,
+  and a file that still fails UTF-8 decoding falls back to Windows-1251
+  once for the rest of the stream.
+- Vendor name tags map onto the person: `2 GIVN`/`2 SURN` refresh the
+  given/surname split of `1 NAME`, `2 _MIDN` fills `people.middle_name`
+  and `2 _PGVN`/`2 NICK` fill `people.nickname` (export writes those
+  children back only when the columns are populated, so plain exports stay
+  byte-identical). Every other tag the importer recognises but does not
+  model — `REFN`, `NOTE`, `OBJE`, unknown level-0 records — is logged as a
+  non-fatal `Line N: Tag recognized/unsupported or ignored [TAG value]`
+  warning (payload truncated to 100 characters) and the import continues.
+- Warnings never block an import: the status bar appends the count
+  (`…, N warnings`) to every finished import, and an import that logged
+  any warnings also opens the **Import Report** window
+  (`gui::import_report`) — a virtualized one-row-per-message list with the
+  full text on hover, sized for the thousands of warnings a large
+  WikiTree export produces.
 - `gedcom::export_to_gedcom(&conn)` serialises `people`, `families`,
   `family_children`, `events` and `citations` back into a deterministic
   GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, `SOUR` records, `INDI`
@@ -139,11 +161,11 @@ views (the app always launches on Graph View):
   delete removes the person, their events, citations and child links.
   **+ Add Independent Person** inserts an unnamed person and focuses it.
 - **Person Inspector** — a right-side panel shown whenever a person is
-  selected: buffered profile fields (given name, surname, gender, birth,
-  death) committed with **Save Changes**, connection counts, and
-  **+ Add Parent**, **+ Add Spouse**, **+ Add Child** buttons whose pop-up
-  creates and links the relative in one step (parents choose a
-  Father/Mother role that presets the gender).
+  selected: buffered profile fields (given name, middle name, surname,
+  nickname, gender, birth, death) committed with **Save Changes**,
+  connection counts, and **+ Add Parent**, **+ Add Spouse**,
+  **+ Add Child** buttons whose pop-up creates and links the relative in
+  one step (parents choose a Father/Mother role that presets the gender).
 
 `src/gui` builds it from straight SQLite data each time an import or person
 mutation finishes:
@@ -164,8 +186,10 @@ mutation finishes:
   filter/sort state and emits selection/add/delete events, and
   `gui::inspector` draws the side panel, the profile editors shared with
   the relation pop-up, and the connection counts.
-- `gui::settings` renders the `File > Settings…` dialog and
-  `gui::theme::apply_config_to_ctx` pushes the chosen theme preference and
+- `gui::import_report` renders the **Import Report** window opened after
+  a warning-bearing import (virtualized rows, close button, hover for the
+  full message), and `gui::settings` renders the `File > Settings…` dialog
+  with `gui::theme::apply_config_to_ctx` pushing the chosen theme preference and
   zoom factor into the `egui::Context`; both run live, no restart needed.
 - `gui::window::TreeWindow` wires it into `eframe::App`: the `File`
   menu, tab switching, background-job polling, scene reloads (a quiet

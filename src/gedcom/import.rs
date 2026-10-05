@@ -1,8 +1,11 @@
 //! Streaming line-by-line parser for GEDCOM 5.5.1 records.
 //!
-//! Reads through any [`BufRead`] one line at a time and yields completed
-//! `INDI`/`FAM` records, so memory stays proportional to the number of
-//! pointers rather than the file size.
+//! Reads through any [`BufRead`] one physical line at a time, reassembles
+//! `CONC`/`CONT`-wrapped lines byte-wise *before* decoding (exporters wrap
+//! at a fixed byte width and can split multi-byte characters across the
+//! break), honours the `1 CHAR` header charset with a Windows-1251 fallback,
+//! and yields completed `INDI`/`FAM` records, so memory stays proportional
+//! to the number of pointers rather than the file size.
 
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -46,7 +49,11 @@ pub(crate) struct ParsedEvent {
 pub(crate) struct IndiRecord {
     pub xref: String,
     pub given_name: String,
+    /// `2 _MIDN` patronymic or middle name.
+    pub middle_name: String,
     pub surname: String,
+    /// `2 _PGVN`/`2 NICK` preferred given name or nickname.
+    pub nickname: String,
     pub gender: String,
     pub events: Vec<ParsedEvent>,
     pub famc: Vec<String>,
@@ -84,7 +91,9 @@ impl IndiRecord {
         Self {
             xref: xref.to_string(),
             given_name: String::new(),
+            middle_name: String::new(),
             surname: String::new(),
+            nickname: String::new(),
             gender: "U".to_string(),
             events: Vec::new(),
             famc: Vec::new(),
@@ -166,6 +175,32 @@ fn optional_payload(payload: &str) -> Option<String> {
     }
 }
 
+/// Warning text for a tag the importer recognises but does not model: the
+/// record keeps importing, the tag is listed for review with its payload
+/// flattened (CONT newlines) and truncated to 100 characters.
+fn unknown_tag_warning(line_no: usize, line: &Line<'_>) -> String {
+    if line.payload.is_empty() {
+        return format!(
+            "Line {line_no}: Tag recognized/unsupported or ignored [{}]",
+            line.tag
+        );
+    }
+    let flat = line.payload.replace('\n', "\\n");
+    let mut chars = flat.chars();
+    let value: String = chars.by_ref().take(100).collect();
+    if chars.next().is_some() {
+        format!(
+            "Line {line_no}: Tag recognized/unsupported or ignored [{} {value}…]",
+            line.tag
+        )
+    } else {
+        format!(
+            "Line {line_no}: Tag recognized/unsupported or ignored [{} {value}]",
+            line.tag
+        )
+    }
+}
+
 enum Current {
     Indi {
         rec: Box<IndiRecord>,
@@ -179,13 +214,117 @@ enum Current {
     Skipped,
 }
 
+/// Level, tag and payload offset of a physical line, parsed straight from
+/// bytes so lines with invalid UTF-8 are still recognised as continuations.
+struct BytePrefix<'a> {
+    level: u8,
+    tag: &'a [u8],
+    payload_start: usize,
+}
+
+fn byte_prefix(bytes: &[u8]) -> Option<BytePrefix<'_>> {
+    let mut pos = 0;
+    while matches!(bytes.get(pos), Some(b' ' | b'\t')) {
+        pos += 1;
+    }
+    let level_start = pos;
+    while matches!(bytes.get(pos), Some(b'0'..=b'9')) {
+        pos += 1;
+    }
+    if level_start == pos {
+        return None;
+    }
+    let level: u8 = std::str::from_utf8(bytes.get(level_start..pos)?)
+        .ok()?
+        .parse()
+        .ok()?;
+    while matches!(bytes.get(pos), Some(b' ' | b'\t')) {
+        pos += 1;
+    }
+    if bytes.get(pos) == Some(&b'@') {
+        pos += 1;
+        let close = bytes.get(pos..)?.iter().position(|&byte| byte == b'@')?;
+        pos += close + 1;
+        while matches!(bytes.get(pos), Some(b' ' | b'\t')) {
+            pos += 1;
+        }
+    }
+    let tag_start = pos;
+    while bytes
+        .get(pos)
+        .is_some_and(|byte| !byte.is_ascii_whitespace())
+    {
+        pos += 1;
+    }
+    if tag_start == pos {
+        return None;
+    }
+    let payload_start = if pos < bytes.len() { pos + 1 } else { pos };
+    Some(BytePrefix {
+        level,
+        tag: bytes.get(tag_start..pos)?,
+        payload_start,
+    })
+}
+
+/// Legacy single-byte charsets the decode fallback can use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Charset {
+    Cp1251,
+    Latin1,
+}
+
+impl Charset {
+    /// Decodes `bytes`, replacing malformed sequences instead of failing
+    /// (the final safety net of the fallback chain).
+    fn decode(self, bytes: &[u8]) -> String {
+        match self {
+            Self::Cp1251 => {
+                let (text, _, _) = encoding_rs::WINDOWS_1251.decode(bytes);
+                text.into_owned()
+            }
+            Self::Latin1 => encoding_rs::mem::decode_latin1(bytes).into_owned(),
+        }
+    }
+}
+
+/// What a `1 CHAR` header line declares.
+enum CharHeader {
+    Utf8,
+    Legacy(Charset),
+    Unknown,
+}
+
+/// Maps common `1 CHAR` header values onto system charsets; unknown values
+/// fall through as [`CharHeader::Unknown`] and keep the UTF-8 chain.
+fn parse_char_header(payload: &str) -> CharHeader {
+    match payload.trim().to_ascii_uppercase().as_str() {
+        "UTF-8" | "UTF8" => CharHeader::Utf8,
+        "ANSI" | "WINDOWS" | "CP1251" | "CP-1251" | "WINDOWS1251" | "WINDOWS-1251" => {
+            CharHeader::Legacy(Charset::Cp1251)
+        }
+        "LATIN1" | "LATIN-1" | "ISO-8859-1" | "ISO8859-1" | "ANSEL" | "ASCII" => {
+            CharHeader::Legacy(Charset::Latin1)
+        }
+        _ => CharHeader::Unknown,
+    }
+}
+
 /// Streams completed records out of a GEDCOM text stream.
 ///
 /// Yields `INDI`/`FAM` records plus the `SOUR` records that event citations
-/// point at.
+/// point at. Physical `CONC`/`CONT` lines are joined onto their base line at
+/// the byte level before UTF-8 decoding; `line_no` refers to the first
+/// physical line of the current logical line.
 pub(crate) struct RecordReader<R: BufRead> {
-    lines: std::io::Lines<R>,
+    reader: R,
+    line_buf: Vec<u8>,
+    peeked: Option<(usize, Vec<u8>)>,
+    physical_line: usize,
     line_no: usize,
+    /// Active non-UTF-8 decoder: set by a legacy `1 CHAR` header or by the
+    /// first UTF-8 failure, and then applied to every remaining line.
+    decoder: Option<Charset>,
     current: Option<Current>,
     pending: Option<String>,
     warnings: Vec<String>,
@@ -197,8 +336,12 @@ pub(crate) struct RecordReader<R: BufRead> {
 impl<R: BufRead> RecordReader<R> {
     pub(crate) fn new(reader: R) -> Self {
         Self {
-            lines: reader.lines(),
+            reader,
+            line_buf: Vec::new(),
+            peeked: None,
+            physical_line: 0,
             line_no: 0,
+            decoder: None,
             current: None,
             pending: None,
             warnings: Vec::new(),
@@ -212,6 +355,117 @@ impl<R: BufRead> RecordReader<R> {
         self.warnings
     }
 
+    /// Reads one physical line, stripping the line feed, a trailing carriage
+    /// return and a UTF-8 byte-order mark on the very first line.
+    fn read_physical(&mut self) -> std::io::Result<Option<(usize, Vec<u8>)>> {
+        self.line_buf.clear();
+        let read = self.reader.read_until(b'\n', &mut self.line_buf)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        self.physical_line += 1;
+        if self.line_buf.last() == Some(&b'\n') {
+            self.line_buf.pop();
+        }
+        if self.line_buf.last() == Some(&b'\r') {
+            self.line_buf.pop();
+        }
+        if self.physical_line == 1 && self.line_buf.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            self.line_buf.drain(..3);
+        }
+        Ok(Some((
+            self.physical_line,
+            std::mem::take(&mut self.line_buf),
+        )))
+    }
+
+    /// Returns the next logical line: the base line plus every following
+    /// `CONC` (append) or `CONT` (newline then append) payload at
+    /// `base level + 1`, decoded as UTF-8.
+    fn read_logical(&mut self) -> std::io::Result<Option<String>> {
+        let first = match self.peeked.take() {
+            Some(entry) => entry,
+            None => match self.read_physical()? {
+                Some(entry) => entry,
+                None => return Ok(None),
+            },
+        };
+        let (start_no, mut bytes) = first;
+        self.line_no = start_no;
+        loop {
+            if self.peeked.is_none() {
+                self.peeked = self.read_physical()?;
+            }
+            let absorb = match (&bytes, &self.peeked) {
+                (base, Some((_, next))) => match (byte_prefix(base), byte_prefix(next)) {
+                    (Some(base_prefix), Some(next_prefix))
+                        if base_prefix.level.checked_add(1) == Some(next_prefix.level) =>
+                    {
+                        if next_prefix.tag == b"CONT" {
+                            Some((true, next_prefix.payload_start))
+                        } else if next_prefix.tag == b"CONC" {
+                            Some((false, next_prefix.payload_start))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some((prepend_newline, payload_start)) = absorb else {
+                break;
+            };
+            let Some((_, next_bytes)) = self.peeked.take() else {
+                break;
+            };
+            if prepend_newline {
+                bytes.push(b'\n');
+            }
+            if let Some(tail) = next_bytes.get(payload_start..) {
+                bytes.extend_from_slice(tail);
+            }
+        }
+        self.decode_logical(bytes).map(Some)
+    }
+
+    /// Decodes one assembled logical line: the active legacy charset when a
+    /// header or an earlier failure engaged one, otherwise strict UTF-8 with
+    /// a one-time fall back to Windows-1251 (Cyrillic compatibility).
+    fn decode_logical(&mut self, bytes: Vec<u8>) -> std::io::Result<String> {
+        if let Some(charset) = self.decoder {
+            return Ok(charset.decode(&bytes));
+        }
+        match String::from_utf8(bytes) {
+            Ok(text) => Ok(text),
+            Err(error) => {
+                self.decoder = Some(Charset::Cp1251);
+                let message = format!(
+                    "Line {}: invalid UTF-8; decoding the rest of the stream as windows-1251",
+                    self.line_no
+                );
+                self.warnings.push(message);
+                Ok(Charset::Cp1251.decode(error.as_bytes()))
+            }
+        }
+    }
+
+    /// Applies a `1 CHAR` header to the decode state of the stream.
+    fn apply_char_header(&mut self, payload: &str) {
+        match parse_char_header(payload) {
+            CharHeader::Utf8 => {}
+            CharHeader::Legacy(charset) => self.decoder = Some(charset),
+            CharHeader::Unknown => {
+                let message = format!(
+                    "Line {}: unknown CHAR charset [{}]; assuming UTF-8",
+                    self.line_no,
+                    payload.trim()
+                );
+                self.warnings.push(message);
+            }
+        }
+    }
+
     /// Returns the next completed `INDI`/`FAM` record, or `None` at the end
     /// of the stream.
     pub(crate) fn next_record(&mut self) -> Result<Option<Record>, GedcomError> {
@@ -221,12 +475,9 @@ impl<R: BufRead> RecordReader<R> {
             }
             let raw = match self.pending.take() {
                 Some(raw) => raw,
-                None => match self.lines.next() {
+                None => match self.read_logical()? {
+                    Some(raw) => raw,
                     None => return self.finish_at_eof(),
-                    Some(line) => {
-                        self.line_no += 1;
-                        line?
-                    }
                 },
             };
 
@@ -237,6 +488,9 @@ impl<R: BufRead> RecordReader<R> {
                 }
                 continue;
             };
+            if parsed.level == 1 && parsed.tag == "CHAR" {
+                self.apply_char_header(parsed.payload);
+            }
 
             if parsed.level == 0 {
                 if let Some(record) = self.finish_current() {
@@ -301,7 +555,13 @@ impl<R: BufRead> RecordReader<R> {
                 self.current = None;
             }
             _ => {
-                // HEAD, REPO, OBJE, NOTE, ...: skip the whole block.
+                // OBJE, NOTE, ...: list the tag once and skip the whole
+                // block. HEAD/SUBM/REPO/SUBN are known structure that the
+                // importer simply does not need, so they stay silent.
+                if !matches!(line.tag, "HEAD" | "SUBM" | "REPO" | "SUBN") {
+                    let message = unknown_tag_warning(self.line_no, &line);
+                    self.warnings.push(message);
+                }
                 self.current = Some(Current::Skipped);
             }
         }
@@ -324,7 +584,7 @@ impl<R: BufRead> RecordReader<R> {
                                 None => Some(continuation),
                             };
                         }
-                        _ => {}
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
                 }
             }
@@ -350,10 +610,20 @@ impl<R: BufRead> RecordReader<R> {
                             });
                             *event_slot = Some(rec.events.len() - 1);
                         }
-                        _ => {}
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                    }
+                } else if event_slot.is_none() {
+                    // Name-part children of `1 NAME` (GIVN/SURN/_MIDN/_PGVN…)
+                    // land here because events are closed by the level-1 line.
+                    match line.tag {
+                        "GIVN" => rec.given_name = line.payload.to_string(),
+                        "SURN" => rec.surname = line.payload.to_string(),
+                        "_MIDN" => rec.middle_name = line.payload.to_string(),
+                        "_PGVN" | "NICK" => rec.nickname = line.payload.to_string(),
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
                 } else if let Some(slot) = event_slot {
-                    fill_event(&mut rec.events, *slot, line);
+                    fill_event(&mut rec.events, *slot, line, line_no, &mut warning);
                 }
             }
             Some(Current::Fam { rec, event_slot }) => {
@@ -376,10 +646,13 @@ impl<R: BufRead> RecordReader<R> {
                             });
                             *event_slot = Some(rec.events.len() - 1);
                         }
-                        _ => {}
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
+                } else if event_slot.is_none() {
+                    // Children of an unknown level-1 tag (REFN/TYPE…).
+                    warning = Some(unknown_tag_warning(line_no, &line));
                 } else if let Some(slot) = event_slot {
-                    fill_event(&mut rec.events, *slot, line);
+                    fill_event(&mut rec.events, *slot, line, line_no, &mut warning);
                 }
             }
         }
@@ -441,7 +714,13 @@ fn optional_pointer(
     }
 }
 
-fn fill_event(events: &mut [ParsedEvent], slot: usize, line: Line<'_>) {
+fn fill_event(
+    events: &mut [ParsedEvent],
+    slot: usize,
+    line: Line<'_>,
+    line_no: usize,
+    warning: &mut Option<String>,
+) {
     if let Some(event) = events.get_mut(slot) {
         match line.tag {
             "DATE" => event.date = optional_payload(line.payload),
@@ -469,7 +748,7 @@ fn fill_event(events: &mut [ParsedEvent], slot: usize, line: Line<'_>) {
                     last.page = optional_payload(line.payload);
                 }
             }
-            _ => {}
+            _ => *warning = Some(unknown_tag_warning(line_no, &line)),
         }
     }
 }
@@ -529,8 +808,16 @@ pub fn import_gedcom<R: BufRead>(
                 }
                 let id = Uuid::new_v4().to_string();
                 tx.execute(
-                    "INSERT INTO people (id, given_name, surname, gender) VALUES (?1, ?2, ?3, ?4)",
-                    params![id, indi.given_name, indi.surname, indi.gender],
+                    "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        id,
+                        indi.given_name,
+                        indi.middle_name,
+                        indi.surname,
+                        indi.nickname,
+                        indi.gender
+                    ],
                 )?;
                 report.people += 1;
                 for event in &indi.events {

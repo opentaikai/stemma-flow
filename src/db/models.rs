@@ -9,7 +9,11 @@ use uuid::Uuid;
 pub struct Person {
     pub id: String,
     pub given_name: String,
+    /// Patronymic or middle name (GEDCOM `_MIDN`).
+    pub middle_name: String,
     pub surname: String,
+    /// Preferred given name or nickname (GEDCOM `_PGVN`/`NICK`).
+    pub nickname: String,
     /// One of `"M"`, `"F"`, `"U"` (enforced by a CHECK constraint).
     pub gender: String,
     pub created_at: String,
@@ -56,7 +60,9 @@ impl Person {
         Self {
             id: Uuid::new_v4().to_string(),
             given_name: given_name.into(),
+            middle_name: String::new(),
             surname: surname.into(),
+            nickname: String::new(),
             gender: gender.into(),
             created_at: String::new(),
             updated_at: String::new(),

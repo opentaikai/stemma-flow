@@ -22,7 +22,9 @@ pub enum InspectorAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InspectorForm {
     pub given_name: String,
+    pub middle_name: String,
     pub surname: String,
+    pub nickname: String,
     pub gender: String,
     pub birth: String,
     pub death: String,
@@ -32,7 +34,9 @@ impl Default for InspectorForm {
     fn default() -> Self {
         Self {
             given_name: String::new(),
+            middle_name: String::new(),
             surname: String::new(),
+            nickname: String::new(),
             gender: "U".to_string(),
             birth: String::new(),
             death: String::new(),
@@ -46,7 +50,9 @@ impl InspectorForm {
         let vitals = dates.get(&person.id);
         Self {
             given_name: person.given_name.clone(),
+            middle_name: person.middle_name.clone(),
             surname: person.surname.clone(),
+            nickname: person.nickname.clone(),
             gender: person.gender.clone(),
             birth: vitals
                 .and_then(|vitals| vitals.birth.clone())
@@ -61,7 +67,9 @@ impl InspectorForm {
     pub fn to_details(&self) -> PersonDetails {
         PersonDetails::new(
             self.given_name.clone(),
+            self.middle_name.clone(),
             self.surname.clone(),
+            self.nickname.clone(),
             self.gender.clone(),
             blank_to_none(&self.birth),
             blank_to_none(&self.death),
@@ -116,12 +124,19 @@ pub fn connections(tree: &FamilyTree, person_id: &str) -> Connections {
 
 /// Display label for a stored person; blank names fall back gracefully.
 pub fn person_label(person: &Person) -> String {
-    let combined = format!("{} {}", person.given_name, person.surname);
-    let combined = combined.trim();
+    let combined = [
+        person.given_name.as_str(),
+        person.middle_name.as_str(),
+        person.surname.as_str(),
+    ]
+    .into_iter()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join(" ");
     if combined.is_empty() {
         "(unnamed)".to_string()
     } else {
-        combined.to_string()
+        combined
     }
 }
 
@@ -135,8 +150,16 @@ pub fn field_editors(ui: &mut Ui, form: &mut InspectorForm) {
             ui.text_edit_singleline(&mut form.given_name);
             ui.end_row();
 
+            ui.label("Middle name:");
+            ui.text_edit_singleline(&mut form.middle_name);
+            ui.end_row();
+
             ui.label("Surname:");
             ui.text_edit_singleline(&mut form.surname);
+            ui.end_row();
+
+            ui.label("Nickname:");
+            ui.text_edit_singleline(&mut form.nickname);
             ui.end_row();
 
             ui.label("Gender:");
@@ -314,7 +337,9 @@ mod tests {
     use egui::{Context, RawInput};
 
     fn person_with_dates() -> (Person, HashMap<String, VitalDates>) {
-        let person = Person::new("Ada", "King", "F");
+        let mut person = Person::new("Ada", "King", "F");
+        person.middle_name = "Lynn".to_string();
+        person.nickname = "Addy".to_string();
         let mut dates = HashMap::new();
         dates.insert(
             person.id.clone(),
@@ -331,7 +356,9 @@ mod tests {
         let (person, dates) = person_with_dates();
         let form = InspectorForm::from_person(&person, &dates);
         assert_eq!(form.given_name, "Ada");
+        assert_eq!(form.middle_name, "Lynn");
         assert_eq!(form.surname, "King");
+        assert_eq!(form.nickname, "Addy");
         assert_eq!(form.gender, "F");
         assert_eq!(form.birth, "1815");
         assert_eq!(form.death, "1852");
@@ -341,9 +368,11 @@ mod tests {
         edited.birth = "  ".to_string();
         let details = edited.to_details();
         assert_eq!(details.given_name, "Augusta");
+        assert_eq!(details.middle_name, "Lynn", "middle name survives saves");
+        assert_eq!(details.nickname, "Addy", "nickname survives saves");
         assert_eq!(details.birth_date, None, "blank dates clear the event");
         assert_eq!(details.death_date.as_deref(), Some("1852"));
-        assert_eq!(details.display_name(), "Augusta King");
+        assert_eq!(details.display_name(), "Augusta Lynn King");
     }
 
     #[test]

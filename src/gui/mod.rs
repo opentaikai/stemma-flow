@@ -3,6 +3,7 @@
 pub mod canvas;
 pub mod connectors;
 pub mod dialogs;
+pub mod import_report;
 pub mod inspector;
 pub mod layout;
 pub mod nodes;

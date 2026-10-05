@@ -10,6 +10,7 @@ use egui::{Align2, Color32, FontId, PointerButton, Pos2, Rect, Sense, Ui, Vec2, 
 use super::canvas::ViewportState;
 use super::connectors::paint_connectors;
 use super::dialogs;
+use super::import_report;
 use super::inspector::{
     self, InspectorAction, InspectorForm, RelationForm, RelationKind, RelationOutcome,
 };
@@ -24,6 +25,7 @@ use crate::app::{self, StemmaApp, UiStatus};
 use crate::config::AppConfig;
 use crate::db::people::{PersonDetails, VitalDates};
 use crate::db::{self, FamilyTree};
+use crate::gedcom::ImportReport;
 
 const HINT_TEXT: &str = "Import a GEDCOM file to begin";
 const HINT_COLOR: Color32 = Color32::from_gray(150);
@@ -51,6 +53,8 @@ pub struct TreeWindow {
     config: AppConfig,
     show_settings: bool,
     pending_apply: bool,
+    import_report: Option<ImportReport>,
+    show_import_report: bool,
 }
 
 impl TreeWindow {
@@ -81,6 +85,8 @@ impl TreeWindow {
             config: AppConfig::load(),
             show_settings: false,
             pending_apply: true,
+            import_report: None,
+            show_import_report: false,
         };
         if let Some(last) = window.recent.first().cloned() {
             if loadable(&last) {
@@ -500,6 +506,12 @@ impl App for TreeWindow {
         self.apply_pending_config(ui.ctx());
         self.app.poll();
         self.sync_scene();
+        if let Some(report) = self.app.take_new_import_report()
+            && !report.warnings.is_empty()
+        {
+            self.import_report = Some(report);
+            self.show_import_report = true;
+        }
         if self.app.is_busy() {
             ui.ctx().request_repaint();
         }
@@ -530,6 +542,11 @@ impl App for TreeWindow {
             && let Some(error) = settings::show(ui.ctx(), &mut self.config, &mut self.show_settings)
         {
             self.app.set_status(UiStatus::Error(error));
+        }
+        if self.show_import_report
+            && let Some(report) = self.import_report.as_ref()
+        {
+            import_report::show(ui.ctx(), report, &mut self.show_import_report);
         }
     }
 

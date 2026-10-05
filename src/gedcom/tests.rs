@@ -571,3 +571,444 @@ fn import_streams_from_a_file_handle() -> Result<(), GedcomError> {
     );
     Ok(())
 }
+
+#[test]
+fn import_reassembles_utf8_characters_split_across_conc() -> Result<(), GedcomError> {
+    // WikiTree wraps at a fixed byte width: "Лит" + the lead byte of "в"
+    // lands on line one, the continuation byte opens the `2 CONC` payload.
+    let mut sample = Vec::new();
+    sample.extend_from_slice(b"0 HEAD\n1 SOUR TEST\n1 CHAR UTF-8\n0 @I1@ INDI\n1 NAME ");
+    sample.extend_from_slice(b"\xd0\x9b\xd0\xb8\xd1\x82\xd0");
+    sample.extend_from_slice(
+        b"\n2 CONC \xb2\xd0\xb8\xd1\x86\xd0\xb5\xd0\xb2\xd0\xb0\n1 SEX F\n0 TRLR\n",
+    );
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let given: String = conn
+        .query_row("SELECT given_name FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(report.people, 1);
+    assert_eq!(given, "Литвицева");
+    assert!(
+        report.warnings.is_empty(),
+        "reassembly must leave no warnings: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_joins_conc_and_cont_payloads_byte_wise() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @S1@ SOUR
+1 NOTE ab
+2 CONC cd
+2 CONT ef
+2 CONC gh
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let note: String = conn
+        .query_row("SELECT notes FROM citations", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(note, "abcd\nefgh");
+    assert!(
+        report.warnings.is_empty(),
+        "joined continuations must not warn: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_tolerates_crlf_line_endings() -> Result<(), GedcomError> {
+    let sample =
+        "0 HEAD\r\n1 CHAR UTF-8\r\n0 @I1@ INDI\r\n1 NAME Jan /Smit/\r\n1 SEX M\r\n0 TRLR\r\n";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1);
+    assert!(
+        report.warnings.is_empty(),
+        "CRLF endings must parse cleanly: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_skips_utf8_byte_order_mark() -> Result<(), GedcomError> {
+    let mut sample = Vec::from(&b"\xef\xbb\xbf"[..]);
+    sample.extend_from_slice(b"0 HEAD\n0 @I1@ INDI\n1 NAME Ann /Lee/\n0 TRLR\n");
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1);
+    assert!(
+        report.warnings.is_empty(),
+        "a leading BOM must not break the first line: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn imports_the_local_test_data_sample_when_present() -> Result<(), GedcomError> {
+    // Private WikiTree export in gitignored `test_data/`; skipped in CI.
+    let Ok(entries) = std::fs::read_dir("test_data") else {
+        return Ok(());
+    };
+    let sample = entries
+        .flatten()
+        .find(|entry| entry.path().extension().is_some_and(|ext| ext == "ged"));
+    let Some(sample) = sample else {
+        return Ok(());
+    };
+    let file = std::fs::File::open(sample.path()).map_err(GedcomError::Io)?;
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, BufReader::new(file))?;
+
+    assert!(
+        report.people > 0 && report.families > 0,
+        "the real export must import entities: {:?}",
+        report
+    );
+    let patronymics: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM people WHERE middle_name <> ''",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert!(
+        patronymics > 0,
+        "WikiTree _MIDN patronymics must land in middle_name"
+    );
+    assert_eq!(
+        report.warnings.len(),
+        2809,
+        "every unmapped tag must be listed for the report window"
+    );
+    Ok(())
+}
+
+#[test]
+fn import_maps_name_children_into_person_fields() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Михаил Андреевич /Соловьев/
+2 GIVN Михаил
+2 _MIDN Андреевич
+2 SURN Соловьев
+2 _PGVN Миша
+1 SEX M
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let (given, middle, surname, nickname): (String, String, String, String) = conn
+        .query_row(
+            "SELECT given_name, middle_name, surname, nickname FROM people",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(given, "Михаил", "GIVN keeps the given name bare");
+    assert_eq!(middle, "Андреевич");
+    assert_eq!(surname, "Соловьев");
+    assert_eq!(nickname, "Миша");
+    assert!(
+        report.warnings.is_empty(),
+        "known name parts must not warn: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_maps_nick_tag_to_nickname() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Мария /Барахтенко/
+2 NICK Маруся
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let nickname: String = conn
+        .query_row("SELECT nickname FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(nickname, "Маруся");
+    Ok(())
+}
+
+#[test]
+fn import_keeps_payload_only_names_unchanged() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Иван Иванович /Иванов/
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let (given, middle): (String, String) = conn
+        .query_row("SELECT given_name, middle_name FROM people", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(GedcomError::Db)?;
+    assert_eq!(given, "Иван Иванович");
+    assert_eq!(middle, "", "no _MIDN means no middle column");
+    Ok(())
+}
+
+#[test]
+fn middle_name_and_nickname_round_trip_through_export() -> Result<(), GedcomError> {
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let profile = crate::db::people::PersonDetails::new(
+        "Михаил",
+        "Андреевич",
+        "Соловьев",
+        "Миша",
+        "M",
+        None,
+        None,
+    );
+    crate::db::people::insert_person(&mut conn, &profile).expect("insert succeeds");
+
+    let ged = export_to_gedcom(&conn)?;
+    assert!(ged.contains("1 NAME Михаил Андреевич /Соловьев/"), "{ged}");
+    assert!(ged.contains("2 GIVN Михаил"), "{ged}");
+    assert!(ged.contains("2 _MIDN Андреевич"), "{ged}");
+    assert!(ged.contains("2 _PGVN Миша"), "{ged}");
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    let (given, middle, surname, nickname): (String, String, String, String) = fresh
+        .query_row(
+            "SELECT given_name, middle_name, surname, nickname FROM people",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(report.people, 1);
+    assert_eq!(
+        (
+            given.as_str(),
+            middle.as_str(),
+            surname.as_str(),
+            nickname.as_str()
+        ),
+        ("Михаил", "Андреевич", "Соловьев", "Миша")
+    );
+    assert!(
+        report.warnings.is_empty(),
+        "round trip must stay warning-free: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+/// "Иван" and "Иванов" encoded as Windows-1251 bytes.
+const CP1251_IVAN: [u8; 4] = [0xC8, 0xE2, 0xE0, 0xED];
+const CP1251_IVANOV: [u8; 6] = [0xC8, 0xE2, 0xE0, 0xED, 0xEE, 0xE2];
+
+#[test]
+fn import_falls_back_to_windows_1251_on_utf8_failure() -> Result<(), GedcomError> {
+    let mut sample = Vec::new();
+    sample.extend_from_slice(b"0 HEAD\n0 @I1@ INDI\n1 NAME ");
+    sample.extend_from_slice(&CP1251_IVAN);
+    sample.extend_from_slice(b" /");
+    sample.extend_from_slice(&CP1251_IVANOV);
+    sample.extend_from_slice(b"/\n1 SEX M\n0 TRLR\n");
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let (given, surname): (String, String) = conn
+        .query_row("SELECT given_name, surname FROM people", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(GedcomError::Db)?;
+    assert_eq!((given.as_str(), surname.as_str()), ("Иван", "Иванов"));
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("decoding the rest of the stream as windows-1251")),
+        "the fallback must be reported once: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        report
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("windows-1251"))
+            .count(),
+        1,
+        "the stream must escalate only once: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_honours_cp1251_char_header_without_fallback() -> Result<(), GedcomError> {
+    let mut sample = Vec::new();
+    sample.extend_from_slice(b"0 HEAD\n1 CHAR ANSI\n0 @I1@ INDI\n1 NAME ");
+    sample.extend_from_slice(&CP1251_IVAN);
+    sample.extend_from_slice(b" /");
+    sample.extend_from_slice(&CP1251_IVANOV);
+    sample.extend_from_slice(b"/\n1 SEX M\n0 TRLR\n");
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let given: String = conn
+        .query_row("SELECT given_name FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(given, "Иван");
+    assert!(
+        report.warnings.is_empty(),
+        "a declared charset must decode without warnings: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_honours_latin1_char_header() -> Result<(), GedcomError> {
+    let mut sample = Vec::new();
+    sample.extend_from_slice(
+        b"0 HEAD\n1 CHAR LATIN1\n0 @I1@ INDI\n1 NAME Jos\xe9 /Doe/\n1 SEX M\n0 TRLR\n",
+    );
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let given: String = conn
+        .query_row("SELECT given_name FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(given, "Jos\u{e9}");
+    assert!(
+        report.warnings.is_empty(),
+        "the header charset must decode cleanly: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_warns_on_unknown_char_charset() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+1 CHAR UNICODE
+0 @I1@ INDI
+1 NAME Ann /Lee/
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("unknown CHAR charset [UNICODE]")),
+        "an unknown header must warn: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_logs_unknown_tags_without_dropping_records() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+1 SOUR TEST
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Ada /King/
+1 REFN 42
+2 TYPE wikitree.privacy
+1 OBJE
+2 AUTH WikiTree
+2 TEXT https://example.com/genealogy/king
+1 SEX F
+0 @F1@ FAM
+1 HUSB @I1@
+1 NOTE no license
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1, "the person still imports");
+    assert_eq!(report.families, 1, "the family still imports");
+    assert_eq!(report.warnings.len(), 6, "{:?}", report.warnings);
+    assert_eq!(
+        report.warnings[0],
+        "Line 6: Tag recognized/unsupported or ignored [REFN 42]"
+    );
+    assert!(report.warnings[1].contains("[TYPE wikitree.privacy]"));
+    assert_eq!(
+        report.warnings[2],
+        "Line 8: Tag recognized/unsupported or ignored [OBJE]"
+    );
+    assert!(report.warnings[3].contains("[AUTH WikiTree]"));
+    assert!(report.warnings[4].contains("[TEXT https://example.com/genealogy/king]"));
+    assert!(report.warnings[5].contains("[NOTE no license]"));
+    Ok(())
+}
+
+#[test]
+fn unknown_tag_warnings_truncate_long_values() -> Result<(), GedcomError> {
+    let payload = "a".repeat(150);
+    let sample = format!("0 HEAD\n0 @I1@ INDI\n1 NAME X /Y/\n1 OCCU {payload}\n0 TRLR\n");
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample.as_str()))?;
+
+    assert_eq!(report.people, 1);
+    let warning = report.warnings.first().expect("the unmapped tag must warn");
+    assert!(warning.starts_with("Line 4: Tag recognized/unsupported or ignored [OCCU "));
+    assert!(warning.ends_with("…]"), "{warning}");
+    assert!(warning.contains(&"a".repeat(100)), "first 100 chars kept");
+    assert!(!warning.contains(&"a".repeat(101)), "value is truncated");
+    Ok(())
+}
+
+#[test]
+fn unknown_level_zero_records_warn_once_with_a_silent_subtree() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @N1@ NOTE A research note
+1 PLAC ignored
+0 @I1@ INDI
+1 NAME Ann /Lee/
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1);
+    assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+    assert!(
+        report.warnings[0].contains("[NOTE A research note]"),
+        "{:?}",
+        report.warnings
+    );
+    Ok(())
+}

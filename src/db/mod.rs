@@ -36,17 +36,19 @@ pub struct FamilyTree {
 pub fn load_family_tree(conn: &Connection) -> rusqlite::Result<FamilyTree> {
     let mut people = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT id, given_name, surname, gender, created_at, updated_at
+        "SELECT id, given_name, middle_name, surname, nickname, gender, created_at, updated_at
          FROM people ORDER BY rowid",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(Person {
             id: row.get(0)?,
             given_name: row.get(1)?,
-            surname: row.get(2)?,
-            gender: row.get(3)?,
-            created_at: row.get(4)?,
-            updated_at: row.get(5)?,
+            middle_name: row.get(2)?,
+            surname: row.get(3)?,
+            nickname: row.get(4)?,
+            gender: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
         })
     })?;
     for row in rows {

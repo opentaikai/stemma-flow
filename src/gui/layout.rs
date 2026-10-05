@@ -68,7 +68,15 @@ pub fn truncate_name(name: &str, max_chars: usize) -> String {
 }
 
 fn person_display_name(person: &Person) -> String {
-    let full = format!("{} {}", person.given_name, person.surname);
+    let full = [
+        person.given_name.as_str(),
+        person.middle_name.as_str(),
+        person.surname.as_str(),
+    ]
+    .into_iter()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join(" ");
     truncate_name(full.trim(), NAME_MAX_CHARS)
 }
 
@@ -415,7 +423,9 @@ mod tests {
         Person {
             id: id.to_string(),
             given_name: given.to_string(),
+            middle_name: String::new(),
             surname: surname.to_string(),
+            nickname: String::new(),
             gender: "U".to_string(),
             created_at: String::new(),
             updated_at: String::new(),
@@ -580,6 +590,13 @@ mod tests {
         assert_eq!(
             person_display_name(&person("i1", "Anna Maria", "von Rosenfelt")),
             "Anna Maria von…"
+        );
+        let mut with_middle = person("i2", "Ana", "Lee");
+        with_middle.middle_name = "Mar".to_string();
+        assert_eq!(
+            person_display_name(&with_middle),
+            "Ana Mar Lee",
+            "canvas labels include the middle name"
         );
     }
 }

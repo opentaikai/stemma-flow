@@ -545,3 +545,34 @@ fn load_family_tree_returns_rows_in_order() -> rusqlite::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn init_db_upgrades_a_legacy_people_table() -> rusqlite::Result<()> {
+    // Pre-middle-name layout: CREATE TABLE IF NOT EXISTS would keep it as is.
+    let conn = Connection::open_in_memory()?;
+    conn.execute_batch(
+        "CREATE TABLE people (
+            id TEXT PRIMARY KEY,
+            given_name TEXT NOT NULL,
+            surname TEXT NOT NULL,
+            gender TEXT NOT NULL CHECK (gender IN ('M', 'F', 'U')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );",
+    )?;
+
+    init_db(&conn)?;
+
+    conn.execute(
+        "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender)
+         VALUES ('p1', 'Ivan', 'Petrovich', 'Ivanov', 'Vanya', 'M')",
+        [],
+    )?;
+    let names: String = conn.query_row(
+        "SELECT middle_name || '/' || nickname FROM people WHERE id = 'p1'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(names, "Petrovich/Vanya");
+    Ok(())
+}

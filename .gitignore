@@ -32,3 +32,5 @@ rustc-ice-*.txt
 *.db
 *.db-wal
 *.db-shm
+
+/test_data

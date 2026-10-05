@@ -39,9 +39,16 @@ pub fn rows(tree: &FamilyTree, dates: &HashMap<String, VitalDates>) -> Vec<Perso
     let mut rows = Vec::with_capacity(tree.people.len());
     for person in &tree.people {
         let vitals = dates.get(&person.id);
+        // The single Given cell shows given + middle so patronymics stay
+        // visible and searchable without a separate column.
+        let given_name = [person.given_name.as_str(), person.middle_name.as_str()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
         rows.push(PersonRow {
             id: person.id.clone(),
-            given_name: person.given_name.clone(),
+            given_name,
             surname: person.surname.clone(),
             gender: person.gender.clone(),
             birth: vitals.and_then(|vitals| vitals.birth.clone()),
@@ -359,7 +366,8 @@ mod tests {
     #[test]
     fn rows_join_people_with_vital_dates() {
         let mut tree = FamilyTree::default();
-        let person = Person::new("Ada", "King", "F");
+        let mut person = Person::new("Ada", "King", "F");
+        person.middle_name = "Lynn".to_string();
         let id = person.id.clone();
         tree.people.push(person);
         let mut dates = HashMap::new();
@@ -377,7 +385,8 @@ mod tests {
         assert_eq!(row.id, id);
         assert_eq!(row.birth.as_deref(), Some("1815"));
         assert_eq!(row.death.as_deref(), Some("1852"));
-        assert_eq!(row.display_name(), "Ada King");
+        assert_eq!(row.given_name, "Ada Lynn", "the Given cell shows middle");
+        assert_eq!(row.display_name(), "Ada Lynn King");
     }
 
     #[test]
