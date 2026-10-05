@@ -690,6 +690,11 @@ fn imports_the_local_test_data_sample_when_present() -> Result<(), GedcomError> 
         patronymics > 0,
         "WikiTree _MIDN patronymics must land in middle_name"
     );
+    assert_eq!(
+        report.warnings.len(),
+        2809,
+        "every unmapped tag must be listed for the report window"
+    );
     Ok(())
 }
 
@@ -924,6 +929,85 @@ fn import_warns_on_unknown_char_charset() -> Result<(), GedcomError> {
             .iter()
             .any(|warning| warning.contains("unknown CHAR charset [UNICODE]")),
         "an unknown header must warn: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_logs_unknown_tags_without_dropping_records() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+1 SOUR TEST
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Ada /King/
+1 REFN 42
+2 TYPE wikitree.privacy
+1 OBJE
+2 AUTH WikiTree
+2 TEXT https://example.com/genealogy/king
+1 SEX F
+0 @F1@ FAM
+1 HUSB @I1@
+1 NOTE no license
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1, "the person still imports");
+    assert_eq!(report.families, 1, "the family still imports");
+    assert_eq!(report.warnings.len(), 6, "{:?}", report.warnings);
+    assert_eq!(
+        report.warnings[0],
+        "Line 6: Tag recognized/unsupported or ignored [REFN 42]"
+    );
+    assert!(report.warnings[1].contains("[TYPE wikitree.privacy]"));
+    assert_eq!(
+        report.warnings[2],
+        "Line 8: Tag recognized/unsupported or ignored [OBJE]"
+    );
+    assert!(report.warnings[3].contains("[AUTH WikiTree]"));
+    assert!(report.warnings[4].contains("[TEXT https://example.com/genealogy/king]"));
+    assert!(report.warnings[5].contains("[NOTE no license]"));
+    Ok(())
+}
+
+#[test]
+fn unknown_tag_warnings_truncate_long_values() -> Result<(), GedcomError> {
+    let payload = "a".repeat(150);
+    let sample = format!("0 HEAD\n0 @I1@ INDI\n1 NAME X /Y/\n1 OCCU {payload}\n0 TRLR\n");
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample.as_str()))?;
+
+    assert_eq!(report.people, 1);
+    let warning = report.warnings.first().expect("the unmapped tag must warn");
+    assert!(warning.starts_with("Line 4: Tag recognized/unsupported or ignored [OCCU "));
+    assert!(warning.ends_with("…]"), "{warning}");
+    assert!(warning.contains(&"a".repeat(100)), "first 100 chars kept");
+    assert!(!warning.contains(&"a".repeat(101)), "value is truncated");
+    Ok(())
+}
+
+#[test]
+fn unknown_level_zero_records_warn_once_with_a_silent_subtree() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @N1@ NOTE A research note
+1 PLAC ignored
+0 @I1@ INDI
+1 NAME Ann /Lee/
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1);
+    assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+    assert!(
+        report.warnings[0].contains("[NOTE A research note]"),
+        "{:?}",
         report.warnings
     );
     Ok(())

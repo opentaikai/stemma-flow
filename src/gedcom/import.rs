@@ -175,6 +175,32 @@ fn optional_payload(payload: &str) -> Option<String> {
     }
 }
 
+/// Warning text for a tag the importer recognises but does not model: the
+/// record keeps importing, the tag is listed for review with its payload
+/// flattened (CONT newlines) and truncated to 100 characters.
+fn unknown_tag_warning(line_no: usize, line: &Line<'_>) -> String {
+    if line.payload.is_empty() {
+        return format!(
+            "Line {line_no}: Tag recognized/unsupported or ignored [{}]",
+            line.tag
+        );
+    }
+    let flat = line.payload.replace('\n', "\\n");
+    let mut chars = flat.chars();
+    let value: String = chars.by_ref().take(100).collect();
+    if chars.next().is_some() {
+        format!(
+            "Line {line_no}: Tag recognized/unsupported or ignored [{} {value}…]",
+            line.tag
+        )
+    } else {
+        format!(
+            "Line {line_no}: Tag recognized/unsupported or ignored [{} {value}]",
+            line.tag
+        )
+    }
+}
+
 enum Current {
     Indi {
         rec: Box<IndiRecord>,
@@ -529,7 +555,13 @@ impl<R: BufRead> RecordReader<R> {
                 self.current = None;
             }
             _ => {
-                // HEAD, REPO, OBJE, NOTE, ...: skip the whole block.
+                // OBJE, NOTE, ...: list the tag once and skip the whole
+                // block. HEAD/SUBM/REPO/SUBN are known structure that the
+                // importer simply does not need, so they stay silent.
+                if !matches!(line.tag, "HEAD" | "SUBM" | "REPO" | "SUBN") {
+                    let message = unknown_tag_warning(self.line_no, &line);
+                    self.warnings.push(message);
+                }
                 self.current = Some(Current::Skipped);
             }
         }
@@ -552,7 +584,7 @@ impl<R: BufRead> RecordReader<R> {
                                 None => Some(continuation),
                             };
                         }
-                        _ => {}
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
                 }
             }
@@ -578,7 +610,7 @@ impl<R: BufRead> RecordReader<R> {
                             });
                             *event_slot = Some(rec.events.len() - 1);
                         }
-                        _ => {}
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
                 } else if event_slot.is_none() {
                     // Name-part children of `1 NAME` (GIVN/SURN/_MIDN/_PGVN…)
@@ -588,10 +620,10 @@ impl<R: BufRead> RecordReader<R> {
                         "SURN" => rec.surname = line.payload.to_string(),
                         "_MIDN" => rec.middle_name = line.payload.to_string(),
                         "_PGVN" | "NICK" => rec.nickname = line.payload.to_string(),
-                        _ => {}
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
                 } else if let Some(slot) = event_slot {
-                    fill_event(&mut rec.events, *slot, line);
+                    fill_event(&mut rec.events, *slot, line, line_no, &mut warning);
                 }
             }
             Some(Current::Fam { rec, event_slot }) => {
@@ -614,10 +646,13 @@ impl<R: BufRead> RecordReader<R> {
                             });
                             *event_slot = Some(rec.events.len() - 1);
                         }
-                        _ => {}
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
+                } else if event_slot.is_none() {
+                    // Children of an unknown level-1 tag (REFN/TYPE…).
+                    warning = Some(unknown_tag_warning(line_no, &line));
                 } else if let Some(slot) = event_slot {
-                    fill_event(&mut rec.events, *slot, line);
+                    fill_event(&mut rec.events, *slot, line, line_no, &mut warning);
                 }
             }
         }
@@ -679,7 +714,13 @@ fn optional_pointer(
     }
 }
 
-fn fill_event(events: &mut [ParsedEvent], slot: usize, line: Line<'_>) {
+fn fill_event(
+    events: &mut [ParsedEvent],
+    slot: usize,
+    line: Line<'_>,
+    line_no: usize,
+    warning: &mut Option<String>,
+) {
     if let Some(event) = events.get_mut(slot) {
         match line.tag {
             "DATE" => event.date = optional_payload(line.payload),
@@ -707,7 +748,7 @@ fn fill_event(events: &mut [ParsedEvent], slot: usize, line: Line<'_>) {
                     last.page = optional_payload(line.payload);
                 }
             }
-            _ => {}
+            _ => *warning = Some(unknown_tag_warning(line_no, &line)),
         }
     }
 }
