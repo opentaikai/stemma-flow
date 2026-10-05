@@ -681,3 +681,116 @@ fn imports_the_local_test_data_sample_when_present() -> Result<(), GedcomError> 
     );
     Ok(())
 }
+
+/// "Иван" and "Иванов" encoded as Windows-1251 bytes.
+const CP1251_IVAN: [u8; 4] = [0xC8, 0xE2, 0xE0, 0xED];
+const CP1251_IVANOV: [u8; 6] = [0xC8, 0xE2, 0xE0, 0xED, 0xEE, 0xE2];
+
+#[test]
+fn import_falls_back_to_windows_1251_on_utf8_failure() -> Result<(), GedcomError> {
+    let mut sample = Vec::new();
+    sample.extend_from_slice(b"0 HEAD\n0 @I1@ INDI\n1 NAME ");
+    sample.extend_from_slice(&CP1251_IVAN);
+    sample.extend_from_slice(b" /");
+    sample.extend_from_slice(&CP1251_IVANOV);
+    sample.extend_from_slice(b"/\n1 SEX M\n0 TRLR\n");
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let (given, surname): (String, String) = conn
+        .query_row("SELECT given_name, surname FROM people", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(GedcomError::Db)?;
+    assert_eq!((given.as_str(), surname.as_str()), ("Иван", "Иванов"));
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("decoding the rest of the stream as windows-1251")),
+        "the fallback must be reported once: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        report
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("windows-1251"))
+            .count(),
+        1,
+        "the stream must escalate only once: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_honours_cp1251_char_header_without_fallback() -> Result<(), GedcomError> {
+    let mut sample = Vec::new();
+    sample.extend_from_slice(b"0 HEAD\n1 CHAR ANSI\n0 @I1@ INDI\n1 NAME ");
+    sample.extend_from_slice(&CP1251_IVAN);
+    sample.extend_from_slice(b" /");
+    sample.extend_from_slice(&CP1251_IVANOV);
+    sample.extend_from_slice(b"/\n1 SEX M\n0 TRLR\n");
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let given: String = conn
+        .query_row("SELECT given_name FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(given, "Иван");
+    assert!(
+        report.warnings.is_empty(),
+        "a declared charset must decode without warnings: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_honours_latin1_char_header() -> Result<(), GedcomError> {
+    let mut sample = Vec::new();
+    sample.extend_from_slice(
+        b"0 HEAD\n1 CHAR LATIN1\n0 @I1@ INDI\n1 NAME Jos\xe9 /Doe/\n1 SEX M\n0 TRLR\n",
+    );
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let given: String = conn
+        .query_row("SELECT given_name FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(given, "Jos\u{e9}");
+    assert!(
+        report.warnings.is_empty(),
+        "the header charset must decode cleanly: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_warns_on_unknown_char_charset() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+1 CHAR UNICODE
+0 @I1@ INDI
+1 NAME Ann /Lee/
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("unknown CHAR charset [UNICODE]")),
+        "an unknown header must warn: {:?}",
+        report.warnings
+    );
+    Ok(())
+}

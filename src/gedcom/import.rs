@@ -1,10 +1,11 @@
 //! Streaming line-by-line parser for GEDCOM 5.5.1 records.
 //!
 //! Reads through any [`BufRead`] one physical line at a time, reassembles
-//! `CONC`/`CONT`-wrapped lines byte-wise *before* UTF-8 decoding (exporters
-//! wrap at a fixed byte width and can split multi-byte characters across the
-//! break), and yields completed `INDI`/`FAM` records, so memory stays
-//! proportional to the number of pointers rather than the file size.
+//! `CONC`/`CONT`-wrapped lines byte-wise *before* decoding (exporters wrap
+//! at a fixed byte width and can split multi-byte characters across the
+//! break), honours the `1 CHAR` header charset with a Windows-1251 fallback,
+//! and yields completed `INDI`/`FAM` records, so memory stays proportional
+//! to the number of pointers rather than the file size.
 
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -234,6 +235,49 @@ fn byte_prefix(bytes: &[u8]) -> Option<BytePrefix<'_>> {
     })
 }
 
+/// Legacy single-byte charsets the decode fallback can use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Charset {
+    Cp1251,
+    Latin1,
+}
+
+impl Charset {
+    /// Decodes `bytes`, replacing malformed sequences instead of failing
+    /// (the final safety net of the fallback chain).
+    fn decode(self, bytes: &[u8]) -> String {
+        match self {
+            Self::Cp1251 => {
+                let (text, _, _) = encoding_rs::WINDOWS_1251.decode(bytes);
+                text.into_owned()
+            }
+            Self::Latin1 => encoding_rs::mem::decode_latin1(bytes).into_owned(),
+        }
+    }
+}
+
+/// What a `1 CHAR` header line declares.
+enum CharHeader {
+    Utf8,
+    Legacy(Charset),
+    Unknown,
+}
+
+/// Maps common `1 CHAR` header values onto system charsets; unknown values
+/// fall through as [`CharHeader::Unknown`] and keep the UTF-8 chain.
+fn parse_char_header(payload: &str) -> CharHeader {
+    match payload.trim().to_ascii_uppercase().as_str() {
+        "UTF-8" | "UTF8" => CharHeader::Utf8,
+        "ANSI" | "WINDOWS" | "CP1251" | "CP-1251" | "WINDOWS1251" | "WINDOWS-1251" => {
+            CharHeader::Legacy(Charset::Cp1251)
+        }
+        "LATIN1" | "LATIN-1" | "ISO-8859-1" | "ISO8859-1" | "ANSEL" | "ASCII" => {
+            CharHeader::Legacy(Charset::Latin1)
+        }
+        _ => CharHeader::Unknown,
+    }
+}
+
 /// Streams completed records out of a GEDCOM text stream.
 ///
 /// Yields `INDI`/`FAM` records plus the `SOUR` records that event citations
@@ -246,6 +290,9 @@ pub(crate) struct RecordReader<R: BufRead> {
     peeked: Option<(usize, Vec<u8>)>,
     physical_line: usize,
     line_no: usize,
+    /// Active non-UTF-8 decoder: set by a legacy `1 CHAR` header or by the
+    /// first UTF-8 failure, and then applied to every remaining line.
+    decoder: Option<Charset>,
     current: Option<Current>,
     pending: Option<String>,
     warnings: Vec<String>,
@@ -262,6 +309,7 @@ impl<R: BufRead> RecordReader<R> {
             peeked: None,
             physical_line: 0,
             line_no: 0,
+            decoder: None,
             current: None,
             pending: None,
             warnings: Vec::new(),
@@ -346,9 +394,44 @@ impl<R: BufRead> RecordReader<R> {
                 bytes.extend_from_slice(tail);
             }
         }
-        let raw = String::from_utf8(bytes)
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-        Ok(Some(raw))
+        self.decode_logical(bytes).map(Some)
+    }
+
+    /// Decodes one assembled logical line: the active legacy charset when a
+    /// header or an earlier failure engaged one, otherwise strict UTF-8 with
+    /// a one-time fall back to Windows-1251 (Cyrillic compatibility).
+    fn decode_logical(&mut self, bytes: Vec<u8>) -> std::io::Result<String> {
+        if let Some(charset) = self.decoder {
+            return Ok(charset.decode(&bytes));
+        }
+        match String::from_utf8(bytes) {
+            Ok(text) => Ok(text),
+            Err(error) => {
+                self.decoder = Some(Charset::Cp1251);
+                let message = format!(
+                    "Line {}: invalid UTF-8; decoding the rest of the stream as windows-1251",
+                    self.line_no
+                );
+                self.warnings.push(message);
+                Ok(Charset::Cp1251.decode(error.as_bytes()))
+            }
+        }
+    }
+
+    /// Applies a `1 CHAR` header to the decode state of the stream.
+    fn apply_char_header(&mut self, payload: &str) {
+        match parse_char_header(payload) {
+            CharHeader::Utf8 => {}
+            CharHeader::Legacy(charset) => self.decoder = Some(charset),
+            CharHeader::Unknown => {
+                let message = format!(
+                    "Line {}: unknown CHAR charset [{}]; assuming UTF-8",
+                    self.line_no,
+                    payload.trim()
+                );
+                self.warnings.push(message);
+            }
+        }
     }
 
     /// Returns the next completed `INDI`/`FAM` record, or `None` at the end
@@ -373,6 +456,9 @@ impl<R: BufRead> RecordReader<R> {
                 }
                 continue;
             };
+            if parsed.level == 1 && parsed.tag == "CHAR" {
+                self.apply_char_header(parsed.payload);
+            }
 
             if parsed.level == 0 {
                 if let Some(record) = self.finish_current() {
