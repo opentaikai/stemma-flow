@@ -57,6 +57,8 @@ pub struct StemmaApp {
     rx: Option<Receiver<JobEvent>>,
     selected_person_id: Option<String>,
     import_generation: u64,
+    /// Last import's report waiting for the UI layer to consume it once.
+    new_import_report: Option<ImportReport>,
 }
 
 impl StemmaApp {
@@ -70,6 +72,7 @@ impl StemmaApp {
             rx: None,
             selected_person_id: None,
             import_generation: 0,
+            new_import_report: None,
         }
     }
 
@@ -276,18 +279,14 @@ impl StemmaApp {
         self.status = match event {
             JobEvent::Imported(report) => {
                 self.import_generation += 1;
-                UiStatus::Success(format!(
-                    "Imported {} people, {} families, {} events, {} citations",
-                    report.people, report.families, report.events, report.citations
-                ))
+                self.new_import_report = Some(report.clone());
+                UiStatus::Success(import_summary(&report))
             }
             JobEvent::TreeReady { report, path } => {
                 self.activate_tree(path);
                 self.import_generation += 1;
-                UiStatus::Success(format!(
-                    "Imported {} people, {} families, {} events, {} citations",
-                    report.people, report.families, report.events, report.citations
-                ))
+                self.new_import_report = Some(report.clone());
+                UiStatus::Success(import_summary(&report))
             }
             JobEvent::Exported { bytes, path } => {
                 UiStatus::Success(format!("Exported {bytes} bytes to {}", path.display()))
@@ -296,6 +295,25 @@ impl StemmaApp {
             JobEvent::Failed(message) => UiStatus::Error(message),
         };
     }
+
+    /// Returns the latest import's report exactly once so the UI can open
+    /// the report window when it carries warnings.
+    pub fn take_new_import_report(&mut self) -> Option<ImportReport> {
+        self.new_import_report.take()
+    }
+}
+
+/// Status-bar line for a finished import, warning count included so the
+/// user always sees whether anything was skipped.
+fn import_summary(report: &ImportReport) -> String {
+    format!(
+        "Imported {} people, {} families, {} events, {} citations, {} warnings",
+        report.people,
+        report.families,
+        report.events,
+        report.citations,
+        report.warnings.len()
+    )
 }
 
 impl Default for StemmaApp {
@@ -572,6 +590,37 @@ mod tests {
         app.busy = true;
         app.apply_event(JobEvent::Failed("disk full".to_string()));
         assert_eq!(app.status(), &UiStatus::Error("disk full".to_string()));
+    }
+
+    #[test]
+    fn import_events_count_warnings_and_expose_the_report_once() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        app.apply_event(JobEvent::Imported(ImportReport {
+            people: 5,
+            families: 2,
+            child_links: 0,
+            events: 3,
+            citations: 1,
+            warnings: vec!["Line 6: ignored".to_string(), "Line 9: ignored".to_string()],
+        }));
+
+        match app.status() {
+            UiStatus::Success(message) => {
+                assert!(message.contains("5 people"), "{message}");
+                assert!(message.contains("2 warnings"), "{message}");
+            }
+            other => panic!("expected success, got {other:?}"),
+        }
+
+        let report = app
+            .take_new_import_report()
+            .expect("the report waits for the UI");
+        assert_eq!(report.warnings.len(), 2);
+        assert!(
+            app.take_new_import_report().is_none(),
+            "the take is one-shot"
+        );
     }
 
     /// Renders the family links as names so two databases with freshly
