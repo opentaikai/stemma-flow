@@ -18,8 +18,10 @@ use crate::db::{Family, FamilyTree, Person};
 pub const NODE_W: f32 = 140.0;
 /// Node height in canvas units.
 pub const NODE_H: f32 = 56.0;
-/// Horizontal gap between adjacent nodes of the same rank.
-const H_GAP: f32 = 40.0;
+/// Separation between chain nodes that are not married to each other.
+const H_SPACING: f32 = 24.0;
+/// Union gap between spouses seated next to each other in a chain.
+const SPOUSE_GAP: f32 = 12.0;
 /// Vertical gap between two ranks (spec floor: 120).
 const V_GAP: f32 = 120.0;
 /// Character budget for node name labels.
@@ -91,23 +93,16 @@ pub fn build_scene(tree: &FamilyTree) -> TreeScene {
     builder.finish()
 }
 
-/// Width of `count` nodes laid out with [`H_GAP`] between them.
-fn row_width(count: usize) -> f32 {
-    if count == 0 {
-        0.0
-    } else {
-        count as f32 * NODE_W + (count - 1) as f32 * H_GAP
-    }
+/// Centre of the gap that follows chain slot `slot` in `xs`.
+fn gap_centre(xs: &[f32], slot: usize) -> Option<f32> {
+    let left = *xs.get(slot)?;
+    let right = *xs.get(slot + 1)?;
+    Some((left + right + NODE_W) * 0.5)
 }
 
-/// Centre of the gap that follows chain slot `slot`.
-fn gap_centre(slot: usize) -> f32 {
-    slot as f32 * (NODE_W + H_GAP) + NODE_W + H_GAP * 0.5
-}
-
-/// Centre of the node sitting in chain slot `slot`.
-fn slot_centre(slot: usize) -> f32 {
-    slot as f32 * (NODE_W + H_GAP) + NODE_W * 0.5
+/// Centre of the node sitting in chain slot `slot` in `xs`.
+fn slot_centre(xs: &[f32], slot: usize) -> Option<f32> {
+    xs.get(slot).map(|left| left + NODE_W * 0.5)
 }
 
 /// One rank unit: people joined by marriages, drawn as a spouse chain.
@@ -141,6 +136,8 @@ struct LayoutBuilder<'a> {
     compounds: Vec<Compound<'a>>,
     compound_of: HashMap<&'a str, usize>,
     chains: Vec<Vec<&'a str>>,
+    /// Leading x of every chain slot, per compound.
+    chain_xs: Vec<Vec<f32>>,
     blocks: HashMap<usize, BlockLayout>,
     block_active: HashSet<usize>,
     place_active: HashSet<usize>,
@@ -176,10 +173,11 @@ impl<'a> LayoutBuilder<'a> {
         }
 
         let (compounds, compound_of) = Self::compute_compounds(tree, &index);
-        let chains = compounds
+        let chains: Vec<Vec<&str>> = compounds
             .iter()
             .map(|compound| Self::build_chain(tree, &index, compound))
             .collect();
+        let chain_xs = Self::compute_chain_xs(tree, &compounds, &chains);
         let mut builder = Self {
             tree,
             node_ids,
@@ -189,6 +187,7 @@ impl<'a> LayoutBuilder<'a> {
             compounds,
             compound_of,
             chains,
+            chain_xs,
             blocks: HashMap::new(),
             block_active: HashSet::new(),
             place_active: HashSet::new(),
@@ -381,6 +380,73 @@ impl<'a> LayoutBuilder<'a> {
         chain
     }
 
+    /// Leading x of every chain slot: spouses of the same family sit
+    /// [`SPOUSE_GAP`] apart, any other chain neighbour keeps the node
+    /// separation [`H_SPACING`]. Slots start at 0; an empty chain has
+    /// no slots.
+    fn compute_chain_xs(
+        tree: &'a FamilyTree,
+        compounds: &[Compound<'a>],
+        chains: &[Vec<&'a str>],
+    ) -> Vec<Vec<f32>> {
+        chains
+            .iter()
+            .enumerate()
+            .map(|(compound, chain)| {
+                let mut xs = Vec::with_capacity(chain.len());
+                let mut x = 0.0;
+                for pair in chain.windows(2) {
+                    xs.push(x);
+                    let gap = if Self::spouse_pair(tree, compounds.get(compound), pair) {
+                        SPOUSE_GAP
+                    } else {
+                        H_SPACING
+                    };
+                    x += NODE_W + gap;
+                }
+                if !chain.is_empty() {
+                    xs.push(x);
+                }
+                xs
+            })
+            .collect()
+    }
+
+    /// Whether `pair` are the two spouses of one of the compound's
+    /// families, in either order.
+    fn spouse_pair(
+        tree: &'a FamilyTree,
+        compound: Option<&Compound<'a>>,
+        pair: &[&'a str],
+    ) -> bool {
+        let [first, second] = pair else {
+            return false;
+        };
+        let Some(compound) = compound else {
+            return false;
+        };
+        compound.families.iter().any(|&position| {
+            let Some(family) = tree.families.get(position) else {
+                return false;
+            };
+            let (Some(husband), Some(wife)) =
+                (family.husband_id.as_deref(), family.wife_id.as_deref())
+            else {
+                return false;
+            };
+            (husband == *first && wife == *second) || (husband == *second && wife == *first)
+        })
+    }
+
+    /// Full width of the compound's chain, empty chains are zero wide.
+    fn chain_width(&self, compound: usize) -> f32 {
+        self.chain_xs
+            .get(compound)
+            .and_then(|xs| xs.last())
+            .map(|last| last + NODE_W)
+            .unwrap_or(0.0)
+    }
+
     /// Kahn pass over compound -> compound edges; cycle leftovers keep
     /// rank 0 instead of hanging the layout. Compounds without parents
     /// become the placement roots.
@@ -463,6 +529,9 @@ impl<'a> LayoutBuilder<'a> {
         let Some(chain) = self.chains.get(compound) else {
             return 0.0;
         };
+        let Some(xs) = self.chain_xs.get(compound) else {
+            return 0.0;
+        };
         let Some(family) = self.tree.families.get(family) else {
             return 0.0;
         };
@@ -481,14 +550,22 @@ impl<'a> LayoutBuilder<'a> {
                 } else {
                     (wife, husband)
                 };
+                let Some(first_gap) = gap_centre(xs, low) else {
+                    return 0.0;
+                };
                 if high - low == 1 {
-                    return gap_centre(low);
+                    return first_gap;
                 }
-                let midpoint = (slot_centre(husband) + slot_centre(wife)) * 0.5;
-                let mut best = gap_centre(low);
+                let midpoint = match (slot_centre(xs, husband), slot_centre(xs, wife)) {
+                    (Some(husband), Some(wife)) => (husband + wife) * 0.5,
+                    _ => return 0.0,
+                };
+                let mut best = first_gap;
                 let mut best_distance = (best - midpoint).abs();
                 for gap in low..high {
-                    let centre = gap_centre(gap);
+                    let Some(centre) = gap_centre(xs, gap) else {
+                        break;
+                    };
                     let distance = (centre - midpoint).abs();
                     if distance <= best_distance {
                         best = centre;
@@ -497,7 +574,9 @@ impl<'a> LayoutBuilder<'a> {
                 }
                 best
             }
-            (Some(position), None) | (None, Some(position)) => slot_centre(position),
+            (Some(position), None) | (None, Some(position)) => {
+                slot_centre(xs, position).unwrap_or(0.0)
+            }
             (None, None) => 0.0,
         }
     }
@@ -506,11 +585,7 @@ impl<'a> LayoutBuilder<'a> {
     /// family's children row, ordered by union position and pushed right
     /// when ideal centring would overlap the previous group.
     fn compute_block(&mut self, compound: usize) -> BlockLayout {
-        let chain_width = self
-            .chains
-            .get(compound)
-            .map(|chain| row_width(chain.len()))
-            .unwrap_or(0.0);
+        let chain_width = self.chain_width(compound);
         let families = self
             .compounds
             .get(compound)
@@ -526,7 +601,7 @@ impl<'a> LayoutBuilder<'a> {
                 };
                 let width = self.block_of(child_compound).width;
                 if children_width > 0.0 {
-                    children_width += H_GAP;
+                    children_width += H_SPACING;
                 }
                 children_width += width;
             }
@@ -545,7 +620,7 @@ impl<'a> LayoutBuilder<'a> {
         let mut high = chain_width;
         for (family, union, children_width) in groups {
             let ideal = union - children_width * 0.5;
-            let start = ideal.max(previous_end + H_GAP);
+            let start = ideal.max(previous_end + H_SPACING);
             previous_end = start + children_width;
             low = low.min(start);
             high = high.max(previous_end);
@@ -569,11 +644,7 @@ impl<'a> LayoutBuilder<'a> {
             return block.clone();
         }
         if !self.block_active.insert(compound) {
-            let width = self
-                .chains
-                .get(compound)
-                .map(|chain| row_width(chain.len()))
-                .unwrap_or(0.0);
+            let width = self.chain_width(compound);
             return BlockLayout {
                 chain_x: 0.0,
                 groups: Vec::new(),
@@ -601,6 +672,7 @@ impl<'a> LayoutBuilder<'a> {
         }
         let block = self.block_of(compound);
         let chain = self.chains.get(compound).cloned().unwrap_or_default();
+        let chain_xs = self.chain_xs.get(compound).cloned().unwrap_or_default();
         let families = self
             .compounds
             .get(compound)
@@ -609,7 +681,7 @@ impl<'a> LayoutBuilder<'a> {
         let y = self.rank_y(compound);
 
         for (slot, id) in chain.iter().enumerate() {
-            let x = left + block.chain_x + slot as f32 * (NODE_W + H_GAP);
+            let x = left + block.chain_x + chain_xs.get(slot).copied().unwrap_or(0.0);
             self.insert_bounds(
                 id,
                 Rect::from_min_size(Pos2::new(x, y), vec2(NODE_W, NODE_H)),
@@ -634,7 +706,7 @@ impl<'a> LayoutBuilder<'a> {
                 };
                 let width = self.block_of(child_compound).width;
                 self.place_compound(child_compound, child_x);
-                child_x += width + H_GAP;
+                child_x += width + H_SPACING;
             }
         }
 
@@ -648,7 +720,7 @@ impl<'a> LayoutBuilder<'a> {
         for compound in roots {
             let width = self.block_of(compound).width;
             self.place_compound(compound, cursor);
-            cursor += width + H_GAP;
+            cursor += width + H_SPACING;
         }
         // Cycles and compounds behind them fall back to the end of the row.
         for compound in 0..self.compounds.len() {
@@ -657,7 +729,7 @@ impl<'a> LayoutBuilder<'a> {
             }
             let width = self.block_of(compound).width;
             self.place_compound(compound, cursor);
-            cursor += width + H_GAP;
+            cursor += width + H_SPACING;
         }
     }
 
@@ -699,7 +771,7 @@ impl<'a> LayoutBuilder<'a> {
                     };
                     // Spouses seated in different chain gaps (remarriage)
                     // get no bar: it would cut across the nodes between.
-                    let adjacent = (second.x - first.x - H_GAP).abs() < 0.5;
+                    let adjacent = (second.x - first.x - SPOUSE_GAP).abs() < 0.5;
                     let spouse_line = adjacent.then_some([first, second]);
                     let union = if adjacent {
                         first + (second - first) * 0.5
@@ -916,8 +988,8 @@ mod tests {
         let father = node(&scene, "i1");
         let mother = node(&scene, "i2");
         assert!(
-            (mother.bounds.min.x - father.bounds.max.x - H_GAP).abs() < 1e-3,
-            "spouses are separated by exactly H_GAP"
+            (mother.bounds.min.x - father.bounds.max.x - SPOUSE_GAP).abs() < 1e-3,
+            "spouses are separated by exactly SPOUSE_GAP"
         );
 
         let left = node(&scene, "i3").bounds.min.x;
@@ -1069,16 +1141,19 @@ mod tests {
             "both children rows share the child rank"
         );
         assert!(
-            (first_child.center().x - union(&scene, "f1").union.x).abs() < 1e-3,
-            "f1 children centred under the f1 union"
-        );
-        assert!(
             (second_child.center().x - union(&scene, "f2").union.x).abs() < 1e-3,
             "f2 children centred under the f2 union"
         );
+        // The two unions sit only SPOUSE_GAP + NODE_W apart, so the f1
+        // row slides right to keep the rows H_SPACING clear.
+        let f1_shift = first_child.center().x - union(&scene, "f1").union.x;
         assert!(
-            first_child.min.x >= second_child.max.x + H_GAP - 1e-3,
-            "the two children rows keep at least H_GAP apart"
+            (-1e-3..=H_SPACING + 1e-3).contains(&f1_shift),
+            "f1 row stays under its union, pushed clear of the f2 row"
+        );
+        assert!(
+            first_child.min.x >= second_child.max.x + H_SPACING - 1e-3,
+            "the two children rows keep at least H_SPACING apart"
         );
     }
 
@@ -1097,9 +1172,15 @@ mod tests {
             child.min.y - parent.max.y >= 120.0 - 1e-6,
             "generations are at least 120 apart"
         );
+        assert_eq!(
+            mother.min.x - parent.max.x,
+            SPOUSE_GAP,
+            "spouses sit one narrow union gap apart"
+        );
+        let sibling = node(&scene, "i4").bounds;
         assert!(
-            mother.min.x - parent.max.x >= 40.0 - 1e-6,
-            "spouses are at least 40 apart"
+            sibling.min.x - node(&scene, "i3").bounds.max.x >= H_SPACING - 1e-6,
+            "siblings keep the node separation"
         );
     }
 
