@@ -1,8 +1,10 @@
 //! Streaming line-by-line parser for GEDCOM 5.5.1 records.
 //!
-//! Reads through any [`BufRead`] one line at a time and yields completed
-//! `INDI`/`FAM` records, so memory stays proportional to the number of
-//! pointers rather than the file size.
+//! Reads through any [`BufRead`] one physical line at a time, reassembles
+//! `CONC`/`CONT`-wrapped lines byte-wise *before* UTF-8 decoding (exporters
+//! wrap at a fixed byte width and can split multi-byte characters across the
+//! break), and yields completed `INDI`/`FAM` records, so memory stays
+//! proportional to the number of pointers rather than the file size.
 
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -179,12 +181,70 @@ enum Current {
     Skipped,
 }
 
+/// Level, tag and payload offset of a physical line, parsed straight from
+/// bytes so lines with invalid UTF-8 are still recognised as continuations.
+struct BytePrefix<'a> {
+    level: u8,
+    tag: &'a [u8],
+    payload_start: usize,
+}
+
+fn byte_prefix(bytes: &[u8]) -> Option<BytePrefix<'_>> {
+    let mut pos = 0;
+    while matches!(bytes.get(pos), Some(b' ' | b'\t')) {
+        pos += 1;
+    }
+    let level_start = pos;
+    while matches!(bytes.get(pos), Some(b'0'..=b'9')) {
+        pos += 1;
+    }
+    if level_start == pos {
+        return None;
+    }
+    let level: u8 = std::str::from_utf8(bytes.get(level_start..pos)?)
+        .ok()?
+        .parse()
+        .ok()?;
+    while matches!(bytes.get(pos), Some(b' ' | b'\t')) {
+        pos += 1;
+    }
+    if bytes.get(pos) == Some(&b'@') {
+        pos += 1;
+        let close = bytes.get(pos..)?.iter().position(|&byte| byte == b'@')?;
+        pos += close + 1;
+        while matches!(bytes.get(pos), Some(b' ' | b'\t')) {
+            pos += 1;
+        }
+    }
+    let tag_start = pos;
+    while bytes
+        .get(pos)
+        .is_some_and(|byte| !byte.is_ascii_whitespace())
+    {
+        pos += 1;
+    }
+    if tag_start == pos {
+        return None;
+    }
+    let payload_start = if pos < bytes.len() { pos + 1 } else { pos };
+    Some(BytePrefix {
+        level,
+        tag: bytes.get(tag_start..pos)?,
+        payload_start,
+    })
+}
+
 /// Streams completed records out of a GEDCOM text stream.
 ///
 /// Yields `INDI`/`FAM` records plus the `SOUR` records that event citations
-/// point at.
+/// point at. Physical `CONC`/`CONT` lines are joined onto their base line at
+/// the byte level before UTF-8 decoding; `line_no` refers to the first
+/// physical line of the current logical line.
 pub(crate) struct RecordReader<R: BufRead> {
-    lines: std::io::Lines<R>,
+    reader: R,
+    line_buf: Vec<u8>,
+    peeked: Option<(usize, Vec<u8>)>,
+    physical_line: usize,
     line_no: usize,
     current: Option<Current>,
     pending: Option<String>,
@@ -197,7 +257,10 @@ pub(crate) struct RecordReader<R: BufRead> {
 impl<R: BufRead> RecordReader<R> {
     pub(crate) fn new(reader: R) -> Self {
         Self {
-            lines: reader.lines(),
+            reader,
+            line_buf: Vec::new(),
+            peeked: None,
+            physical_line: 0,
             line_no: 0,
             current: None,
             pending: None,
@@ -212,6 +275,82 @@ impl<R: BufRead> RecordReader<R> {
         self.warnings
     }
 
+    /// Reads one physical line, stripping the line feed, a trailing carriage
+    /// return and a UTF-8 byte-order mark on the very first line.
+    fn read_physical(&mut self) -> std::io::Result<Option<(usize, Vec<u8>)>> {
+        self.line_buf.clear();
+        let read = self.reader.read_until(b'\n', &mut self.line_buf)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        self.physical_line += 1;
+        if self.line_buf.last() == Some(&b'\n') {
+            self.line_buf.pop();
+        }
+        if self.line_buf.last() == Some(&b'\r') {
+            self.line_buf.pop();
+        }
+        if self.physical_line == 1 && self.line_buf.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            self.line_buf.drain(..3);
+        }
+        Ok(Some((
+            self.physical_line,
+            std::mem::take(&mut self.line_buf),
+        )))
+    }
+
+    /// Returns the next logical line: the base line plus every following
+    /// `CONC` (append) or `CONT` (newline then append) payload at
+    /// `base level + 1`, decoded as UTF-8.
+    fn read_logical(&mut self) -> std::io::Result<Option<String>> {
+        let first = match self.peeked.take() {
+            Some(entry) => entry,
+            None => match self.read_physical()? {
+                Some(entry) => entry,
+                None => return Ok(None),
+            },
+        };
+        let (start_no, mut bytes) = first;
+        self.line_no = start_no;
+        loop {
+            if self.peeked.is_none() {
+                self.peeked = self.read_physical()?;
+            }
+            let absorb = match (&bytes, &self.peeked) {
+                (base, Some((_, next))) => match (byte_prefix(base), byte_prefix(next)) {
+                    (Some(base_prefix), Some(next_prefix))
+                        if base_prefix.level.checked_add(1) == Some(next_prefix.level) =>
+                    {
+                        if next_prefix.tag == b"CONT" {
+                            Some((true, next_prefix.payload_start))
+                        } else if next_prefix.tag == b"CONC" {
+                            Some((false, next_prefix.payload_start))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some((prepend_newline, payload_start)) = absorb else {
+                break;
+            };
+            let Some((_, next_bytes)) = self.peeked.take() else {
+                break;
+            };
+            if prepend_newline {
+                bytes.push(b'\n');
+            }
+            if let Some(tail) = next_bytes.get(payload_start..) {
+                bytes.extend_from_slice(tail);
+            }
+        }
+        let raw = String::from_utf8(bytes)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        Ok(Some(raw))
+    }
+
     /// Returns the next completed `INDI`/`FAM` record, or `None` at the end
     /// of the stream.
     pub(crate) fn next_record(&mut self) -> Result<Option<Record>, GedcomError> {
@@ -221,12 +360,9 @@ impl<R: BufRead> RecordReader<R> {
             }
             let raw = match self.pending.take() {
                 Some(raw) => raw,
-                None => match self.lines.next() {
+                None => match self.read_logical()? {
+                    Some(raw) => raw,
                     None => return self.finish_at_eof(),
-                    Some(line) => {
-                        self.line_no += 1;
-                        line?
-                    }
                 },
             };
 

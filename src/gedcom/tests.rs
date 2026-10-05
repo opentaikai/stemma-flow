@@ -571,3 +571,113 @@ fn import_streams_from_a_file_handle() -> Result<(), GedcomError> {
     );
     Ok(())
 }
+
+#[test]
+fn import_reassembles_utf8_characters_split_across_conc() -> Result<(), GedcomError> {
+    // WikiTree wraps at a fixed byte width: "Лит" + the lead byte of "в"
+    // lands on line one, the continuation byte opens the `2 CONC` payload.
+    let mut sample = Vec::new();
+    sample.extend_from_slice(b"0 HEAD\n1 SOUR TEST\n1 CHAR UTF-8\n0 @I1@ INDI\n1 NAME ");
+    sample.extend_from_slice(b"\xd0\x9b\xd0\xb8\xd1\x82\xd0");
+    sample.extend_from_slice(
+        b"\n2 CONC \xb2\xd0\xb8\xd1\x86\xd0\xb5\xd0\xb2\xd0\xb0\n1 SEX F\n0 TRLR\n",
+    );
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let given: String = conn
+        .query_row("SELECT given_name FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(report.people, 1);
+    assert_eq!(given, "Литвицева");
+    assert!(
+        report.warnings.is_empty(),
+        "reassembly must leave no warnings: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_joins_conc_and_cont_payloads_byte_wise() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @S1@ SOUR
+1 NOTE ab
+2 CONC cd
+2 CONT ef
+2 CONC gh
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let note: String = conn
+        .query_row("SELECT notes FROM citations", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(note, "abcd\nefgh");
+    assert!(
+        report.warnings.is_empty(),
+        "joined continuations must not warn: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_tolerates_crlf_line_endings() -> Result<(), GedcomError> {
+    let sample =
+        "0 HEAD\r\n1 CHAR UTF-8\r\n0 @I1@ INDI\r\n1 NAME Jan /Smit/\r\n1 SEX M\r\n0 TRLR\r\n";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1);
+    assert!(
+        report.warnings.is_empty(),
+        "CRLF endings must parse cleanly: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_skips_utf8_byte_order_mark() -> Result<(), GedcomError> {
+    let mut sample = Vec::from(&b"\xef\xbb\xbf"[..]);
+    sample.extend_from_slice(b"0 HEAD\n0 @I1@ INDI\n1 NAME Ann /Lee/\n0 TRLR\n");
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1);
+    assert!(
+        report.warnings.is_empty(),
+        "a leading BOM must not break the first line: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn imports_the_local_test_data_sample_when_present() -> Result<(), GedcomError> {
+    // Private WikiTree export in gitignored `test_data/`; skipped in CI.
+    let Ok(entries) = std::fs::read_dir("test_data") else {
+        return Ok(());
+    };
+    let sample = entries
+        .flatten()
+        .find(|entry| entry.path().extension().is_some_and(|ext| ext == "ged"));
+    let Some(sample) = sample else {
+        return Ok(());
+    };
+    let file = std::fs::File::open(sample.path()).map_err(GedcomError::Io)?;
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, BufReader::new(file))?;
+
+    assert!(
+        report.people > 0 && report.families > 0,
+        "the real export must import entities: {:?}",
+        report
+    );
+    Ok(())
+}
