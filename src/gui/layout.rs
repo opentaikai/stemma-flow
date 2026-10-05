@@ -11,6 +11,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use egui::{Pos2, Rect, Vec2, vec2};
+use petgraph::graph::UnGraph;
+use petgraph::unionfind::UnionFind;
+use petgraph::visit::EdgeRef;
 
 use crate::db::{Family, FamilyTree, Person};
 
@@ -151,6 +154,122 @@ fn compact_subtrees<T>(rows: &[(T, Contour)], centre: f32) -> (Vec<f32>, Contour
     (origins, merged)
 }
 
+/// Undirected graph linking every spouse pair and every parent to their
+/// children; people with no links stay isolated nodes.
+fn component_graph(tree: &FamilyTree) -> UnGraph<(), ()> {
+    let mut graph: UnGraph<(), ()> = UnGraph::default();
+    let mut position: HashMap<&str, petgraph::graph::NodeIndex> = HashMap::new();
+    for person in &tree.people {
+        position.insert(person.id.as_str(), graph.add_node(()));
+    }
+    for family in &tree.families {
+        let husband = family
+            .husband_id
+            .as_deref()
+            .and_then(|id| position.get(id))
+            .copied();
+        let wife = family
+            .wife_id
+            .as_deref()
+            .and_then(|id| position.get(id))
+            .copied();
+        if let (Some(husband), Some(wife)) = (husband, wife) {
+            graph.add_edge(husband, wife, ());
+        }
+    }
+    let families: HashMap<&str, &Family> = tree
+        .families
+        .iter()
+        .map(|family| (family.id.as_str(), family))
+        .collect();
+    for (family_id, child_id) in &tree.child_links {
+        let Some(family) = families.get(family_id.as_str()) else {
+            continue;
+        };
+        let Some(&child) = position.get(child_id.as_str()) else {
+            continue;
+        };
+        for parent in [family.husband_id.as_deref(), family.wife_id.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            let Some(&parent_node) = position.get(parent) else {
+                continue;
+            };
+            graph.add_edge(parent_node, child, ());
+        }
+    }
+    graph
+}
+
+/// Connected-component label per person, dense and assigned in
+/// first-seen person order so repeated builds stay deterministic.
+fn compute_person_components(tree: &FamilyTree) -> Vec<usize> {
+    let graph = component_graph(tree);
+    let mut sets = UnionFind::new(graph.node_count());
+    for edge in graph.edge_references() {
+        sets.union(edge.source().index(), edge.target().index());
+    }
+    let mut remap: HashMap<usize, usize> = HashMap::new();
+    let mut next = 0usize;
+    sets.into_labeling()
+        .into_iter()
+        .map(|label| match remap.get(&label) {
+            Some(&component) => component,
+            None => {
+                remap.insert(label, next);
+                next += 1;
+                next - 1
+            }
+        })
+        .collect()
+}
+
+/// Shelf-packs component boxes into whole rows, choosing the row count
+/// whose bounding box scores closest to a 16:9 target. Returns one
+/// offset per component; rows sit `H_SPACING` apart horizontally and
+/// [`V_GAP`] apart vertically.
+fn pack_components(sizes: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    if sizes.is_empty() {
+        return Vec::new();
+    }
+    let area: f32 = sizes.iter().map(|(width, height)| width * height).sum();
+    let target_w = (area * 16.0 / 9.0).sqrt();
+    let target_h = (area * 9.0 / 16.0).sqrt();
+    let mut best: Option<(f32, Vec<(f32, f32)>)> = None;
+    for rows in 1..=sizes.len() {
+        let base = sizes.len() / rows;
+        let extra = sizes.len() % rows;
+        let mut offsets = Vec::with_capacity(sizes.len());
+        let mut canvas_w: f32 = 0.0;
+        let mut y: f32 = 0.0;
+        let mut taken = 0usize;
+        for row in 0..rows {
+            let length = base + usize::from(row < extra);
+            let mut x: f32 = 0.0;
+            let mut row_height: f32 = 0.0;
+            for _ in 0..length {
+                let (width, height) = sizes.get(taken).copied().unwrap_or((0.0, 0.0));
+                offsets.push((x, y));
+                taken += 1;
+                x += width + H_SPACING;
+                row_height = row_height.max(height);
+            }
+            canvas_w = canvas_w.max(x - H_SPACING);
+            y += row_height + V_GAP;
+        }
+        let canvas_h = y - V_GAP;
+        let score = (canvas_w - target_w).powi(2) + (canvas_h - target_h).powi(2);
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, _)| score < *best_score)
+        {
+            best = Some((score, offsets));
+        }
+    }
+    best.map(|(_, offsets)| offsets).unwrap_or_default()
+}
+
 /// One rank unit: people joined by marriages, drawn as a spouse chain.
 #[derive(Debug)]
 struct Compound<'a> {
@@ -204,6 +323,10 @@ struct LayoutBuilder<'a> {
     union_x: HashMap<&'a str, f32>,
     /// Compounds without parents, in compound order.
     roots: Vec<usize>,
+    /// Connected family group of every compound.
+    component_of: Vec<usize>,
+    /// Canvas offset per component, set by [`Self::layout`].
+    component_offsets: HashMap<usize, (f32, f32)>,
 }
 
 impl<'a> LayoutBuilder<'a> {
@@ -235,6 +358,18 @@ impl<'a> LayoutBuilder<'a> {
             .map(|compound| Self::build_chain(tree, &index, compound))
             .collect();
         let chain_xs = Self::compute_chain_xs(tree, &compounds, &chains);
+        let person_components = compute_person_components(tree);
+        let component_of = compounds
+            .iter()
+            .map(|compound| {
+                compound
+                    .members
+                    .first()
+                    .and_then(|&id| index.get(id))
+                    .and_then(|&position| person_components.get(position).copied())
+                    .unwrap_or(0)
+            })
+            .collect();
         let mut builder = Self {
             tree,
             node_ids,
@@ -252,6 +387,8 @@ impl<'a> LayoutBuilder<'a> {
             bounds_by_id: HashMap::new(),
             union_x: HashMap::new(),
             roots: Vec::new(),
+            component_of,
+            component_offsets: HashMap::new(),
         };
         builder.compute_ranks();
         builder
@@ -562,11 +699,18 @@ impl<'a> LayoutBuilder<'a> {
     }
 
     fn rank_y(&self, compound: usize) -> f32 {
-        self.compounds
+        let rank = self
+            .compounds
             .get(compound)
             .map(|compound| compound.rank)
-            .unwrap_or(0) as f32
-            * (NODE_H + V_GAP)
+            .unwrap_or(0);
+        let offset = self
+            .component_of
+            .get(compound)
+            .and_then(|&component| self.component_offsets.get(&component))
+            .map(|(_, dy)| *dy)
+            .unwrap_or(0.0);
+        rank as f32 * (NODE_H + V_GAP) + offset
     }
 
     fn children_of_family(&self, family: usize) -> Vec<&'a str> {
@@ -793,22 +937,74 @@ impl<'a> LayoutBuilder<'a> {
         self.placed.insert(compound);
     }
 
+    /// Buckets every compound into its connected family group (roots
+    /// first, then the cycle leftovers), shelf-packs the group boxes
+    /// onto the grid, and places each group from its grid offset.
     fn layout(&mut self) {
         let roots = self.roots.clone();
-        let mut cursor = 0.0;
-        for compound in roots {
-            let width = self.block_of(compound).width;
-            self.place_compound(compound, cursor);
-            cursor += width + H_SPACING;
+        let components = self
+            .component_of
+            .iter()
+            .copied()
+            .max()
+            .map(|highest| highest + 1)
+            .unwrap_or(0);
+        let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); components];
+        for compound in &roots {
+            let Some(&component) = self.component_of.get(*compound) else {
+                continue;
+            };
+            if let Some(bucket) = buckets.get_mut(component) {
+                bucket.push(*compound);
+            }
         }
-        // Cycles and compounds behind them fall back to the end of the row.
         for compound in 0..self.compounds.len() {
-            if self.placed.contains(&compound) {
+            if roots.contains(&compound) {
                 continue;
             }
-            let width = self.block_of(compound).width;
-            self.place_compound(compound, cursor);
-            cursor += width + H_SPACING;
+            let Some(&component) = self.component_of.get(compound) else {
+                continue;
+            };
+            if let Some(bucket) = buckets.get_mut(component) {
+                bucket.push(compound);
+            }
+        }
+
+        let mut sizes = Vec::with_capacity(buckets.len());
+        for bucket in &buckets {
+            let mut width: f32 = 0.0;
+            let mut max_rank: u32 = 0;
+            for (position, &compound) in bucket.iter().enumerate() {
+                if position > 0 {
+                    width += H_SPACING;
+                }
+                width += self.block_of(compound).width;
+                let rank = self
+                    .compounds
+                    .get(compound)
+                    .map(|compound| compound.rank)
+                    .unwrap_or(0);
+                max_rank = max_rank.max(rank);
+            }
+            sizes.push((width, max_rank as f32 * (NODE_H + V_GAP) + NODE_H));
+        }
+        for (component, offset) in pack_components(&sizes).into_iter().enumerate() {
+            self.component_offsets.insert(component, offset);
+        }
+        for (component, bucket) in buckets.into_iter().enumerate() {
+            let mut cursor = self
+                .component_offsets
+                .get(&component)
+                .map(|(x, _)| *x)
+                .unwrap_or(0.0);
+            for compound in bucket {
+                if self.placed.contains(&compound) {
+                    continue;
+                }
+                let width = self.block_of(compound).width;
+                self.place_compound(compound, cursor);
+                cursor += width + H_SPACING;
+            }
         }
     }
 
@@ -1051,6 +1247,25 @@ mod tests {
                 ("f2".to_string(), "i6".to_string()),
                 ("f2".to_string(), "i7".to_string()),
             ],
+        }
+    }
+
+    /// Six husband+wife couples with no links between them.
+    fn six_couples_tree() -> FamilyTree {
+        let mut people = Vec::new();
+        let mut families = Vec::new();
+        for couple in 0..6 {
+            let husband = format!("h{couple}");
+            let wife = format!("w{couple}");
+            let family_id = format!("m{couple}");
+            people.push(person(&husband, "Husband", "Tree"));
+            people.push(person(&wife, "Wife", "Tree"));
+            families.push(family(&family_id, Some(&husband), Some(&wife)));
+        }
+        FamilyTree {
+            people,
+            families,
+            child_links: Vec::new(),
         }
     }
 
@@ -1348,17 +1563,21 @@ mod tests {
             remarriage_tree(),
             polygamy_tree(),
             interlock_tree(),
+            six_couples_tree(),
         ] {
-            let scene = build_scene(&tree);
-            for (index, node) in scene.nodes.iter().enumerate() {
-                for other in scene.nodes.iter().skip(index + 1) {
-                    assert!(
-                        !node.bounds.intersects(other.bounds),
-                        "nodes {} and {} overlap in {tree:?}",
-                        node.person_id,
-                        other.person_id
-                    );
-                }
+            assert_no_overlap(&build_scene(&tree));
+        }
+    }
+
+    fn assert_no_overlap(scene: &TreeScene) {
+        for (index, node) in scene.nodes.iter().enumerate() {
+            for other in scene.nodes.iter().skip(index + 1) {
+                assert!(
+                    !node.bounds.intersects(other.bounds),
+                    "nodes {} and {} overlap",
+                    node.person_id,
+                    other.person_id
+                );
             }
         }
     }
@@ -1381,6 +1600,45 @@ mod tests {
             second_rank_trunk,
             (NODE_H + V_GAP) + V_GAP * 0.5,
             "rank 1 trunk follows the same formula"
+        );
+    }
+
+    #[test]
+    fn disconnected_components_pack_into_a_grid() {
+        use petgraph::algo::connected_components;
+
+        let tree = six_couples_tree();
+        assert_eq!(
+            connected_components(&component_graph(&tree)),
+            6,
+            "the sample is six separate family groups"
+        );
+        let scene = build_scene(&tree);
+        let mut ranks: Vec<f32> = scene.nodes.iter().map(|node| node.bounds.min.y).collect();
+        ranks.sort_by(f32::total_cmp);
+        ranks.dedup();
+        assert!(
+            ranks.len() >= 2,
+            "the couples spread over several grid rows"
+        );
+        let shared_row = scene.nodes.iter().enumerate().any(|(index, node)| {
+            scene
+                .nodes
+                .iter()
+                .skip(index + 1)
+                .any(|other| other.bounds.min.y == node.bounds.min.y)
+        });
+        assert!(
+            shared_row,
+            "some row holds more than one couple: a grid, not a column"
+        );
+        let mut trunks: Vec<f32> = scene.unions.iter().map(|union| union.trunk_y).collect();
+        trunks.sort_by(f32::total_cmp);
+        trunks.dedup();
+        assert_eq!(
+            trunks,
+            vec![60.0, 236.0, 412.0],
+            "trunk rows follow the three grid rows"
         );
     }
 
@@ -1412,6 +1670,19 @@ mod tests {
         }
     }
 
+    fn assert_connectors_avoid_nodes(scene: &TreeScene) {
+        let segments = crate::gui::connectors::build_segments(&scene.unions);
+        for segment in &segments {
+            for node in &scene.nodes {
+                assert!(
+                    !segment_enters_box(segment, node.bounds),
+                    "segment {segment:?} cuts node {}",
+                    node.person_id
+                );
+            }
+        }
+    }
+
     #[test]
     fn no_connector_enters_a_node_box() {
         for tree in [
@@ -1421,17 +1692,37 @@ mod tests {
             interlock_tree(),
         ] {
             let scene = build_scene(&tree);
-            let segments = crate::gui::connectors::build_segments(&scene.unions);
-            assert!(!segments.is_empty(), "fixture must produce connectors");
-            for segment in &segments {
-                for node in &scene.nodes {
-                    assert!(
-                        !segment_enters_box(segment, node.bounds),
-                        "segment {segment:?} cuts node {}",
-                        node.person_id
-                    );
-                }
-            }
+            assert!(
+                !crate::gui::connectors::build_segments(&scene.unions).is_empty(),
+                "fixture must produce connectors"
+            );
+            assert_connectors_avoid_nodes(&scene);
         }
+    }
+
+    #[test]
+    fn layout_real_export_when_present() -> Result<(), crate::gedcom::GedcomError> {
+        // Private WikiTree export in gitignored `test_data/`; skipped in CI.
+        let Ok(entries) = std::fs::read_dir("test_data") else {
+            return Ok(());
+        };
+        let sample = entries
+            .flatten()
+            .find(|entry| entry.path().extension().is_some_and(|ext| ext == "ged"));
+        let Some(sample) = sample else {
+            return Ok(());
+        };
+        let mut conn = rusqlite::Connection::open_in_memory()?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        crate::db::init_db(&conn)?;
+        let file = std::fs::File::open(sample.path())?;
+        crate::gedcom::import_gedcom(&mut conn, std::io::BufReader::new(file))?;
+        let tree = crate::db::load_family_tree(&conn)?;
+        let scene = build_scene(&tree);
+        assert!(!scene.nodes.is_empty(), "the real export must layout");
+        assert_no_overlap(&scene);
+        assert_connectors_avoid_nodes(&scene);
+        assert_eq!(scene, build_scene(&tree), "real layouts stay deterministic");
+        Ok(())
     }
 }
