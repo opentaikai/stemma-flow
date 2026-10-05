@@ -679,6 +679,140 @@ fn imports_the_local_test_data_sample_when_present() -> Result<(), GedcomError> 
         "the real export must import entities: {:?}",
         report
     );
+    let patronymics: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM people WHERE middle_name <> ''",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert!(
+        patronymics > 0,
+        "WikiTree _MIDN patronymics must land in middle_name"
+    );
+    Ok(())
+}
+
+#[test]
+fn import_maps_name_children_into_person_fields() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Михаил Андреевич /Соловьев/
+2 GIVN Михаил
+2 _MIDN Андреевич
+2 SURN Соловьев
+2 _PGVN Миша
+1 SEX M
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let (given, middle, surname, nickname): (String, String, String, String) = conn
+        .query_row(
+            "SELECT given_name, middle_name, surname, nickname FROM people",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(given, "Михаил", "GIVN keeps the given name bare");
+    assert_eq!(middle, "Андреевич");
+    assert_eq!(surname, "Соловьев");
+    assert_eq!(nickname, "Миша");
+    assert!(
+        report.warnings.is_empty(),
+        "known name parts must not warn: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_maps_nick_tag_to_nickname() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Мария /Барахтенко/
+2 NICK Маруся
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let nickname: String = conn
+        .query_row("SELECT nickname FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(nickname, "Маруся");
+    Ok(())
+}
+
+#[test]
+fn import_keeps_payload_only_names_unchanged() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Иван Иванович /Иванов/
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let (given, middle): (String, String) = conn
+        .query_row("SELECT given_name, middle_name FROM people", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(GedcomError::Db)?;
+    assert_eq!(given, "Иван Иванович");
+    assert_eq!(middle, "", "no _MIDN means no middle column");
+    Ok(())
+}
+
+#[test]
+fn middle_name_and_nickname_round_trip_through_export() -> Result<(), GedcomError> {
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let profile = crate::db::people::PersonDetails::new(
+        "Михаил",
+        "Андреевич",
+        "Соловьев",
+        "Миша",
+        "M",
+        None,
+        None,
+    );
+    crate::db::people::insert_person(&mut conn, &profile).expect("insert succeeds");
+
+    let ged = export_to_gedcom(&conn)?;
+    assert!(ged.contains("1 NAME Михаил Андреевич /Соловьев/"), "{ged}");
+    assert!(ged.contains("2 GIVN Михаил"), "{ged}");
+    assert!(ged.contains("2 _MIDN Андреевич"), "{ged}");
+    assert!(ged.contains("2 _PGVN Миша"), "{ged}");
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    let (given, middle, surname, nickname): (String, String, String, String) = fresh
+        .query_row(
+            "SELECT given_name, middle_name, surname, nickname FROM people",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(report.people, 1);
+    assert_eq!(
+        (
+            given.as_str(),
+            middle.as_str(),
+            surname.as_str(),
+            nickname.as_str()
+        ),
+        ("Михаил", "Андреевич", "Соловьев", "Миша")
+    );
+    assert!(
+        report.warnings.is_empty(),
+        "round trip must stay warning-free: {:?}",
+        report.warnings
+    );
     Ok(())
 }
 

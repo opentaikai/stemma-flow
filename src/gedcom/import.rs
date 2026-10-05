@@ -49,7 +49,11 @@ pub(crate) struct ParsedEvent {
 pub(crate) struct IndiRecord {
     pub xref: String,
     pub given_name: String,
+    /// `2 _MIDN` patronymic or middle name.
+    pub middle_name: String,
     pub surname: String,
+    /// `2 _PGVN`/`2 NICK` preferred given name or nickname.
+    pub nickname: String,
     pub gender: String,
     pub events: Vec<ParsedEvent>,
     pub famc: Vec<String>,
@@ -87,7 +91,9 @@ impl IndiRecord {
         Self {
             xref: xref.to_string(),
             given_name: String::new(),
+            middle_name: String::new(),
             surname: String::new(),
+            nickname: String::new(),
             gender: "U".to_string(),
             events: Vec::new(),
             famc: Vec::new(),
@@ -574,6 +580,16 @@ impl<R: BufRead> RecordReader<R> {
                         }
                         _ => {}
                     }
+                } else if event_slot.is_none() {
+                    // Name-part children of `1 NAME` (GIVN/SURN/_MIDN/_PGVN…)
+                    // land here because events are closed by the level-1 line.
+                    match line.tag {
+                        "GIVN" => rec.given_name = line.payload.to_string(),
+                        "SURN" => rec.surname = line.payload.to_string(),
+                        "_MIDN" => rec.middle_name = line.payload.to_string(),
+                        "_PGVN" | "NICK" => rec.nickname = line.payload.to_string(),
+                        _ => {}
+                    }
                 } else if let Some(slot) = event_slot {
                     fill_event(&mut rec.events, *slot, line);
                 }
@@ -751,8 +767,16 @@ pub fn import_gedcom<R: BufRead>(
                 }
                 let id = Uuid::new_v4().to_string();
                 tx.execute(
-                    "INSERT INTO people (id, given_name, surname, gender) VALUES (?1, ?2, ?3, ?4)",
-                    params![id, indi.given_name, indi.surname, indi.gender],
+                    "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        id,
+                        indi.given_name,
+                        indi.middle_name,
+                        indi.surname,
+                        indi.nickname,
+                        indi.gender
+                    ],
                 )?;
                 report.people += 1;
                 for event in &indi.events {
