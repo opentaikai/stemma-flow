@@ -172,9 +172,11 @@ mutation finishes:
 
 - `gui::canvas::ViewportState` owns pan/zoom with canvas<->screen
   transforms, cursor-anchored zooming and off-screen culling tests.
-- `gui::layout::build_scene` layers generations (Kahn ordering with
-  cycle fallbacks), places couples side by side and centres children
-  under the family union point; names are truncated to fit the nodes.
+- `gui::layout::build_scene` ranks whole couples as one compound (Kahn
+  ordering with cycle fallbacks), draws remarriage spouse chains with one
+  union gap per family, packs each family's children row under its own
+  union, and spaces ranks 120 apart; names are truncated to fit the
+  nodes.
 - `gui::connectors::build_segments` routes spouse bars and three-segment
   orthogonal drops (union -> branch row -> children) as pure geometry.
 - `gui::nodes` hit-tests clicks back-to-front and paints nodes, borders
