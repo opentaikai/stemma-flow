@@ -61,7 +61,9 @@ impl InspectorForm {
     pub fn to_details(&self) -> PersonDetails {
         PersonDetails::new(
             self.given_name.clone(),
+            "",
             self.surname.clone(),
+            "",
             self.gender.clone(),
             blank_to_none(&self.birth),
             blank_to_none(&self.death),

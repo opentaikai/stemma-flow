@@ -415,7 +415,9 @@ mod tests {
         Person {
             id: id.to_string(),
             given_name: given.to_string(),
+            middle_name: String::new(),
             surname: surname.to_string(),
+            nickname: String::new(),
             gender: "U".to_string(),
             created_at: String::new(),
             updated_at: String::new(),

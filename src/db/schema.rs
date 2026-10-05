@@ -8,7 +8,9 @@ BEGIN IMMEDIATE;
 CREATE TABLE IF NOT EXISTS people (
     id TEXT PRIMARY KEY,
     given_name TEXT NOT NULL,
+    middle_name TEXT NOT NULL DEFAULT '',
     surname TEXT NOT NULL,
+    nickname TEXT NOT NULL DEFAULT '',
     gender TEXT NOT NULL CHECK (gender IN ('M', 'F', 'U')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -58,8 +60,38 @@ COMMIT;
 
 /// Creates the stemma-flow tables and indexes if they do not exist yet.
 ///
-/// Runs the whole DDL batch inside a single transaction; foreign-key and WAL
+/// Runs the whole DDL batch inside a single transaction, then upgrades
+/// databases created before new columns existed; foreign-key and WAL
 /// pragmas are the caller's responsibility (see [`crate::db::open_connection`]).
 pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(SCHEMA_SQL)
+    conn.execute_batch(SCHEMA_SQL)?;
+    ensure_column(conn, "people", "middle_name", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "people", "nickname", "TEXT NOT NULL DEFAULT ''")?;
+    Ok(())
+}
+
+/// Adds `column` to `table` when a database predates it (`CREATE TABLE IF
+/// NOT EXISTS` leaves old layouts untouched).
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut present = false;
+    for name in stmt.query_map([], |row| row.get::<_, String>(1))? {
+        if name? == column {
+            present = true;
+            break;
+        }
+    }
+    drop(stmt);
+    if !present {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )?;
+    }
+    Ok(())
 }
