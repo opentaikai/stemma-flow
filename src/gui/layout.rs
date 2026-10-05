@@ -41,6 +41,9 @@ pub struct UnionGeom {
     pub spouse_line: Option<[Pos2; 2]>,
     /// Where the drop line to the children starts.
     pub union: Pos2,
+    /// Row of the branch line: half a rank gap below the top of the
+    /// couple's rank, so the trunk never touches a node box.
+    pub trunk_y: f32,
     /// `(child_id, top-centre anchor of the child node)`, rowid order.
     pub children: Vec<(String, Pos2)>,
 }
@@ -658,6 +661,24 @@ impl<'a> LayoutBuilder<'a> {
         }
     }
 
+    /// Rank of a family's compound (either spouse's), and the trunk row
+    /// half a rank gap below it.
+    fn trunk_y(&self, family: &Family) -> f32 {
+        let compound = family
+            .husband_id
+            .as_deref()
+            .and_then(|id| self.compound_of.get(id).copied())
+            .or_else(|| {
+                family
+                    .wife_id
+                    .as_deref()
+                    .and_then(|id| self.compound_of.get(id).copied())
+            });
+        compound
+            .map(|compound| self.rank_y(compound) + V_GAP * 0.5)
+            .unwrap_or(V_GAP * 0.5)
+    }
+
     fn build_unions(&self) -> Vec<UnionGeom> {
         let mut unions = Vec::with_capacity(self.tree.families.len());
         for family in &self.tree.families {
@@ -711,6 +732,7 @@ impl<'a> LayoutBuilder<'a> {
                 family_id: family.id.clone(),
                 spouse_line,
                 union,
+                trunk_y: self.trunk_y(family),
                 children,
             });
         }
@@ -791,6 +813,66 @@ mod tests {
                 ("f1".to_string(), "i3".to_string()),
                 ("f1".to_string(), "i4".to_string()),
             ],
+        }
+    }
+
+    /// Johan + Maria -> Elsa, who marries Nils and has Otto: three ranks.
+    fn lineage_tree() -> FamilyTree {
+        FamilyTree {
+            people: vec![
+                person("i1", "Johan", "Ahlberg"),
+                person("i2", "Maria", "Ekdahl"),
+                person("i3", "Elsa", "Ahlberg"),
+                person("i4", "Nils", "Friis"),
+                person("i5", "Otto", "Friis"),
+            ],
+            families: vec![
+                family("f1", Some("i1"), Some("i2")),
+                family("f2", Some("i3"), Some("i4")),
+            ],
+            child_links: vec![
+                ("f1".to_string(), "i3".to_string()),
+                ("f2".to_string(), "i5".to_string()),
+            ],
+        }
+    }
+
+    /// Johan remarries Karin: f1(i1, i2) -> Elsa, f2(i3, i1) -> Nils.
+    fn remarriage_tree() -> FamilyTree {
+        FamilyTree {
+            people: vec![
+                person("i1", "Johan", "Ahlberg"),
+                person("i2", "Maria", "Ekdahl"),
+                person("i3", "Karin", "Vik"),
+                person("i4", "Elsa", "Ahlberg"),
+                person("i5", "Nils", "Ahlberg"),
+            ],
+            families: vec![
+                family("f1", Some("i1"), Some("i2")),
+                family("f2", Some("i3"), Some("i1")),
+            ],
+            child_links: vec![
+                ("f1".to_string(), "i4".to_string()),
+                ("f2".to_string(), "i5".to_string()),
+            ],
+        }
+    }
+
+    /// Johan with three successive spouses, no children.
+    fn polygamy_tree() -> FamilyTree {
+        FamilyTree {
+            people: vec![
+                person("i1", "Johan", "Ahlberg"),
+                person("i2", "Maria", "Ekdahl"),
+                person("i3", "Karin", "Vik"),
+                person("i4", "Ingrid", "Holm"),
+            ],
+            families: vec![
+                family("f1", Some("i1"), Some("i2")),
+                family("f2", Some("i1"), Some("i3")),
+                family("f3", Some("i1"), Some("i4")),
+            ],
+            child_links: Vec::new(),
         }
     }
 
@@ -945,26 +1027,9 @@ mod tests {
 
     #[test]
     fn cross_generation_couple_shares_one_rank() {
-        // i1 + i2 -> i3; i3 marries i4 -> i5. The married-in spouse must
-        // not stay on the root rank next to the grandparents.
-        let tree = FamilyTree {
-            people: vec![
-                person("i1", "Johan", "Ahlberg"),
-                person("i2", "Maria", "Ekdahl"),
-                person("i3", "Elsa", "Ahlberg"),
-                person("i4", "Nils", "Friis"),
-                person("i5", "Otto", "Friis"),
-            ],
-            families: vec![
-                family("f1", Some("i1"), Some("i2")),
-                family("f2", Some("i3"), Some("i4")),
-            ],
-            child_links: vec![
-                ("f1".to_string(), "i3".to_string()),
-                ("f2".to_string(), "i5".to_string()),
-            ],
-        };
-        let scene = build_scene(&tree);
+        // The married-in spouse must not stay on the root rank next to
+        // the grandparents.
+        let scene = build_scene(&lineage_tree());
         let child = node(&scene, "i3");
         let spouse = node(&scene, "i4");
         assert_eq!(
@@ -986,26 +1051,9 @@ mod tests {
 
     #[test]
     fn second_family_children_stay_in_the_block() {
-        // i1 remarries: f1(i1, i2) -> i4, f2(i3, i1) -> i5. Both children
-        // belong under their own family's union, inside the chain block.
-        let tree = FamilyTree {
-            people: vec![
-                person("i1", "Johan", "Ahlberg"),
-                person("i2", "Maria", "Ekdahl"),
-                person("i3", "Karin", "Vik"),
-                person("i4", "Elsa", "Ahlberg"),
-                person("i5", "Nils", "Ahlberg"),
-            ],
-            families: vec![
-                family("f1", Some("i1"), Some("i2")),
-                family("f2", Some("i3"), Some("i1")),
-            ],
-            child_links: vec![
-                ("f1".to_string(), "i4".to_string()),
-                ("f2".to_string(), "i5".to_string()),
-            ],
-        };
-        let scene = build_scene(&tree);
+        // Both children belong under their own family's union, inside
+        // the chain block.
+        let scene = build_scene(&remarriage_tree());
         let first = node(&scene, "i1").bounds;
         let second = node(&scene, "i2").bounds;
         let third = node(&scene, "i3").bounds;
@@ -1059,21 +1107,7 @@ mod tests {
     fn polygamy_skips_the_crossing_spouse_bar() {
         // i1 has three spouses; the third marriage is not adjacent on the
         // chain, so its bar would cut across the nodes in between.
-        let tree = FamilyTree {
-            people: vec![
-                person("i1", "Johan", "Ahlberg"),
-                person("i2", "Maria", "Ekdahl"),
-                person("i3", "Karin", "Vik"),
-                person("i4", "Ingrid", "Holm"),
-            ],
-            families: vec![
-                family("f1", Some("i1"), Some("i2")),
-                family("f2", Some("i1"), Some("i3")),
-                family("f3", Some("i1"), Some("i4")),
-            ],
-            child_links: Vec::new(),
-        };
-        let scene = build_scene(&tree);
+        let scene = build_scene(&polygamy_tree());
         assert!(
             union(&scene, "f1").spouse_line.is_some(),
             "the first marriage keeps its bar"
@@ -1093,6 +1127,73 @@ mod tests {
                 third_union <= bounds.min.x || third_union >= bounds.max.x,
                 "the union sits in a gap, not inside node {id}"
             );
+        }
+    }
+
+    #[test]
+    fn trunk_sits_half_a_gap_below_the_rank() {
+        let scene = build_scene(&fixture());
+        let trunk = union(&scene, "f1").trunk_y;
+        let parent = node(&scene, "i1").bounds;
+        let child = node(&scene, "i3").bounds;
+        assert_eq!(trunk, 60.0, "rank 0 trunk is half a 120 gap below 0");
+        assert!(
+            trunk > parent.max.y && trunk < child.min.y,
+            "the trunk row falls in the open gap between the ranks"
+        );
+
+        let lineage = build_scene(&lineage_tree());
+        let second_rank_trunk = union(&lineage, "f2").trunk_y;
+        assert_eq!(
+            second_rank_trunk,
+            (NODE_H + V_GAP) + V_GAP * 0.5,
+            "rank 1 trunk follows the same formula"
+        );
+    }
+
+    /// Interior probe: a segment only counts as a hit when it crosses the
+    /// node box with a 0.5 margin, so endpoints resting on the border
+    /// (anchors, bar ends) do not trip it.
+    fn segment_enters_box([start, end]: &[Pos2; 2], bounds: Rect) -> bool {
+        let inner = bounds.expand(-0.5);
+        if start.x == end.x {
+            let (top, bottom) = if start.y <= end.y {
+                (start.y, end.y)
+            } else {
+                (end.y, start.y)
+            };
+            start.x >= inner.min.x
+                && start.x <= inner.max.x
+                && bottom >= inner.min.y
+                && top <= inner.max.y
+        } else {
+            let (left, right) = if start.x <= end.x {
+                (start.x, end.x)
+            } else {
+                (end.x, start.x)
+            };
+            start.y >= inner.min.y
+                && start.y <= inner.max.y
+                && right >= inner.min.x
+                && left <= inner.max.x
+        }
+    }
+
+    #[test]
+    fn no_connector_enters_a_node_box() {
+        for tree in [fixture(), remarriage_tree(), polygamy_tree()] {
+            let scene = build_scene(&tree);
+            let segments = crate::gui::connectors::build_segments(&scene.unions);
+            assert!(!segments.is_empty(), "fixture must produce connectors");
+            for segment in &segments {
+                for node in &scene.nodes {
+                    assert!(
+                        !segment_enters_box(segment, node.bounds),
+                        "segment {segment:?} cuts node {}",
+                        node.person_id
+                    );
+                }
+            }
         }
     }
 }

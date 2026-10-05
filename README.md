@@ -178,7 +178,8 @@ mutation finishes:
   union, and spaces ranks 120 apart; names are truncated to fit the
   nodes.
 - `gui::connectors::build_segments` routes spouse bars and three-segment
-  orthogonal drops (union -> branch row -> children) as pure geometry.
+  orthogonal drops (union -> trunk row inside the rank gap -> children)
+  as pure geometry.
 - `gui::nodes` hit-tests clicks back-to-front and paints nodes, borders
   and zoom-scaled names, culling everything outside the viewport.
 - `gui::welcome::show` renders the dashboard card (logo, title, tagline,

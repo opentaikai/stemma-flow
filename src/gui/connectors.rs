@@ -13,9 +13,10 @@ const MIN_WIDTH: f32 = 1.0;
 pub type Segment = [Pos2; 2];
 
 /// Builds the orthogonal connector route for every union: the spouse bar,
-/// a drop line to a branch row midway to the children, the branch itself
-/// spanning all children, and one drop per child. Degenerate (zero-length)
-/// segments are skipped. Pure geometry, unit-tested without a UI.
+/// a drop line to the trunk row anchored half a rank gap below the
+/// couple, the branch itself spanning all children, and one drop per
+/// child. Degenerate (zero-length) segments are skipped. Pure geometry,
+/// unit-tested without a UI.
 pub fn build_segments(unions: &[UnionGeom]) -> Vec<Segment> {
     let mut segments = Vec::new();
     for union in unions {
@@ -26,12 +27,7 @@ pub fn build_segments(unions: &[UnionGeom]) -> Vec<Segment> {
         if union.children.is_empty() {
             continue;
         }
-        let children_y = union
-            .children
-            .iter()
-            .map(|(_, anchor)| anchor.y)
-            .fold(f32::INFINITY, f32::min);
-        let branch_y = union.union.y + (children_y - union.union.y) * 0.5;
+        let branch_y = union.trunk_y;
 
         push_segment(
             &mut segments,
@@ -94,11 +90,17 @@ mod tests {
     use crate::gui::layout::{TreeScene, UnionGeom};
     use egui::{Context, RawInput, vec2};
 
-    fn union(spouse_line: Option<[Pos2; 2]>, union: Pos2, children: Vec<Pos2>) -> UnionGeom {
+    fn union(
+        spouse_line: Option<[Pos2; 2]>,
+        union: Pos2,
+        trunk_y: f32,
+        children: Vec<Pos2>,
+    ) -> UnionGeom {
         UnionGeom {
             family_id: "f1".to_string(),
             spouse_line,
             union,
+            trunk_y,
             children: children
                 .into_iter()
                 .enumerate()
@@ -114,7 +116,8 @@ mod tests {
     #[test]
     fn spouse_bar_is_drawn_between_the_spouses() {
         let bar = [Pos2::new(140.0, 100.0), Pos2::new(200.0, 100.0)];
-        let segments = build_segments(&[union(Some(bar), Pos2::new(170.0, 100.0), Vec::new())]);
+        let segments =
+            build_segments(&[union(Some(bar), Pos2::new(170.0, 100.0), 60.0, Vec::new())]);
         assert_eq!(segments, vec![bar], "childless couple keeps only the bar");
     }
 
@@ -124,6 +127,7 @@ mod tests {
         let segments = build_segments(&[union(
             Some(bar),
             Pos2::new(170.0, 100.0),
+            200.0,
             vec![Pos2::new(50.0, 300.0), Pos2::new(250.0, 300.0)],
         )]);
 
@@ -145,13 +149,32 @@ mod tests {
         ];
         assert_eq!(
             segments, expected,
-            "branch row sits halfway to the children"
+            "the drop stops at the trunk row the layout anchored"
+        );
+    }
+
+    #[test]
+    fn trunk_follows_the_layout_anchor() {
+        let bar = [Pos2::new(140.0, 28.0), Pos2::new(180.0, 28.0)];
+        let segments = build_segments(&[union(
+            Some(bar),
+            Pos2::new(160.0, 28.0),
+            60.0,
+            vec![Pos2::new(50.0, 176.0)],
+        )]);
+        assert!(
+            segments.contains(&[Pos2::new(160.0, 28.0), Pos2::new(160.0, 60.0)]),
+            "the drop stops at the layout's trunk row, not a midpoint"
+        );
+        assert!(
+            segments.contains(&[Pos2::new(50.0, 60.0), Pos2::new(160.0, 60.0)]),
+            "the branch runs along the trunk row"
         );
     }
 
     #[test]
     fn single_parent_without_children_stops_at_the_drop_origin() {
-        let segments = build_segments(&[union(None, Pos2::new(70.0, 56.0), Vec::new())]);
+        let segments = build_segments(&[union(None, Pos2::new(70.0, 56.0), 60.0, Vec::new())]);
         assert!(segments.is_empty(), "nothing to connect");
     }
 
@@ -160,6 +183,7 @@ mod tests {
         let segments = build_segments(&[union(
             None,
             Pos2::new(70.0, 56.0),
+            128.0,
             vec![Pos2::new(70.0, 200.0)],
         )]);
         assert_eq!(
@@ -180,6 +204,7 @@ mod tests {
             unions: vec![union(
                 Some([Pos2::new(0.0, 0.0), Pos2::new(60.0, 0.0)]),
                 Pos2::new(30.0, 0.0),
+                100.0,
                 vec![Pos2::new(30.0, 200.0)],
             )],
             bounds: Rect::from_min_size(Pos2::ZERO, vec2(100.0, 260.0)),
