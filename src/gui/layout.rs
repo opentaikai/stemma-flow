@@ -11,6 +11,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use egui::{Pos2, Rect, Vec2, vec2};
+use petgraph::graph::UnGraph;
+use petgraph::unionfind::UnionFind;
+use petgraph::visit::EdgeRef;
 
 use crate::db::{Family, FamilyTree, Person};
 
@@ -18,8 +21,10 @@ use crate::db::{Family, FamilyTree, Person};
 pub const NODE_W: f32 = 140.0;
 /// Node height in canvas units.
 pub const NODE_H: f32 = 56.0;
-/// Horizontal gap between adjacent nodes of the same rank.
-const H_GAP: f32 = 40.0;
+/// Separation between chain nodes that are not married to each other.
+const H_SPACING: f32 = 24.0;
+/// Union gap between spouses seated next to each other in a chain.
+const SPOUSE_GAP: f32 = 12.0;
 /// Vertical gap between two ranks (spec floor: 120).
 const V_GAP: f32 = 120.0;
 /// Character budget for node name labels.
@@ -91,23 +96,178 @@ pub fn build_scene(tree: &FamilyTree) -> TreeScene {
     builder.finish()
 }
 
-/// Width of `count` nodes laid out with [`H_GAP`] between them.
-fn row_width(count: usize) -> f32 {
-    if count == 0 {
-        0.0
-    } else {
-        count as f32 * NODE_W + (count - 1) as f32 * H_GAP
+/// Centre of the gap that follows chain slot `slot` in `xs`.
+fn gap_centre(xs: &[f32], slot: usize) -> Option<f32> {
+    let left = *xs.get(slot)?;
+    let right = *xs.get(slot + 1)?;
+    Some((left + right + NODE_W) * 0.5)
+}
+
+/// Centre of the node sitting in chain slot `slot` in `xs`.
+fn slot_centre(xs: &[f32], slot: usize) -> Option<f32> {
+    xs.get(slot).map(|left| left + NODE_W * 0.5)
+}
+
+/// `(min_x, max_x)` per depth, depth 0 first.
+type Contour = Vec<(f32, f32)>;
+
+/// Packs sibling subtrees so their depth contours clear each other by
+/// [`H_SPACING`], then shifts the row so its bounding box centres on
+/// `centre`. Returns each subtree's origin and the merged contour, both
+/// relative to the same frame. Subtrees shorter than the row impose no
+/// constraint on deeper levels, so a childless sibling tucks beside the
+/// deepest row of its neighbour.
+fn compact_subtrees<T>(rows: &[(T, Contour)], centre: f32) -> (Vec<f32>, Contour) {
+    let mut origins = Vec::with_capacity(rows.len());
+    let mut merged: Contour = Vec::new();
+    for (_, row) in rows {
+        let mut origin: f32 = 0.0;
+        for (depth, (min, _)) in row.iter().enumerate() {
+            if let Some((_, previous_max)) = merged.get(depth) {
+                origin = origin.max(previous_max + H_SPACING - min);
+            }
+        }
+        for (depth, (min, max)) in row.iter().enumerate() {
+            let shifted = (min + origin, max + origin);
+            if let Some(slot) = merged.get_mut(depth) {
+                slot.0 = slot.0.min(shifted.0);
+                slot.1 = slot.1.max(shifted.1);
+            } else {
+                merged.push(shifted);
+            }
+        }
+        origins.push(origin);
     }
+    if let (Some(low), Some(high)) = (
+        merged.iter().map(|(min, _)| *min).reduce(f32::min),
+        merged.iter().map(|(_, max)| *max).reduce(f32::max),
+    ) {
+        let shift = centre - (low + high) * 0.5;
+        for origin in &mut origins {
+            *origin += shift;
+        }
+        for extent in &mut merged {
+            extent.0 += shift;
+            extent.1 += shift;
+        }
+    }
+    (origins, merged)
 }
 
-/// Centre of the gap that follows chain slot `slot`.
-fn gap_centre(slot: usize) -> f32 {
-    slot as f32 * (NODE_W + H_GAP) + NODE_W + H_GAP * 0.5
+/// Undirected graph linking every spouse pair and every parent to their
+/// children; people with no links stay isolated nodes.
+fn component_graph(tree: &FamilyTree) -> UnGraph<(), ()> {
+    let mut graph: UnGraph<(), ()> = UnGraph::default();
+    let mut position: HashMap<&str, petgraph::graph::NodeIndex> = HashMap::new();
+    for person in &tree.people {
+        position.insert(person.id.as_str(), graph.add_node(()));
+    }
+    for family in &tree.families {
+        let husband = family
+            .husband_id
+            .as_deref()
+            .and_then(|id| position.get(id))
+            .copied();
+        let wife = family
+            .wife_id
+            .as_deref()
+            .and_then(|id| position.get(id))
+            .copied();
+        if let (Some(husband), Some(wife)) = (husband, wife) {
+            graph.add_edge(husband, wife, ());
+        }
+    }
+    let families: HashMap<&str, &Family> = tree
+        .families
+        .iter()
+        .map(|family| (family.id.as_str(), family))
+        .collect();
+    for (family_id, child_id) in &tree.child_links {
+        let Some(family) = families.get(family_id.as_str()) else {
+            continue;
+        };
+        let Some(&child) = position.get(child_id.as_str()) else {
+            continue;
+        };
+        for parent in [family.husband_id.as_deref(), family.wife_id.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            let Some(&parent_node) = position.get(parent) else {
+                continue;
+            };
+            graph.add_edge(parent_node, child, ());
+        }
+    }
+    graph
 }
 
-/// Centre of the node sitting in chain slot `slot`.
-fn slot_centre(slot: usize) -> f32 {
-    slot as f32 * (NODE_W + H_GAP) + NODE_W * 0.5
+/// Connected-component label per person, dense and assigned in
+/// first-seen person order so repeated builds stay deterministic.
+fn compute_person_components(tree: &FamilyTree) -> Vec<usize> {
+    let graph = component_graph(tree);
+    let mut sets = UnionFind::new(graph.node_count());
+    for edge in graph.edge_references() {
+        sets.union(edge.source().index(), edge.target().index());
+    }
+    let mut remap: HashMap<usize, usize> = HashMap::new();
+    let mut next = 0usize;
+    sets.into_labeling()
+        .into_iter()
+        .map(|label| match remap.get(&label) {
+            Some(&component) => component,
+            None => {
+                remap.insert(label, next);
+                next += 1;
+                next - 1
+            }
+        })
+        .collect()
+}
+
+/// Shelf-packs component boxes into whole rows, choosing the row count
+/// whose bounding box scores closest to a 16:9 target. Returns one
+/// offset per component; rows sit `H_SPACING` apart horizontally and
+/// [`V_GAP`] apart vertically.
+fn pack_components(sizes: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    if sizes.is_empty() {
+        return Vec::new();
+    }
+    let area: f32 = sizes.iter().map(|(width, height)| width * height).sum();
+    let target_w = (area * 16.0 / 9.0).sqrt();
+    let target_h = (area * 9.0 / 16.0).sqrt();
+    let mut best: Option<(f32, Vec<(f32, f32)>)> = None;
+    for rows in 1..=sizes.len() {
+        let base = sizes.len() / rows;
+        let extra = sizes.len() % rows;
+        let mut offsets = Vec::with_capacity(sizes.len());
+        let mut canvas_w: f32 = 0.0;
+        let mut y: f32 = 0.0;
+        let mut taken = 0usize;
+        for row in 0..rows {
+            let length = base + usize::from(row < extra);
+            let mut x: f32 = 0.0;
+            let mut row_height: f32 = 0.0;
+            for _ in 0..length {
+                let (width, height) = sizes.get(taken).copied().unwrap_or((0.0, 0.0));
+                offsets.push((x, y));
+                taken += 1;
+                x += width + H_SPACING;
+                row_height = row_height.max(height);
+            }
+            canvas_w = canvas_w.max(x - H_SPACING);
+            y += row_height + V_GAP;
+        }
+        let canvas_h = y - V_GAP;
+        let score = (canvas_w - target_w).powi(2) + (canvas_h - target_h).powi(2);
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, _)| score < *best_score)
+        {
+            best = Some((score, offsets));
+        }
+    }
+    best.map(|(_, offsets)| offsets).unwrap_or_default()
 }
 
 /// One rank unit: people joined by marriages, drawn as a spouse chain.
@@ -121,15 +281,26 @@ struct Compound<'a> {
     rank: u32,
 }
 
+/// One family's children row, origins as packed by [`compact_subtrees`].
+#[derive(Debug, Clone)]
+struct GroupLayout {
+    family: usize,
+    /// `(child compound, x of the child's block within this block)`.
+    children: Vec<(usize, f32)>,
+}
+
 /// Horizontal packing of one compound, relative to its left edge.
 #[derive(Debug, Clone)]
 struct BlockLayout {
     /// Left edge of the chain within the block.
     chain_x: f32,
-    /// `(family index, group left edge)`, ordered by union position.
-    groups: Vec<(usize, f32)>,
+    /// Children rows, ordered by union position.
+    groups: Vec<GroupLayout>,
     /// Total width of the packed block.
     width: f32,
+    /// Depth contours: depth 0 is the chain, depth d + 1 the row of
+    /// blocks one generation further down.
+    contour: Contour,
 }
 
 struct LayoutBuilder<'a> {
@@ -141,6 +312,8 @@ struct LayoutBuilder<'a> {
     compounds: Vec<Compound<'a>>,
     compound_of: HashMap<&'a str, usize>,
     chains: Vec<Vec<&'a str>>,
+    /// Leading x of every chain slot, per compound.
+    chain_xs: Vec<Vec<f32>>,
     blocks: HashMap<usize, BlockLayout>,
     block_active: HashSet<usize>,
     place_active: HashSet<usize>,
@@ -150,6 +323,10 @@ struct LayoutBuilder<'a> {
     union_x: HashMap<&'a str, f32>,
     /// Compounds without parents, in compound order.
     roots: Vec<usize>,
+    /// Connected family group of every compound.
+    component_of: Vec<usize>,
+    /// Canvas offset per component, set by [`Self::layout`].
+    component_offsets: HashMap<usize, (f32, f32)>,
 }
 
 impl<'a> LayoutBuilder<'a> {
@@ -176,9 +353,22 @@ impl<'a> LayoutBuilder<'a> {
         }
 
         let (compounds, compound_of) = Self::compute_compounds(tree, &index);
-        let chains = compounds
+        let chains: Vec<Vec<&str>> = compounds
             .iter()
             .map(|compound| Self::build_chain(tree, &index, compound))
+            .collect();
+        let chain_xs = Self::compute_chain_xs(tree, &compounds, &chains);
+        let person_components = compute_person_components(tree);
+        let component_of = compounds
+            .iter()
+            .map(|compound| {
+                compound
+                    .members
+                    .first()
+                    .and_then(|&id| index.get(id))
+                    .and_then(|&position| person_components.get(position).copied())
+                    .unwrap_or(0)
+            })
             .collect();
         let mut builder = Self {
             tree,
@@ -189,6 +379,7 @@ impl<'a> LayoutBuilder<'a> {
             compounds,
             compound_of,
             chains,
+            chain_xs,
             blocks: HashMap::new(),
             block_active: HashSet::new(),
             place_active: HashSet::new(),
@@ -196,6 +387,8 @@ impl<'a> LayoutBuilder<'a> {
             bounds_by_id: HashMap::new(),
             union_x: HashMap::new(),
             roots: Vec::new(),
+            component_of,
+            component_offsets: HashMap::new(),
         };
         builder.compute_ranks();
         builder
@@ -381,6 +574,73 @@ impl<'a> LayoutBuilder<'a> {
         chain
     }
 
+    /// Leading x of every chain slot: spouses of the same family sit
+    /// [`SPOUSE_GAP`] apart, any other chain neighbour keeps the node
+    /// separation [`H_SPACING`]. Slots start at 0; an empty chain has
+    /// no slots.
+    fn compute_chain_xs(
+        tree: &'a FamilyTree,
+        compounds: &[Compound<'a>],
+        chains: &[Vec<&'a str>],
+    ) -> Vec<Vec<f32>> {
+        chains
+            .iter()
+            .enumerate()
+            .map(|(compound, chain)| {
+                let mut xs = Vec::with_capacity(chain.len());
+                let mut x = 0.0;
+                for pair in chain.windows(2) {
+                    xs.push(x);
+                    let gap = if Self::spouse_pair(tree, compounds.get(compound), pair) {
+                        SPOUSE_GAP
+                    } else {
+                        H_SPACING
+                    };
+                    x += NODE_W + gap;
+                }
+                if !chain.is_empty() {
+                    xs.push(x);
+                }
+                xs
+            })
+            .collect()
+    }
+
+    /// Whether `pair` are the two spouses of one of the compound's
+    /// families, in either order.
+    fn spouse_pair(
+        tree: &'a FamilyTree,
+        compound: Option<&Compound<'a>>,
+        pair: &[&'a str],
+    ) -> bool {
+        let [first, second] = pair else {
+            return false;
+        };
+        let Some(compound) = compound else {
+            return false;
+        };
+        compound.families.iter().any(|&position| {
+            let Some(family) = tree.families.get(position) else {
+                return false;
+            };
+            let (Some(husband), Some(wife)) =
+                (family.husband_id.as_deref(), family.wife_id.as_deref())
+            else {
+                return false;
+            };
+            (husband == *first && wife == *second) || (husband == *second && wife == *first)
+        })
+    }
+
+    /// Full width of the compound's chain, empty chains are zero wide.
+    fn chain_width(&self, compound: usize) -> f32 {
+        self.chain_xs
+            .get(compound)
+            .and_then(|xs| xs.last())
+            .map(|last| last + NODE_W)
+            .unwrap_or(0.0)
+    }
+
     /// Kahn pass over compound -> compound edges; cycle leftovers keep
     /// rank 0 instead of hanging the layout. Compounds without parents
     /// become the placement roots.
@@ -439,11 +699,18 @@ impl<'a> LayoutBuilder<'a> {
     }
 
     fn rank_y(&self, compound: usize) -> f32 {
-        self.compounds
+        let rank = self
+            .compounds
             .get(compound)
             .map(|compound| compound.rank)
-            .unwrap_or(0) as f32
-            * (NODE_H + V_GAP)
+            .unwrap_or(0);
+        let offset = self
+            .component_of
+            .get(compound)
+            .and_then(|&component| self.component_offsets.get(&component))
+            .map(|(_, dy)| *dy)
+            .unwrap_or(0.0);
+        rank as f32 * (NODE_H + V_GAP) + offset
     }
 
     fn children_of_family(&self, family: usize) -> Vec<&'a str> {
@@ -461,6 +728,9 @@ impl<'a> LayoutBuilder<'a> {
     /// single-parent family.
     fn union_offset(&self, compound: usize, family: usize) -> f32 {
         let Some(chain) = self.chains.get(compound) else {
+            return 0.0;
+        };
+        let Some(xs) = self.chain_xs.get(compound) else {
             return 0.0;
         };
         let Some(family) = self.tree.families.get(family) else {
@@ -481,14 +751,22 @@ impl<'a> LayoutBuilder<'a> {
                 } else {
                     (wife, husband)
                 };
+                let Some(first_gap) = gap_centre(xs, low) else {
+                    return 0.0;
+                };
                 if high - low == 1 {
-                    return gap_centre(low);
+                    return first_gap;
                 }
-                let midpoint = (slot_centre(husband) + slot_centre(wife)) * 0.5;
-                let mut best = gap_centre(low);
+                let midpoint = match (slot_centre(xs, husband), slot_centre(xs, wife)) {
+                    (Some(husband), Some(wife)) => (husband + wife) * 0.5,
+                    _ => return 0.0,
+                };
+                let mut best = first_gap;
                 let mut best_distance = (best - midpoint).abs();
                 for gap in low..high {
-                    let centre = gap_centre(gap);
+                    let Some(centre) = gap_centre(xs, gap) else {
+                        break;
+                    };
                     let distance = (centre - midpoint).abs();
                     if distance <= best_distance {
                         best = centre;
@@ -497,68 +775,100 @@ impl<'a> LayoutBuilder<'a> {
                 }
                 best
             }
-            (Some(position), None) | (None, Some(position)) => slot_centre(position),
+            (Some(position), None) | (None, Some(position)) => {
+                slot_centre(xs, position).unwrap_or(0.0)
+            }
             (None, None) => 0.0,
         }
     }
 
     /// Packed horizontal layout of one compound: the chain plus every
-    /// family's children row, ordered by union position and pushed right
-    /// when ideal centring would overlap the previous group.
+    /// family's children row, ordered by union position. Rows are
+    /// compacted with [`compact_subtrees`] and pushed right only when
+    /// their contours would clash with the previous group.
     fn compute_block(&mut self, compound: usize) -> BlockLayout {
-        let chain_width = self
-            .chains
-            .get(compound)
-            .map(|chain| row_width(chain.len()))
-            .unwrap_or(0.0);
+        let chain_width = self.chain_width(compound);
         let families = self
             .compounds
             .get(compound)
             .map(|compound| compound.families.clone())
             .unwrap_or_default();
 
-        let mut groups = Vec::with_capacity(families.len());
+        let mut measured = Vec::with_capacity(families.len());
         for family in families {
-            let mut children_width = 0.0;
+            let mut row = Vec::new();
             for child in self.children_of_family(family) {
                 let Some(&child_compound) = self.compound_of.get(child) else {
                     continue;
                 };
-                let width = self.block_of(child_compound).width;
-                if children_width > 0.0 {
-                    children_width += H_GAP;
-                }
-                children_width += width;
+                let contour = self.block_of(child_compound).contour;
+                row.push((child_compound, contour));
             }
             let union = self.union_offset(compound, family);
-            groups.push((family, union, children_width));
+            measured.push((family, union, row));
         }
-        groups.sort_by(|left, right| {
+        measured.sort_by(|left, right| {
             left.1
                 .total_cmp(&right.1)
                 .then_with(|| left.0.cmp(&right.0))
         });
 
-        let mut packed = Vec::with_capacity(groups.len());
-        let mut previous_end = f32::NEG_INFINITY;
+        let mut packed = Vec::with_capacity(measured.len());
+        let mut previous: Option<Contour> = None;
         let mut low: f32 = 0.0;
         let mut high = chain_width;
-        for (family, union, children_width) in groups {
-            let ideal = union - children_width * 0.5;
-            let start = ideal.max(previous_end + H_GAP);
-            previous_end = start + children_width;
-            low = low.min(start);
-            high = high.max(previous_end);
-            packed.push((family, start));
+        for (family, union, row) in measured {
+            let (mut origins, mut extent) = compact_subtrees(&row, union);
+            if let Some(previous) = &previous {
+                let mut shift: f32 = 0.0;
+                for (depth, (min, _)) in extent.iter().enumerate() {
+                    if let Some((_, previous_max)) = previous.get(depth) {
+                        shift = shift.max(previous_max + H_SPACING - min);
+                    }
+                }
+                if shift > 0.0 {
+                    for origin in &mut origins {
+                        *origin += shift;
+                    }
+                    for span in &mut extent {
+                        span.0 += shift;
+                        span.1 += shift;
+                    }
+                }
+            }
+            for (min, max) in &extent {
+                low = low.min(*min);
+                high = high.max(*max);
+            }
+            previous = Some(extent.clone());
+            packed.push((family, origins, row, extent));
         }
+
         let chain_x = -low;
+        let mut contour: Contour = vec![(chain_x, chain_x + chain_width)];
+        let mut groups = Vec::with_capacity(packed.len());
+        for (family, origins, row, extent) in packed {
+            let children = origins
+                .into_iter()
+                .zip(row.into_iter().map(|(child_compound, _)| child_compound))
+                .map(|(origin, child_compound)| (child_compound, origin + chain_x))
+                .collect();
+            groups.push(GroupLayout { family, children });
+            for (depth, (min, max)) in extent.iter().enumerate() {
+                let shifted = (min + chain_x, max + chain_x);
+                if let Some(slot) = contour.get_mut(depth + 1) {
+                    slot.0 = slot.0.min(shifted.0);
+                    slot.1 = slot.1.max(shifted.1);
+                } else {
+                    contour.push(shifted);
+                }
+            }
+        }
         BlockLayout {
             chain_x,
-            groups: packed
-                .into_iter()
-                .map(|(family, start)| (family, start + chain_x))
-                .collect(),
+            groups,
             width: high - low,
+            contour,
         }
     }
 
@@ -569,15 +879,12 @@ impl<'a> LayoutBuilder<'a> {
             return block.clone();
         }
         if !self.block_active.insert(compound) {
-            let width = self
-                .chains
-                .get(compound)
-                .map(|chain| row_width(chain.len()))
-                .unwrap_or(0.0);
+            let width = self.chain_width(compound);
             return BlockLayout {
                 chain_x: 0.0,
                 groups: Vec::new(),
                 width,
+                contour: vec![(0.0, width)],
             };
         }
         let block = self.compute_block(compound);
@@ -601,40 +908,28 @@ impl<'a> LayoutBuilder<'a> {
         }
         let block = self.block_of(compound);
         let chain = self.chains.get(compound).cloned().unwrap_or_default();
-        let families = self
-            .compounds
-            .get(compound)
-            .map(|compound| compound.families.clone())
-            .unwrap_or_default();
+        let chain_xs = self.chain_xs.get(compound).cloned().unwrap_or_default();
         let y = self.rank_y(compound);
 
         for (slot, id) in chain.iter().enumerate() {
-            let x = left + block.chain_x + slot as f32 * (NODE_W + H_GAP);
+            let x = left + block.chain_x + chain_xs.get(slot).copied().unwrap_or(0.0);
             self.insert_bounds(
                 id,
                 Rect::from_min_size(Pos2::new(x, y), vec2(NODE_W, NODE_H)),
             );
         }
-        for &family in &families {
-            let union = left + block.chain_x + self.union_offset(compound, family);
+        for group in &block.groups {
+            let union = left + block.chain_x + self.union_offset(compound, group.family);
             if let Some(id) = self
                 .tree
                 .families
-                .get(family)
+                .get(group.family)
                 .map(|family| family.id.as_str())
             {
                 self.union_x.insert(id, union);
             }
-        }
-        for &(family, group_x) in &block.groups {
-            let mut child_x = left + group_x;
-            for child in self.children_of_family(family) {
-                let Some(&child_compound) = self.compound_of.get(child) else {
-                    continue;
-                };
-                let width = self.block_of(child_compound).width;
-                self.place_compound(child_compound, child_x);
-                child_x += width + H_GAP;
+            for &(child_compound, child_x) in &group.children {
+                self.place_compound(child_compound, left + child_x);
             }
         }
 
@@ -642,22 +937,74 @@ impl<'a> LayoutBuilder<'a> {
         self.placed.insert(compound);
     }
 
+    /// Buckets every compound into its connected family group (roots
+    /// first, then the cycle leftovers), shelf-packs the group boxes
+    /// onto the grid, and places each group from its grid offset.
     fn layout(&mut self) {
         let roots = self.roots.clone();
-        let mut cursor = 0.0;
-        for compound in roots {
-            let width = self.block_of(compound).width;
-            self.place_compound(compound, cursor);
-            cursor += width + H_GAP;
+        let components = self
+            .component_of
+            .iter()
+            .copied()
+            .max()
+            .map(|highest| highest + 1)
+            .unwrap_or(0);
+        let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); components];
+        for compound in &roots {
+            let Some(&component) = self.component_of.get(*compound) else {
+                continue;
+            };
+            if let Some(bucket) = buckets.get_mut(component) {
+                bucket.push(*compound);
+            }
         }
-        // Cycles and compounds behind them fall back to the end of the row.
         for compound in 0..self.compounds.len() {
-            if self.placed.contains(&compound) {
+            if roots.contains(&compound) {
                 continue;
             }
-            let width = self.block_of(compound).width;
-            self.place_compound(compound, cursor);
-            cursor += width + H_GAP;
+            let Some(&component) = self.component_of.get(compound) else {
+                continue;
+            };
+            if let Some(bucket) = buckets.get_mut(component) {
+                bucket.push(compound);
+            }
+        }
+
+        let mut sizes = Vec::with_capacity(buckets.len());
+        for bucket in &buckets {
+            let mut width: f32 = 0.0;
+            let mut max_rank: u32 = 0;
+            for (position, &compound) in bucket.iter().enumerate() {
+                if position > 0 {
+                    width += H_SPACING;
+                }
+                width += self.block_of(compound).width;
+                let rank = self
+                    .compounds
+                    .get(compound)
+                    .map(|compound| compound.rank)
+                    .unwrap_or(0);
+                max_rank = max_rank.max(rank);
+            }
+            sizes.push((width, max_rank as f32 * (NODE_H + V_GAP) + NODE_H));
+        }
+        for (component, offset) in pack_components(&sizes).into_iter().enumerate() {
+            self.component_offsets.insert(component, offset);
+        }
+        for (component, bucket) in buckets.into_iter().enumerate() {
+            let mut cursor = self
+                .component_offsets
+                .get(&component)
+                .map(|(x, _)| *x)
+                .unwrap_or(0.0);
+            for compound in bucket {
+                if self.placed.contains(&compound) {
+                    continue;
+                }
+                let width = self.block_of(compound).width;
+                self.place_compound(compound, cursor);
+                cursor += width + H_SPACING;
+            }
         }
     }
 
@@ -699,7 +1046,7 @@ impl<'a> LayoutBuilder<'a> {
                     };
                     // Spouses seated in different chain gaps (remarriage)
                     // get no bar: it would cut across the nodes between.
-                    let adjacent = (second.x - first.x - H_GAP).abs() < 0.5;
+                    let adjacent = (second.x - first.x - SPOUSE_GAP).abs() < 0.5;
                     let spouse_line = adjacent.then_some([first, second]);
                     let union = if adjacent {
                         first + (second - first) * 0.5
@@ -876,6 +1223,52 @@ mod tests {
         }
     }
 
+    /// Johan + Maria -> Elsa with three children fanned wider than her
+    /// own node, and childless Nils as the sibling to tuck in.
+    fn interlock_tree() -> FamilyTree {
+        FamilyTree {
+            people: vec![
+                person("i1", "Johan", "Ahlberg"),
+                person("i2", "Maria", "Ekdahl"),
+                person("i3", "Elsa", "Ahlberg"),
+                person("i4", "Nils", "Ahlberg"),
+                person("i5", "Otto", "Friis"),
+                person("i6", "Eva", "Friis"),
+                person("i7", "Lars", "Friis"),
+            ],
+            families: vec![
+                family("f1", Some("i1"), Some("i2")),
+                family("f2", Some("i3"), None),
+            ],
+            child_links: vec![
+                ("f1".to_string(), "i3".to_string()),
+                ("f1".to_string(), "i4".to_string()),
+                ("f2".to_string(), "i5".to_string()),
+                ("f2".to_string(), "i6".to_string()),
+                ("f2".to_string(), "i7".to_string()),
+            ],
+        }
+    }
+
+    /// Six husband+wife couples with no links between them.
+    fn six_couples_tree() -> FamilyTree {
+        let mut people = Vec::new();
+        let mut families = Vec::new();
+        for couple in 0..6 {
+            let husband = format!("h{couple}");
+            let wife = format!("w{couple}");
+            let family_id = format!("m{couple}");
+            people.push(person(&husband, "Husband", "Tree"));
+            people.push(person(&wife, "Wife", "Tree"));
+            families.push(family(&family_id, Some(&husband), Some(&wife)));
+        }
+        FamilyTree {
+            people,
+            families,
+            child_links: Vec::new(),
+        }
+    }
+
     fn node<'a>(scene: &'a TreeScene, id: &str) -> &'a NodeGeom {
         scene
             .nodes
@@ -916,8 +1309,8 @@ mod tests {
         let father = node(&scene, "i1");
         let mother = node(&scene, "i2");
         assert!(
-            (mother.bounds.min.x - father.bounds.max.x - H_GAP).abs() < 1e-3,
-            "spouses are separated by exactly H_GAP"
+            (mother.bounds.min.x - father.bounds.max.x - SPOUSE_GAP).abs() < 1e-3,
+            "spouses are separated by exactly SPOUSE_GAP"
         );
 
         let left = node(&scene, "i3").bounds.min.x;
@@ -1069,16 +1462,19 @@ mod tests {
             "both children rows share the child rank"
         );
         assert!(
-            (first_child.center().x - union(&scene, "f1").union.x).abs() < 1e-3,
-            "f1 children centred under the f1 union"
-        );
-        assert!(
             (second_child.center().x - union(&scene, "f2").union.x).abs() < 1e-3,
             "f2 children centred under the f2 union"
         );
+        // The two unions sit only SPOUSE_GAP + NODE_W apart, so the f1
+        // row slides right to keep the rows H_SPACING clear.
+        let f1_shift = first_child.center().x - union(&scene, "f1").union.x;
         assert!(
-            first_child.min.x >= second_child.max.x + H_GAP - 1e-3,
-            "the two children rows keep at least H_GAP apart"
+            (-1e-3..=H_SPACING + 1e-3).contains(&f1_shift),
+            "f1 row stays under its union, pushed clear of the f2 row"
+        );
+        assert!(
+            first_child.min.x >= second_child.max.x + H_SPACING - 1e-3,
+            "the two children rows keep at least H_SPACING apart"
         );
     }
 
@@ -1097,9 +1493,15 @@ mod tests {
             child.min.y - parent.max.y >= 120.0 - 1e-6,
             "generations are at least 120 apart"
         );
+        assert_eq!(
+            mother.min.x - parent.max.x,
+            SPOUSE_GAP,
+            "spouses sit one narrow union gap apart"
+        );
+        let sibling = node(&scene, "i4").bounds;
         assert!(
-            mother.min.x - parent.max.x >= 40.0 - 1e-6,
-            "spouses are at least 40 apart"
+            sibling.min.x - node(&scene, "i3").bounds.max.x >= H_SPACING - 1e-6,
+            "siblings keep the node separation"
         );
     }
 
@@ -1131,6 +1533,56 @@ mod tests {
     }
 
     #[test]
+    fn sibling_subtrees_interlock_without_overlapping() {
+        // Elsa's three children fan out wider than her own node; the
+        // childless sibling must clear her chain by one node gap, not by
+        // the whole grandchildren row.
+        let scene = build_scene(&interlock_tree());
+        let deep = node(&scene, "i3").bounds;
+        let tucked = node(&scene, "i4").bounds;
+        assert_eq!(
+            tucked.min.x - deep.max.x,
+            H_SPACING,
+            "the childless sibling clears the deep chain by exactly the node gap"
+        );
+        assert!(
+            node(&scene, "i7").bounds.max.x > tucked.min.x,
+            "the wide grandchildren row reaches past the tucked sibling"
+        );
+        assert_eq!(
+            tucked.min.y, deep.min.y,
+            "both siblings still share their rank"
+        );
+    }
+
+    #[test]
+    fn no_two_nodes_overlap() {
+        for tree in [
+            fixture(),
+            lineage_tree(),
+            remarriage_tree(),
+            polygamy_tree(),
+            interlock_tree(),
+            six_couples_tree(),
+        ] {
+            assert_no_overlap(&build_scene(&tree));
+        }
+    }
+
+    fn assert_no_overlap(scene: &TreeScene) {
+        for (index, node) in scene.nodes.iter().enumerate() {
+            for other in scene.nodes.iter().skip(index + 1) {
+                assert!(
+                    !node.bounds.intersects(other.bounds),
+                    "nodes {} and {} overlap",
+                    node.person_id,
+                    other.person_id
+                );
+            }
+        }
+    }
+
+    #[test]
     fn trunk_sits_half_a_gap_below_the_rank() {
         let scene = build_scene(&fixture());
         let trunk = union(&scene, "f1").trunk_y;
@@ -1148,6 +1600,45 @@ mod tests {
             second_rank_trunk,
             (NODE_H + V_GAP) + V_GAP * 0.5,
             "rank 1 trunk follows the same formula"
+        );
+    }
+
+    #[test]
+    fn disconnected_components_pack_into_a_grid() {
+        use petgraph::algo::connected_components;
+
+        let tree = six_couples_tree();
+        assert_eq!(
+            connected_components(&component_graph(&tree)),
+            6,
+            "the sample is six separate family groups"
+        );
+        let scene = build_scene(&tree);
+        let mut ranks: Vec<f32> = scene.nodes.iter().map(|node| node.bounds.min.y).collect();
+        ranks.sort_by(f32::total_cmp);
+        ranks.dedup();
+        assert!(
+            ranks.len() >= 2,
+            "the couples spread over several grid rows"
+        );
+        let shared_row = scene.nodes.iter().enumerate().any(|(index, node)| {
+            scene
+                .nodes
+                .iter()
+                .skip(index + 1)
+                .any(|other| other.bounds.min.y == node.bounds.min.y)
+        });
+        assert!(
+            shared_row,
+            "some row holds more than one couple: a grid, not a column"
+        );
+        let mut trunks: Vec<f32> = scene.unions.iter().map(|union| union.trunk_y).collect();
+        trunks.sort_by(f32::total_cmp);
+        trunks.dedup();
+        assert_eq!(
+            trunks,
+            vec![60.0, 236.0, 412.0],
+            "trunk rows follow the three grid rows"
         );
     }
 
@@ -1179,21 +1670,59 @@ mod tests {
         }
     }
 
-    #[test]
-    fn no_connector_enters_a_node_box() {
-        for tree in [fixture(), remarriage_tree(), polygamy_tree()] {
-            let scene = build_scene(&tree);
-            let segments = crate::gui::connectors::build_segments(&scene.unions);
-            assert!(!segments.is_empty(), "fixture must produce connectors");
-            for segment in &segments {
-                for node in &scene.nodes {
-                    assert!(
-                        !segment_enters_box(segment, node.bounds),
-                        "segment {segment:?} cuts node {}",
-                        node.person_id
-                    );
-                }
+    fn assert_connectors_avoid_nodes(scene: &TreeScene) {
+        let segments = crate::gui::connectors::build_segments(&scene.unions);
+        for segment in &segments {
+            for node in &scene.nodes {
+                assert!(
+                    !segment_enters_box(segment, node.bounds),
+                    "segment {segment:?} cuts node {}",
+                    node.person_id
+                );
             }
         }
+    }
+
+    #[test]
+    fn no_connector_enters_a_node_box() {
+        for tree in [
+            fixture(),
+            remarriage_tree(),
+            polygamy_tree(),
+            interlock_tree(),
+        ] {
+            let scene = build_scene(&tree);
+            assert!(
+                !crate::gui::connectors::build_segments(&scene.unions).is_empty(),
+                "fixture must produce connectors"
+            );
+            assert_connectors_avoid_nodes(&scene);
+        }
+    }
+
+    #[test]
+    fn layout_real_export_when_present() -> Result<(), crate::gedcom::GedcomError> {
+        // Private WikiTree export in gitignored `test_data/`; skipped in CI.
+        let Ok(entries) = std::fs::read_dir("test_data") else {
+            return Ok(());
+        };
+        let sample = entries
+            .flatten()
+            .find(|entry| entry.path().extension().is_some_and(|ext| ext == "ged"));
+        let Some(sample) = sample else {
+            return Ok(());
+        };
+        let mut conn = rusqlite::Connection::open_in_memory()?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        crate::db::init_db(&conn)?;
+        let file = std::fs::File::open(sample.path())?;
+        crate::gedcom::import_gedcom(&mut conn, std::io::BufReader::new(file))?;
+        let tree = crate::db::load_family_tree(&conn)?;
+        let scene = build_scene(&tree);
+        assert!(!scene.nodes.is_empty(), "the real export must layout");
+        assert_no_overlap(&scene);
+        assert_connectors_avoid_nodes(&scene);
+        assert_eq!(scene, build_scene(&tree), "real layouts stay deterministic");
+        Ok(())
     }
 }
