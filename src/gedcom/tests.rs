@@ -690,9 +690,15 @@ fn imports_the_local_test_data_sample_when_present() -> Result<(), GedcomError> 
         patronymics > 0,
         "WikiTree _MIDN patronymics must land in middle_name"
     );
+    let noted: i64 = conn
+        .query_row("SELECT COUNT(*) FROM people WHERE notes <> ''", [], |row| {
+            row.get(0)
+        })
+        .map_err(GedcomError::Db)?;
+    assert!(noted > 0, "INDI notes must land in people.notes");
     assert_eq!(
         report.warnings.len(),
-        2809,
+        2324,
         "every unmapped tag must be listed for the report window"
     );
     Ok(())
@@ -813,6 +819,58 @@ fn middle_name_and_nickname_round_trip_through_export() -> Result<(), GedcomErro
         ),
         ("Михаил", "Андреевич", "Соловьев", "Миша")
     );
+    assert!(
+        report.warnings.is_empty(),
+        "round trip must stay warning-free: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn import_keeps_only_the_first_indi_note() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ann /Lee/
+1 NOTE First line
+2 CONT second line
+2 CONC  joined
+1 NOTE Ignored note
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.people, 1);
+    assert!(
+        report.warnings.is_empty(),
+        "notes are supported now: {:?}",
+        report.warnings
+    );
+    let notes: String = conn
+        .query_row("SELECT notes FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(notes, "First line\nsecond line joined");
+    Ok(())
+}
+
+#[test]
+fn person_notes_round_trip_through_export() -> Result<(), GedcomError> {
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let mut profile = crate::db::people::PersonDetails::new("Ann", "", "Lee", "", "F", None, None);
+    profile.notes = "Line one\nLine two".to_string();
+    crate::db::people::insert_person(&mut conn, &profile).expect("insert succeeds");
+
+    let ged = export_to_gedcom(&conn)?;
+    assert!(ged.contains("1 NOTE Line one\n2 CONT Line two\n"), "{ged}");
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    let notes: String = fresh
+        .query_row("SELECT notes FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(notes, "Line one\nLine two");
     assert!(
         report.warnings.is_empty(),
         "round trip must stay warning-free: {:?}",

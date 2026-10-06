@@ -71,8 +71,11 @@ which groups `BIRTH`/`DEATH` event dates and places by person id.
   given/surname split of `1 NAME`, `2 _MIDN` fills `people.middle_name`
   and `2 _PGVN`/`2 NICK` fill `people.nickname` (export writes those
   children back only when the columns are populated, so plain exports stay
-  byte-identical). Every other tag the importer recognises but does not
-  model — `REFN`, `NOTE`, `OBJE`, unknown level-0 records — is logged as a
+  byte-identical). The first `1 NOTE` under an `INDI` — including its
+  `2 CONT`/`2 CONC` continuations — fills `people.notes`; later note
+  blocks on the same person are ignored silently. Every other tag the
+  importer recognises but does not model — `REFN`, `OBJE`, FAM-level
+  `NOTE`, unknown level-0 records — is logged as a
   non-fatal `Line N: Tag recognized/unsupported or ignored [TAG value]`
   warning (payload truncated to 100 characters) and the import continues.
 - Warnings never block an import: the status bar appends the count
@@ -84,7 +87,8 @@ which groups `BIRTH`/`DEATH` event dates and places by person id.
 - `gedcom::export_to_gedcom(&conn)` serialises `people`, `families`,
   `family_children`, `events` and `citations` back into a deterministic
   GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, `SOUR` records, `INDI`
-  and `FAM` records, then `TRLR`.
+  and `FAM` records, then `TRLR`. Populated `people.notes` travel as
+  `1 NOTE` + `2 CONT` lines after `1 SEX`, so notes round-trip losslessly.
 - Family links are recovered from `HUSB`/`WIFE`/`CHIL`, backfilled from
   `FAMC`, and `FAMS` fills empty spouse slots when `SEX` makes it unambiguous.
 - Citations serialise as `0 @S@ SOUR` records (`1 TITL`, `1 NOTE`) that

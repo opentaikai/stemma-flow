@@ -13,6 +13,7 @@ struct PersonRow {
     surname: String,
     nickname: String,
     gender: String,
+    notes: String,
 }
 
 struct FamilyRow {
@@ -95,7 +96,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 
     let mut people = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT id, given_name, middle_name, surname, nickname, gender
+        "SELECT id, given_name, middle_name, surname, nickname, gender, notes
          FROM people ORDER BY rowid",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -106,6 +107,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
             surname: row.get(3)?,
             nickname: row.get(4)?,
             gender: row.get(5)?,
+            notes: row.get(6)?,
         })
     })?;
     for row in rows {
@@ -255,6 +257,15 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
             out.push_str(&format!("2 SURN {}\n", person.surname));
         }
         out.push_str(&format!("1 SEX {}\n", person.gender));
+        if !person.notes.is_empty() {
+            let mut note_lines = person.notes.split('\n');
+            if let Some(first) = note_lines.next() {
+                out.push_str(&format!("1 NOTE {first}\n"));
+                for line in note_lines {
+                    out.push_str(&format!("2 CONT {line}\n"));
+                }
+            }
+        }
 
         if let Some(person_events) = events_by_person.get(person.id.as_str()) {
             for event in person_events {
