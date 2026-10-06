@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use egui::{Color32, RichText, Ui};
 
 use crate::db::people::{ParentRole, PersonDetails, VitalDates};
-use crate::db::{FamilyTree, Person};
+use crate::db::{FamilyTree, MarriageInfo, Person};
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 
@@ -16,6 +16,8 @@ pub enum InspectorAction {
     AddParent,
     AddSpouse,
     AddChild,
+    /// Select `person_id` and re-centre the graph on it.
+    Focus(String),
 }
 
 /// Buffered profile fields, one snapshot per selected person.
@@ -86,29 +88,34 @@ fn blank_to_none(text: &str) -> Option<String> {
     }
 }
 
-/// Counts of the selected person's existing family ties.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Connections {
-    pub parents: usize,
-    pub spouses: usize,
-    pub children: usize,
+/// One relative listed in the inspector; `id` drives click-to-focus.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Relative {
+    pub id: String,
+    pub label: String,
+    /// Marriage date and place, set on spouse rows when known.
+    pub marriage: Option<MarriageInfo>,
 }
 
-/// Counts parents, spouses and children straight off the loaded tree.
-pub fn connections(tree: &FamilyTree, person_id: &str) -> Connections {
-    let mut counts = Connections::default();
-    for family in &tree.families {
-        let is_spouse = family.husband_id.as_deref() == Some(person_id)
-            || family.wife_id.as_deref() == Some(person_id);
-        if is_spouse {
-            counts.spouses += 1;
-            counts.children += tree
-                .child_links
-                .iter()
-                .filter(|(family_id, _)| family_id == &family.id)
-                .count();
-        }
-    }
+/// The selected person's existing family ties, ready to render.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Connections {
+    pub parents: Vec<Relative>,
+    pub siblings: Vec<Relative>,
+    pub spouses: Vec<Relative>,
+    pub children: Vec<Relative>,
+}
+
+/// Lists parents, siblings, spouses and children straight off the loaded
+/// tree, sorted by display label. Siblings cover every family that
+/// contains one of the parents, so remarriage half-siblings appear too.
+/// `marriages` supplies the details shown next to spouse names.
+pub fn connections(
+    tree: &FamilyTree,
+    person_id: &str,
+    marriages: &HashMap<String, MarriageInfo>,
+) -> Connections {
+    let mut parent_ids: Vec<String> = Vec::new();
     for (family_id, child_id) in &tree.child_links {
         if child_id != person_id {
             continue;
@@ -116,10 +123,97 @@ pub fn connections(tree: &FamilyTree, person_id: &str) -> Connections {
         let Some(family) = tree.families.iter().find(|family| &family.id == family_id) else {
             continue;
         };
-        counts.parents += usize::from(family.husband_id.is_some());
-        counts.parents += usize::from(family.wife_id.is_some());
+        for slot in [&family.husband_id, &family.wife_id] {
+            if let Some(parent_id) = slot
+                && parent_id != person_id
+                && !parent_ids.contains(parent_id)
+            {
+                parent_ids.push(parent_id.clone());
+            }
+        }
     }
-    counts
+
+    let mut sibling_ids: Vec<String> = Vec::new();
+    for parent_id in &parent_ids {
+        let their_families = tree.families.iter().filter(|family| {
+            family.husband_id.as_ref() == Some(parent_id)
+                || family.wife_id.as_ref() == Some(parent_id)
+        });
+        for family in their_families {
+            for (family_id, child_id) in &tree.child_links {
+                if family_id == &family.id
+                    && child_id != person_id
+                    && !sibling_ids.contains(child_id)
+                {
+                    sibling_ids.push(child_id.clone());
+                }
+            }
+        }
+    }
+
+    let mut spouse_ids: Vec<(String, Option<MarriageInfo>)> = Vec::new();
+    let mut child_ids: Vec<String> = Vec::new();
+    for family in &tree.families {
+        let is_spouse = family.husband_id.as_deref() == Some(person_id)
+            || family.wife_id.as_deref() == Some(person_id);
+        if !is_spouse {
+            continue;
+        }
+        let other = if family.husband_id.as_deref() == Some(person_id) {
+            family.wife_id.as_deref()
+        } else {
+            family.husband_id.as_deref()
+        };
+        if let Some(spouse_id) = other
+            && spouse_id != person_id
+            && !spouse_ids.iter().any(|(id, _)| id == spouse_id)
+        {
+            spouse_ids.push((spouse_id.to_string(), marriages.get(&family.id).cloned()));
+        }
+        for (family_id, child_id) in &tree.child_links {
+            if family_id == &family.id && child_id != person_id && !child_ids.contains(child_id) {
+                child_ids.push(child_id.clone());
+            }
+        }
+    }
+
+    Connections {
+        parents: by_label(relatives(tree, parent_ids)),
+        siblings: by_label(relatives(tree, sibling_ids)),
+        spouses: by_label(
+            spouse_ids
+                .into_iter()
+                .filter_map(|(id, marriage)| relative(tree, &id, marriage))
+                .collect(),
+        ),
+        children: by_label(relatives(tree, child_ids)),
+    }
+}
+
+/// Builds a labelled relative, skipping ids with no stored person.
+fn relative(tree: &FamilyTree, id: &str, marriage: Option<MarriageInfo>) -> Option<Relative> {
+    let person = tree.people.iter().find(|person| person.id == id)?;
+    Some(Relative {
+        id: person.id.clone(),
+        label: person_label(person),
+        marriage,
+    })
+}
+
+fn relatives(tree: &FamilyTree, ids: Vec<String>) -> Vec<Relative> {
+    ids.iter()
+        .filter_map(|id| relative(tree, id, None))
+        .collect()
+}
+
+fn by_label(mut relatives: Vec<Relative>) -> Vec<Relative> {
+    relatives.sort_by(|left, right| {
+        left.label
+            .to_lowercase()
+            .cmp(&right.label.to_lowercase())
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    relatives
 }
 
 /// Display label for a stored person; blank names fall back gracefully.
@@ -200,17 +294,43 @@ pub fn show(
     field_editors(ui, form);
 
     ui.separator();
-    ui.label(RichText::new("Connections").strong());
-    ui.label(
-        RichText::new(format!(
-            "{} parents \u{00b7} {} spouses \u{00b7} {} children",
-            connections.parents, connections.spouses, connections.children
-        ))
-        .weak()
-        .size(12.0),
-    );
+    ui.label(RichText::new("Relationships").strong());
 
     let mut action = None;
+    for (title, relatives) in [
+        ("Parents", &connections.parents),
+        ("Siblings", &connections.siblings),
+        ("Spouses", &connections.spouses),
+        ("Children", &connections.children),
+    ] {
+        ui.label(RichText::new(title).weak().size(12.0));
+        if relatives.is_empty() {
+            ui.label(RichText::new("(none)").weak().size(12.0));
+        }
+        for relative in relatives {
+            let mut text = relative.label.clone();
+            if let Some(marriage) = &relative.marriage {
+                let facts = [marriage.date.as_deref(), marriage.place.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" \u{00b7} ");
+                if !facts.is_empty() {
+                    text.push_str(&format!(" \u{00b7} {facts}"));
+                }
+            }
+            let row = egui::Label::new(RichText::new(text).strong())
+                .sense(egui::Sense::click())
+                .truncate();
+            if ui
+                .add_sized([ui.available_width(), ui.spacing().interact_size.y], row)
+                .clicked()
+            {
+                action = Some(InspectorAction::Focus(relative.id.clone()));
+            }
+        }
+    }
+
     ui.horizontal(|ui| {
         if ui.button("+ Add Parent").clicked() {
             action = Some(InspectorAction::AddParent);
@@ -382,17 +502,26 @@ mod tests {
     }
 
     #[test]
-    fn connections_count_parents_spouses_and_children() {
+    fn connections_list_relatives_sorted_by_label() {
         let mut tree = FamilyTree::default();
         let father = Person::new("Papa", "Root", "M");
         let mother = Person::new("Mama", "Root", "F");
         let child = Person::new("Kid", "Root", "U");
+        let sibling = Person::new("Sib", "Root", "U");
+        let stepmother = Person::new("Stella", "Root", "F");
+        let half = Person::new("Haf", "Root", "U");
         let spouse = Person::new("Partner", "Spouse", "F");
         let grandchild = Person::new("Baby", "Spouse", "U");
-        let couple = crate::db::Family {
+        let childhood = crate::db::Family {
             id: "f-childhood".to_string(),
             husband_id: Some(father.id.clone()),
             wife_id: Some(mother.id.clone()),
+            created_at: "t".to_string(),
+        };
+        let second = crate::db::Family {
+            id: "f-second".to_string(),
+            husband_id: Some(father.id.clone()),
+            wife_id: Some(stepmother.id.clone()),
             created_at: "t".to_string(),
         };
         let own = crate::db::Family {
@@ -401,19 +530,65 @@ mod tests {
             wife_id: Some(spouse.id.clone()),
             created_at: "t".to_string(),
         };
-        let expected = Connections {
-            parents: 2,
-            spouses: 1,
-            children: 1,
-        };
-        tree.people = vec![father, mother, child.clone(), spouse, grandchild.clone()];
-        tree.families = vec![couple, own];
+        tree.people = vec![
+            father,
+            mother,
+            child.clone(),
+            sibling.clone(),
+            stepmother,
+            half.clone(),
+            spouse,
+            grandchild.clone(),
+        ];
+        tree.families = vec![childhood, second, own];
         tree.child_links = vec![
             ("f-childhood".to_string(), child.id.clone()),
+            ("f-childhood".to_string(), sibling.id.clone()),
+            ("f-second".to_string(), half.id.clone()),
             ("f-own".to_string(), grandchild.id.clone()),
         ];
+        let mut marriages = HashMap::new();
+        marriages.insert(
+            "f-own".to_string(),
+            MarriageInfo {
+                date: Some("1910".to_string()),
+                place: Some("Uppsala".to_string()),
+            },
+        );
 
-        assert_eq!(connections(&tree, &child.id), expected);
+        let found = connections(&tree, &child.id, &marriages);
+        assert_eq!(
+            found
+                .parents
+                .iter()
+                .map(|relative| relative.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Mama Root", "Papa Root"],
+            "parents sort alphabetically"
+        );
+        assert_eq!(
+            found
+                .siblings
+                .iter()
+                .map(|relative| relative.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Haf Root", "Sib Root"],
+            "remarriage half-siblings join full siblings"
+        );
+        assert_eq!(
+            found
+                .children
+                .iter()
+                .map(|relative| relative.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Baby Spouse"]
+        );
+        assert_eq!(found.spouses.len(), 1, "one spouse row");
+        let spouse_row = found.spouses.first().expect("spouse row exists");
+        assert_eq!(spouse_row.label, "Partner Spouse");
+        let marriage = spouse_row.marriage.as_ref().expect("marriage details");
+        assert_eq!(marriage.date.as_deref(), Some("1910"));
+        assert_eq!(marriage.place.as_deref(), Some("Uppsala"));
     }
 
     #[test]

@@ -170,7 +170,10 @@ views (the app always launches on Graph View):
 - **Person Inspector** — a right-side panel shown whenever a person is
   selected: buffered profile fields (given name, middle name, surname,
   nickname, gender, birth, death) committed with **Save Changes**,
-  connection counts, and **+ Add Parent**, **+ Add Spouse**,
+  relationship lists (parents, siblings, spouses, children) whose rows
+  select that relative on the graph and re-centre the view — spouse rows
+  carry the marriage date and place when a `MARRIAGE` event exists —
+  and **+ Add Parent**, **+ Add Spouse**,
   **+ Add Child** buttons whose pop-up creates and links the relative in
   one step (parents choose a Father/Mother role that presets the gender).
 
@@ -196,7 +199,9 @@ mutation finishes:
 - `gui::tabs` renders the tab row, `gui::watchlist` owns the grid's
   filter/sort state and emits selection/add/delete events, and
   `gui::inspector` draws the side panel, the profile editors shared with
-  the relation pop-up, and the connection counts.
+  the relation pop-up, and the relationship lists with click-to-focus
+  navigation (`InspectorAction::Focus` re-selects the person, switches to
+  the graph tab and centres the viewport on the node).
 - `gui::import_report` renders the **Import Report** window opened after
   a warning-bearing import (virtualized rows, close button, hover for the
   full message), and `gui::settings` renders the `File > Settings…` dialog

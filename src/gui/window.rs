@@ -24,7 +24,7 @@ use super::welcome::{self, WelcomeAction};
 use crate::app::{self, StemmaApp, UiStatus};
 use crate::config::AppConfig;
 use crate::db::people::{PersonDetails, VitalDates};
-use crate::db::{self, FamilyTree};
+use crate::db::{self, FamilyTree, MarriageInfo};
 use crate::gedcom::ImportReport;
 
 const HINT_TEXT: &str = "Import a GEDCOM file to begin";
@@ -46,6 +46,7 @@ pub struct TreeWindow {
     watch: watchlist::WatchState,
     tree: FamilyTree,
     dates: HashMap<String, VitalDates>,
+    marriages: HashMap<String, MarriageInfo>,
     rows: Vec<PersonRow>,
     inspector: InspectorForm,
     inspected: Option<String>,
@@ -78,6 +79,7 @@ impl TreeWindow {
             watch: watchlist::WatchState::default(),
             tree: FamilyTree::default(),
             dates: HashMap::new(),
+            marriages: HashMap::new(),
             rows: Vec::new(),
             inspector: InspectorForm::default(),
             inspected: None,
@@ -137,13 +139,16 @@ impl TreeWindow {
             .and_then(|conn| {
                 let tree = db::load_family_tree(&conn).ok()?;
                 let dates = db::people::load_vital_dates(&conn).ok()?;
-                Some((tree, dates))
+                let marriages = db::load_marriage_details(&conn).ok()?;
+                Some((tree, dates, marriages))
             });
-        let (tree, dates) = loaded.unwrap_or_else(|| (FamilyTree::default(), HashMap::new()));
+        let (tree, dates, marriages) =
+            loaded.unwrap_or_else(|| (FamilyTree::default(), HashMap::new(), HashMap::new()));
         self.scene = layout::build_scene(&tree);
         self.rows = watchlist::rows(&tree, &dates);
         self.tree = tree;
         self.dates = dates;
+        self.marriages = marriages;
         self.watch.mark_dirty();
         self.seen_db = self.app.active_db().map(Path::to_path_buf);
         self.seen_generation = self.app.import_generation();
@@ -355,7 +360,7 @@ impl TreeWindow {
             .people
             .iter()
             .find(|person| person.id == person_id);
-        let connections = inspector::connections(&self.tree, &person_id);
+        let connections = inspector::connections(&self.tree, &person_id, &self.marriages);
         if let Some(action) = inspector::show(ui, person, &mut self.inspector, connections) {
             match action {
                 InspectorAction::Save(details) => self.edit_person(&details),
@@ -368,7 +373,23 @@ impl TreeWindow {
                 InspectorAction::AddChild => {
                     self.open_relation(&person_id, RelationKind::Child);
                 }
+                InspectorAction::Focus(target) => self.focus_person(&target),
             }
+        }
+    }
+
+    /// Selects `person_id`, jumps to the graph and centres the viewport
+    /// on its node, so a relative click always lands on the right place.
+    fn focus_person(&mut self, person_id: &str) {
+        self.app.set_selected_person(Some(person_id.to_string()));
+        self.tab = tabs::AppTab::Graph;
+        if let Some(node) = self
+            .scene
+            .nodes
+            .iter()
+            .find(|node| node.person_id == person_id)
+        {
+            self.viewport.pan = pan_centering(node.bounds.center(), self.viewport.zoom);
         }
     }
 
@@ -931,7 +952,9 @@ mod tests {
 
         assert_eq!(window.tree.people.len(), 2, "the parent joined the tree");
         assert_eq!(
-            inspector::connections(&window.tree, &person_id).parents,
+            inspector::connections(&window.tree, &person_id, &window.marriages)
+                .parents
+                .len(),
             1,
             "the child gained one parent"
         );
@@ -940,6 +963,43 @@ mod tests {
             window.app.selected_person_id(),
             Some(person_id.as_str()),
             "focus stays on the child"
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn focusing_a_person_selects_it_and_recenters_the_view() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.tab = tabs::AppTab::WatchList;
+        let person_id = window.rows.first().expect("one person").id.clone();
+
+        window.focus_person(&person_id);
+
+        assert_eq!(
+            window.app.selected_person_id(),
+            Some(person_id.as_str()),
+            "the relative becomes the selection"
+        );
+        assert_eq!(window.tab, tabs::AppTab::Graph, "the graph opens");
+        let node = window
+            .scene
+            .nodes
+            .iter()
+            .find(|node| node.person_id == person_id)
+            .expect("the node is laid out");
+        assert_eq!(
+            window.viewport.pan,
+            pan_centering(node.bounds.center(), window.viewport.zoom),
+            "the viewport centres on the node"
         );
 
         let _ = std::fs::remove_file(&db_file);
