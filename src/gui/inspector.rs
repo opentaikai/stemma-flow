@@ -29,7 +29,10 @@ pub struct InspectorForm {
     pub nickname: String,
     pub gender: String,
     pub birth: String,
+    pub birth_place: String,
     pub death: String,
+    pub death_place: String,
+    pub notes: String,
 }
 
 impl Default for InspectorForm {
@@ -41,13 +44,16 @@ impl Default for InspectorForm {
             nickname: String::new(),
             gender: "U".to_string(),
             birth: String::new(),
+            birth_place: String::new(),
             death: String::new(),
+            death_place: String::new(),
+            notes: String::new(),
         }
     }
 }
 
 impl InspectorForm {
-    /// Buffers the stored person plus its vital dates.
+    /// Buffers the stored person plus its vital dates and places.
     pub fn from_person(person: &Person, dates: &HashMap<String, VitalDates>) -> Self {
         let vitals = dates.get(&person.id);
         Self {
@@ -59,15 +65,22 @@ impl InspectorForm {
             birth: vitals
                 .and_then(|vitals| vitals.birth.clone())
                 .unwrap_or_default(),
+            birth_place: vitals
+                .and_then(|vitals| vitals.birth_place.clone())
+                .unwrap_or_default(),
             death: vitals
                 .and_then(|vitals| vitals.death.clone())
                 .unwrap_or_default(),
+            death_place: vitals
+                .and_then(|vitals| vitals.death_place.clone())
+                .unwrap_or_default(),
+            notes: person.notes.clone(),
         }
     }
 
-    /// Converts the buffer into write-ready details; blank dates clear.
+    /// Converts the buffer into write-ready details; blank fields clear.
     pub fn to_details(&self) -> PersonDetails {
-        PersonDetails::new(
+        let mut details = PersonDetails::new(
             self.given_name.clone(),
             self.middle_name.clone(),
             self.surname.clone(),
@@ -75,7 +88,11 @@ impl InspectorForm {
             self.gender.clone(),
             blank_to_none(&self.birth),
             blank_to_none(&self.death),
-        )
+        );
+        details.birth_place = blank_to_none(&self.birth_place);
+        details.death_place = blank_to_none(&self.death_place);
+        details.notes = self.notes.trim().to_string();
+        details
     }
 }
 
@@ -236,7 +253,13 @@ pub fn person_label(person: &Person) -> String {
 
 /// Renders the profile editors shared by the panel and relation pop-up.
 pub fn field_editors(ui: &mut Ui, form: &mut InspectorForm) {
-    egui::Grid::new("person_profile_fields")
+    name_editors(ui, form);
+    vital_editors(ui, form);
+}
+
+/// Name and gender fields, used by every form that edits a person.
+pub fn name_editors(ui: &mut Ui, form: &mut InspectorForm) {
+    egui::Grid::new("person_name_fields")
         .num_columns(2)
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
@@ -263,13 +286,29 @@ pub fn field_editors(ui: &mut Ui, form: &mut InspectorForm) {
                 ui.selectable_value(&mut form.gender, "U".to_string(), "Unknown");
             });
             ui.end_row();
+        });
+}
 
+/// Birth and death dates with their places.
+pub fn vital_editors(ui: &mut Ui, form: &mut InspectorForm) {
+    egui::Grid::new("person_vital_fields")
+        .num_columns(2)
+        .spacing([10.0, 6.0])
+        .show(ui, |ui| {
             ui.label("Birth date:");
             ui.text_edit_singleline(&mut form.birth);
             ui.end_row();
 
+            ui.label("Birth place:");
+            ui.text_edit_singleline(&mut form.birth_place);
+            ui.end_row();
+
             ui.label("Death date:");
             ui.text_edit_singleline(&mut form.death);
+            ui.end_row();
+
+            ui.label("Death place:");
+            ui.text_edit_singleline(&mut form.death_place);
             ui.end_row();
         });
 }
@@ -286,63 +325,78 @@ pub fn show(
         return None;
     };
 
-    ui.heading("Person Inspector");
-    ui.label(RichText::new(person_label(person)).strong());
-    ui.separator();
-
-    ui.label(RichText::new("Profile").strong());
-    field_editors(ui, form);
-
-    ui.separator();
-    ui.label(RichText::new("Relationships").strong());
-
     let mut action = None;
-    for (title, relatives) in [
-        ("Parents", &connections.parents),
-        ("Siblings", &connections.siblings),
-        ("Spouses", &connections.spouses),
-        ("Children", &connections.children),
-    ] {
-        ui.label(RichText::new(title).weak().size(12.0));
-        if relatives.is_empty() {
-            ui.label(RichText::new("(none)").weak().size(12.0));
-        }
-        for relative in relatives {
-            let mut text = relative.label.clone();
-            if let Some(marriage) = &relative.marriage {
-                let facts = [marriage.date.as_deref(), marriage.place.as_deref()]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .join(" \u{00b7} ");
-                if !facts.is_empty() {
-                    text.push_str(&format!(" \u{00b7} {facts}"));
+    let footer_height = ui.spacing().interact_size.y + ui.spacing().item_spacing.y * 5.0;
+    let body_height = (ui.available_height() - footer_height).max(120.0);
+    egui::ScrollArea::vertical()
+        .id_salt("person_inspector_body")
+        .auto_shrink([false, false])
+        .max_height(body_height)
+        .show(ui, |ui| {
+            card(ui, &person_label(person), |ui| {
+                ui.label(
+                    RichText::new(gender_word(person.gender.as_str()))
+                        .weak()
+                        .size(12.0),
+                );
+            });
+            card(ui, "Profile", |ui| name_editors(ui, form));
+            card(ui, "Vital Facts", |ui| vital_editors(ui, form));
+            card(ui, "Relationships", |ui| {
+                for (title, relatives) in [
+                    ("Parents", &connections.parents),
+                    ("Siblings", &connections.siblings),
+                    ("Spouses", &connections.spouses),
+                    ("Children", &connections.children),
+                ] {
+                    ui.label(RichText::new(title).weak().size(12.0));
+                    if relatives.is_empty() {
+                        ui.label(RichText::new("(none)").weak().size(12.0));
+                    }
+                    for relative in relatives {
+                        let mut text = relative.label.clone();
+                        if let Some(marriage) = &relative.marriage {
+                            let facts = [marriage.date.as_deref(), marriage.place.as_deref()]
+                                .into_iter()
+                                .flatten()
+                                .collect::<Vec<_>>()
+                                .join(" \u{00b7} ");
+                            if !facts.is_empty() {
+                                text.push_str(&format!(" \u{00b7} {facts}"));
+                            }
+                        }
+                        let row = egui::Label::new(RichText::new(text).strong())
+                            .sense(egui::Sense::click())
+                            .truncate();
+                        if ui
+                            .add_sized([ui.available_width(), ui.spacing().interact_size.y], row)
+                            .clicked()
+                        {
+                            action = Some(InspectorAction::Focus(relative.id.clone()));
+                        }
+                    }
                 }
-            }
-            let row = egui::Label::new(RichText::new(text).strong())
-                .sense(egui::Sense::click())
-                .truncate();
-            if ui
-                .add_sized([ui.available_width(), ui.spacing().interact_size.y], row)
-                .clicked()
-            {
-                action = Some(InspectorAction::Focus(relative.id.clone()));
-            }
-        }
-    }
-
-    ui.horizontal(|ui| {
-        if ui.button("+ Add Parent").clicked() {
-            action = Some(InspectorAction::AddParent);
-        }
-        if ui.button("+ Add Spouse").clicked() {
-            action = Some(InspectorAction::AddSpouse);
-        }
-        if ui.button("+ Add Child").clicked() {
-            action = Some(InspectorAction::AddChild);
-        }
-    });
-
+                ui.horizontal(|ui| {
+                    if ui.button("+ Add Parent").clicked() {
+                        action = Some(InspectorAction::AddParent);
+                    }
+                    if ui.button("+ Add Spouse").clicked() {
+                        action = Some(InspectorAction::AddSpouse);
+                    }
+                    if ui.button("+ Add Child").clicked() {
+                        action = Some(InspectorAction::AddChild);
+                    }
+                });
+            });
+            card(ui, "Notes", |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut form.notes)
+                        .desired_rows(6)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Research notes\u{2026}"),
+                );
+            });
+        });
     ui.separator();
     if ui
         .add(egui::Button::new(RichText::new("Save Changes").strong()).fill(ACCENT))
@@ -351,6 +405,28 @@ pub fn show(
         action = Some(InspectorAction::Save(Box::new(form.to_details())));
     }
     action
+}
+
+/// One framed, titled section of the inspector body.
+fn card(ui: &mut Ui, title: &str, body: impl FnOnce(&mut Ui)) {
+    egui::Frame::new()
+        .fill(ui.visuals().faint_bg_color)
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .corner_radius(4.0)
+        .inner_margin(8)
+        .show(ui, |ui| {
+            ui.label(RichText::new(title).strong());
+            ui.add_space(2.0);
+            body(ui);
+        });
+}
+
+fn gender_word(code: &str) -> &'static str {
+    match code {
+        "M" => "Male",
+        "F" => "Female",
+        _ => "Unknown",
+    }
 }
 
 /// Which relative the relation pop-up is creating.
@@ -460,13 +536,15 @@ mod tests {
         let mut person = Person::new("Ada", "King", "F");
         person.middle_name = "Lynn".to_string();
         person.nickname = "Addy".to_string();
+        person.notes = "Nearest relation of the mayor.".to_string();
         let mut dates = HashMap::new();
         dates.insert(
             person.id.clone(),
             VitalDates {
                 birth: Some("1815".to_string()),
+                birth_place: Some("London".to_string()),
                 death: Some("1852".to_string()),
-                ..Default::default()
+                death_place: Some("Cuckfield".to_string()),
             },
         );
         (person, dates)
@@ -482,17 +560,25 @@ mod tests {
         assert_eq!(form.nickname, "Addy");
         assert_eq!(form.gender, "F");
         assert_eq!(form.birth, "1815");
+        assert_eq!(form.birth_place, "London");
         assert_eq!(form.death, "1852");
+        assert_eq!(form.death_place, "Cuckfield");
+        assert_eq!(form.notes, "Nearest relation of the mayor.");
 
         let mut edited = form.clone();
         edited.given_name = "Augusta".to_string();
         edited.birth = "  ".to_string();
+        edited.birth_place = " ".to_string();
+        edited.notes = "  Edited.  ".to_string();
         let details = edited.to_details();
         assert_eq!(details.given_name, "Augusta");
         assert_eq!(details.middle_name, "Lynn", "middle name survives saves");
         assert_eq!(details.nickname, "Addy", "nickname survives saves");
         assert_eq!(details.birth_date, None, "blank dates clear the event");
+        assert_eq!(details.birth_place, None, "blank places clear the event");
         assert_eq!(details.death_date.as_deref(), Some("1852"));
+        assert_eq!(details.death_place.as_deref(), Some("Cuckfield"));
+        assert_eq!(details.notes, "Edited.", "notes are trimmed");
         assert_eq!(details.display_name(), "Augusta Lynn King");
     }
 

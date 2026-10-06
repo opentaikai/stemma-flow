@@ -544,8 +544,8 @@ impl App for TreeWindow {
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         if self.app.active_db().is_some() && self.app.selected_person_id().is_some() {
             egui::Panel::right("person_inspector")
-                .min_size(240.0)
-                .default_size(260.0)
+                .min_size(260.0)
+                .default_size(300.0)
                 .show(ui, |ui| self.person_inspector(ui));
         }
         if self.app.active_db().is_some() {
@@ -914,18 +914,33 @@ mod tests {
         app.activate_tree(&db_file);
         let mut window = TreeWindow::new(app, None);
         let person_id = window.rows.first().expect("one imported person").id.clone();
-        window.app.set_selected_person(Some(person_id));
+        window.app.set_selected_person(Some(person_id.clone()));
         window.sync_inspector_form();
         assert_eq!(window.inspector.given_name, "Johan", "buffer synced");
 
         window.inspector.given_name = "Hans".to_string();
         window.inspector.birth = "1870".to_string();
+        window.inspector.birth_place = "Cuckfield".to_string();
+        window.inspector.notes = "Emigrated in 1870.".to_string();
         let details = window.inspector.to_details();
         window.edit_person(&details);
 
         let row = window.rows.first().expect("the row survived");
         assert_eq!(row.given_name, "Hans");
         assert_eq!(row.birth.as_deref(), Some("1870"), "vitals reloaded");
+        let vitals = window.dates.get(&person_id).expect("vitals reloaded");
+        assert_eq!(
+            vitals.birth_place.as_deref(),
+            Some("Cuckfield"),
+            "places reload with the dates"
+        );
+        let person = window
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == person_id)
+            .expect("person reloaded");
+        assert_eq!(person.notes, "Emigrated in 1870.", "notes persist");
         assert!(matches!(window.app.status(), UiStatus::Success(_)));
 
         let _ = std::fs::remove_file(&db_file);

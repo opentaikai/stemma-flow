@@ -168,14 +168,18 @@ views (the app always launches on Graph View):
   delete removes the person, their events, citations and child links.
   **+ Add Independent Person** inserts an unnamed person and focuses it.
 - **Person Inspector** — a right-side panel shown whenever a person is
-  selected: buffered profile fields (given name, middle name, surname,
-  nickname, gender, birth, death) committed with **Save Changes**,
-  relationship lists (parents, siblings, spouses, children) whose rows
-  select that relative on the graph and re-centre the view — spouse rows
-  carry the marriage date and place when a `MARRIAGE` event exists —
-  and **+ Add Parent**, **+ Add Spouse**,
+  selected, laid out as framed cards in a scrolling body with the accent
+  **Save Changes** footer pinned below: a **Header** card with the person's
+  name and gender, **Profile** (given name, middle name, surname, nickname,
+  gender) and **Vital Facts** (birth/death dates *and places*) editors, a
+  **Relationships** card listing parents, siblings, spouses and children —
+  rows select that relative on the graph and re-centre the view, spouse
+  rows carry the marriage date and place when a `MARRIAGE` event exists —
+  with **+ Add Parent**, **+ Add Spouse**,
   **+ Add Child** buttons whose pop-up creates and links the relative in
-  one step (parents choose a Father/Mother role that presets the gender).
+  one step (parents choose a Father/Mother role that presets the gender),
+  and a **Notes** card with a multi-line research-notes editor. All fields
+  commit together on save.
 
 `src/gui` builds it from straight SQLite data each time an import or person
 mutation finishes:
@@ -198,10 +202,12 @@ mutation finishes:
   execute.
 - `gui::tabs` renders the tab row, `gui::watchlist` owns the grid's
   filter/sort state and emits selection/add/delete events, and
-  `gui::inspector` draws the side panel, the profile editors shared with
-  the relation pop-up, and the relationship lists with click-to-focus
-  navigation (`InspectorAction::Focus` re-selects the person, switches to
-  the graph tab and centres the viewport on the node).
+  `gui::inspector` draws the side panel as framed, titled cards (header,
+  profile, vitals, relationships, notes) around the profile editors
+  shared with the relation pop-up, and the relationship lists with
+  click-to-focus navigation (`InspectorAction::Focus` re-selects the
+  person, switches to the graph tab and centres the viewport on the
+  node).
 - `gui::import_report` renders the **Import Report** window opened after
   a warning-bearing import (virtualized rows, close button, hover for the
   full message), and `gui::settings` renders the `File > Settings…` dialog
