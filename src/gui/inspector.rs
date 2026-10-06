@@ -5,17 +5,19 @@ use std::collections::HashMap;
 use egui::{Color32, RichText, Ui};
 
 use crate::db::people::{ParentRole, PersonDetails, VitalDates};
-use crate::db::{FamilyTree, Person};
+use crate::db::{FamilyTree, MarriageInfo, Person};
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 
 /// What the user asked the shell to do from the inspector panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InspectorAction {
-    Save(PersonDetails),
+    Save(Box<PersonDetails>),
     AddParent,
     AddSpouse,
     AddChild,
+    /// Select `person_id` and re-centre the graph on it.
+    Focus(String),
 }
 
 /// Buffered profile fields, one snapshot per selected person.
@@ -27,7 +29,10 @@ pub struct InspectorForm {
     pub nickname: String,
     pub gender: String,
     pub birth: String,
+    pub birth_place: String,
     pub death: String,
+    pub death_place: String,
+    pub notes: String,
 }
 
 impl Default for InspectorForm {
@@ -39,13 +44,16 @@ impl Default for InspectorForm {
             nickname: String::new(),
             gender: "U".to_string(),
             birth: String::new(),
+            birth_place: String::new(),
             death: String::new(),
+            death_place: String::new(),
+            notes: String::new(),
         }
     }
 }
 
 impl InspectorForm {
-    /// Buffers the stored person plus its vital dates.
+    /// Buffers the stored person plus its vital dates and places.
     pub fn from_person(person: &Person, dates: &HashMap<String, VitalDates>) -> Self {
         let vitals = dates.get(&person.id);
         Self {
@@ -57,15 +65,22 @@ impl InspectorForm {
             birth: vitals
                 .and_then(|vitals| vitals.birth.clone())
                 .unwrap_or_default(),
+            birth_place: vitals
+                .and_then(|vitals| vitals.birth_place.clone())
+                .unwrap_or_default(),
             death: vitals
                 .and_then(|vitals| vitals.death.clone())
                 .unwrap_or_default(),
+            death_place: vitals
+                .and_then(|vitals| vitals.death_place.clone())
+                .unwrap_or_default(),
+            notes: person.notes.clone(),
         }
     }
 
-    /// Converts the buffer into write-ready details; blank dates clear.
+    /// Converts the buffer into write-ready details; blank fields clear.
     pub fn to_details(&self) -> PersonDetails {
-        PersonDetails::new(
+        let mut details = PersonDetails::new(
             self.given_name.clone(),
             self.middle_name.clone(),
             self.surname.clone(),
@@ -73,7 +88,11 @@ impl InspectorForm {
             self.gender.clone(),
             blank_to_none(&self.birth),
             blank_to_none(&self.death),
-        )
+        );
+        details.birth_place = blank_to_none(&self.birth_place);
+        details.death_place = blank_to_none(&self.death_place);
+        details.notes = self.notes.trim().to_string();
+        details
     }
 }
 
@@ -86,29 +105,34 @@ fn blank_to_none(text: &str) -> Option<String> {
     }
 }
 
-/// Counts of the selected person's existing family ties.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Connections {
-    pub parents: usize,
-    pub spouses: usize,
-    pub children: usize,
+/// One relative listed in the inspector; `id` drives click-to-focus.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Relative {
+    pub id: String,
+    pub label: String,
+    /// Marriage date and place, set on spouse rows when known.
+    pub marriage: Option<MarriageInfo>,
 }
 
-/// Counts parents, spouses and children straight off the loaded tree.
-pub fn connections(tree: &FamilyTree, person_id: &str) -> Connections {
-    let mut counts = Connections::default();
-    for family in &tree.families {
-        let is_spouse = family.husband_id.as_deref() == Some(person_id)
-            || family.wife_id.as_deref() == Some(person_id);
-        if is_spouse {
-            counts.spouses += 1;
-            counts.children += tree
-                .child_links
-                .iter()
-                .filter(|(family_id, _)| family_id == &family.id)
-                .count();
-        }
-    }
+/// The selected person's existing family ties, ready to render.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Connections {
+    pub parents: Vec<Relative>,
+    pub siblings: Vec<Relative>,
+    pub spouses: Vec<Relative>,
+    pub children: Vec<Relative>,
+}
+
+/// Lists parents, siblings, spouses and children straight off the loaded
+/// tree, sorted by display label. Siblings cover every family that
+/// contains one of the parents, so remarriage half-siblings appear too.
+/// `marriages` supplies the details shown next to spouse names.
+pub fn connections(
+    tree: &FamilyTree,
+    person_id: &str,
+    marriages: &HashMap<String, MarriageInfo>,
+) -> Connections {
+    let mut parent_ids: Vec<String> = Vec::new();
     for (family_id, child_id) in &tree.child_links {
         if child_id != person_id {
             continue;
@@ -116,10 +140,97 @@ pub fn connections(tree: &FamilyTree, person_id: &str) -> Connections {
         let Some(family) = tree.families.iter().find(|family| &family.id == family_id) else {
             continue;
         };
-        counts.parents += usize::from(family.husband_id.is_some());
-        counts.parents += usize::from(family.wife_id.is_some());
+        for slot in [&family.husband_id, &family.wife_id] {
+            if let Some(parent_id) = slot
+                && parent_id != person_id
+                && !parent_ids.contains(parent_id)
+            {
+                parent_ids.push(parent_id.clone());
+            }
+        }
     }
-    counts
+
+    let mut sibling_ids: Vec<String> = Vec::new();
+    for parent_id in &parent_ids {
+        let their_families = tree.families.iter().filter(|family| {
+            family.husband_id.as_ref() == Some(parent_id)
+                || family.wife_id.as_ref() == Some(parent_id)
+        });
+        for family in their_families {
+            for (family_id, child_id) in &tree.child_links {
+                if family_id == &family.id
+                    && child_id != person_id
+                    && !sibling_ids.contains(child_id)
+                {
+                    sibling_ids.push(child_id.clone());
+                }
+            }
+        }
+    }
+
+    let mut spouse_ids: Vec<(String, Option<MarriageInfo>)> = Vec::new();
+    let mut child_ids: Vec<String> = Vec::new();
+    for family in &tree.families {
+        let is_spouse = family.husband_id.as_deref() == Some(person_id)
+            || family.wife_id.as_deref() == Some(person_id);
+        if !is_spouse {
+            continue;
+        }
+        let other = if family.husband_id.as_deref() == Some(person_id) {
+            family.wife_id.as_deref()
+        } else {
+            family.husband_id.as_deref()
+        };
+        if let Some(spouse_id) = other
+            && spouse_id != person_id
+            && !spouse_ids.iter().any(|(id, _)| id == spouse_id)
+        {
+            spouse_ids.push((spouse_id.to_string(), marriages.get(&family.id).cloned()));
+        }
+        for (family_id, child_id) in &tree.child_links {
+            if family_id == &family.id && child_id != person_id && !child_ids.contains(child_id) {
+                child_ids.push(child_id.clone());
+            }
+        }
+    }
+
+    Connections {
+        parents: by_label(relatives(tree, parent_ids)),
+        siblings: by_label(relatives(tree, sibling_ids)),
+        spouses: by_label(
+            spouse_ids
+                .into_iter()
+                .filter_map(|(id, marriage)| relative(tree, &id, marriage))
+                .collect(),
+        ),
+        children: by_label(relatives(tree, child_ids)),
+    }
+}
+
+/// Builds a labelled relative, skipping ids with no stored person.
+fn relative(tree: &FamilyTree, id: &str, marriage: Option<MarriageInfo>) -> Option<Relative> {
+    let person = tree.people.iter().find(|person| person.id == id)?;
+    Some(Relative {
+        id: person.id.clone(),
+        label: person_label(person),
+        marriage,
+    })
+}
+
+fn relatives(tree: &FamilyTree, ids: Vec<String>) -> Vec<Relative> {
+    ids.iter()
+        .filter_map(|id| relative(tree, id, None))
+        .collect()
+}
+
+fn by_label(mut relatives: Vec<Relative>) -> Vec<Relative> {
+    relatives.sort_by(|left, right| {
+        left.label
+            .to_lowercase()
+            .cmp(&right.label.to_lowercase())
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    relatives
 }
 
 /// Display label for a stored person; blank names fall back gracefully.
@@ -142,7 +253,13 @@ pub fn person_label(person: &Person) -> String {
 
 /// Renders the profile editors shared by the panel and relation pop-up.
 pub fn field_editors(ui: &mut Ui, form: &mut InspectorForm) {
-    egui::Grid::new("person_profile_fields")
+    name_editors(ui, form);
+    vital_editors(ui, form);
+}
+
+/// Name and gender fields, used by every form that edits a person.
+pub fn name_editors(ui: &mut Ui, form: &mut InspectorForm) {
+    egui::Grid::new("person_name_fields")
         .num_columns(2)
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
@@ -169,13 +286,29 @@ pub fn field_editors(ui: &mut Ui, form: &mut InspectorForm) {
                 ui.selectable_value(&mut form.gender, "U".to_string(), "Unknown");
             });
             ui.end_row();
+        });
+}
 
+/// Birth and death dates with their places.
+pub fn vital_editors(ui: &mut Ui, form: &mut InspectorForm) {
+    egui::Grid::new("person_vital_fields")
+        .num_columns(2)
+        .spacing([10.0, 6.0])
+        .show(ui, |ui| {
             ui.label("Birth date:");
             ui.text_edit_singleline(&mut form.birth);
             ui.end_row();
 
+            ui.label("Birth place:");
+            ui.text_edit_singleline(&mut form.birth_place);
+            ui.end_row();
+
             ui.label("Death date:");
             ui.text_edit_singleline(&mut form.death);
+            ui.end_row();
+
+            ui.label("Death place:");
+            ui.text_edit_singleline(&mut form.death_place);
             ui.end_row();
         });
 }
@@ -192,45 +325,108 @@ pub fn show(
         return None;
     };
 
-    ui.heading("Person Inspector");
-    ui.label(RichText::new(person_label(person)).strong());
-    ui.separator();
-
-    ui.label(RichText::new("Profile").strong());
-    field_editors(ui, form);
-
-    ui.separator();
-    ui.label(RichText::new("Connections").strong());
-    ui.label(
-        RichText::new(format!(
-            "{} parents \u{00b7} {} spouses \u{00b7} {} children",
-            connections.parents, connections.spouses, connections.children
-        ))
-        .weak()
-        .size(12.0),
-    );
-
     let mut action = None;
-    ui.horizontal(|ui| {
-        if ui.button("+ Add Parent").clicked() {
-            action = Some(InspectorAction::AddParent);
-        }
-        if ui.button("+ Add Spouse").clicked() {
-            action = Some(InspectorAction::AddSpouse);
-        }
-        if ui.button("+ Add Child").clicked() {
-            action = Some(InspectorAction::AddChild);
-        }
-    });
-
+    let footer_height = ui.spacing().interact_size.y + ui.spacing().item_spacing.y * 5.0;
+    let body_height = (ui.available_height() - footer_height).max(120.0);
+    egui::ScrollArea::vertical()
+        .id_salt("person_inspector_body")
+        .auto_shrink([false, false])
+        .max_height(body_height)
+        .show(ui, |ui| {
+            card(ui, &person_label(person), |ui| {
+                ui.label(
+                    RichText::new(gender_word(person.gender.as_str()))
+                        .weak()
+                        .size(12.0),
+                );
+            });
+            card(ui, "Profile", |ui| name_editors(ui, form));
+            card(ui, "Vital Facts", |ui| vital_editors(ui, form));
+            card(ui, "Relationships", |ui| {
+                for (title, relatives) in [
+                    ("Parents", &connections.parents),
+                    ("Siblings", &connections.siblings),
+                    ("Spouses", &connections.spouses),
+                    ("Children", &connections.children),
+                ] {
+                    ui.label(RichText::new(title).weak().size(12.0));
+                    if relatives.is_empty() {
+                        ui.label(RichText::new("(none)").weak().size(12.0));
+                    }
+                    for relative in relatives {
+                        let mut text = relative.label.clone();
+                        if let Some(marriage) = &relative.marriage {
+                            let facts = [marriage.date.as_deref(), marriage.place.as_deref()]
+                                .into_iter()
+                                .flatten()
+                                .collect::<Vec<_>>()
+                                .join(" \u{00b7} ");
+                            if !facts.is_empty() {
+                                text.push_str(&format!(" \u{00b7} {facts}"));
+                            }
+                        }
+                        let row = egui::Label::new(RichText::new(text).strong())
+                            .sense(egui::Sense::click())
+                            .truncate();
+                        if ui
+                            .add_sized([ui.available_width(), ui.spacing().interact_size.y], row)
+                            .clicked()
+                        {
+                            action = Some(InspectorAction::Focus(relative.id.clone()));
+                        }
+                    }
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("+ Add Parent").clicked() {
+                        action = Some(InspectorAction::AddParent);
+                    }
+                    if ui.button("+ Add Spouse").clicked() {
+                        action = Some(InspectorAction::AddSpouse);
+                    }
+                    if ui.button("+ Add Child").clicked() {
+                        action = Some(InspectorAction::AddChild);
+                    }
+                });
+            });
+            card(ui, "Notes", |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut form.notes)
+                        .desired_rows(6)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Research notes\u{2026}"),
+                );
+            });
+        });
     ui.separator();
     if ui
         .add(egui::Button::new(RichText::new("Save Changes").strong()).fill(ACCENT))
         .clicked()
     {
-        action = Some(InspectorAction::Save(form.to_details()));
+        action = Some(InspectorAction::Save(Box::new(form.to_details())));
     }
     action
+}
+
+/// One framed, titled section of the inspector body.
+fn card(ui: &mut Ui, title: &str, body: impl FnOnce(&mut Ui)) {
+    egui::Frame::new()
+        .fill(ui.visuals().faint_bg_color)
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .corner_radius(4.0)
+        .inner_margin(8)
+        .show(ui, |ui| {
+            ui.label(RichText::new(title).strong());
+            ui.add_space(2.0);
+            body(ui);
+        });
+}
+
+fn gender_word(code: &str) -> &'static str {
+    match code {
+        "M" => "Male",
+        "F" => "Female",
+        _ => "Unknown",
+    }
 }
 
 /// Which relative the relation pop-up is creating.
@@ -340,12 +536,15 @@ mod tests {
         let mut person = Person::new("Ada", "King", "F");
         person.middle_name = "Lynn".to_string();
         person.nickname = "Addy".to_string();
+        person.notes = "Nearest relation of the mayor.".to_string();
         let mut dates = HashMap::new();
         dates.insert(
             person.id.clone(),
             VitalDates {
                 birth: Some("1815".to_string()),
+                birth_place: Some("London".to_string()),
                 death: Some("1852".to_string()),
+                death_place: Some("Cuckfield".to_string()),
             },
         );
         (person, dates)
@@ -361,17 +560,25 @@ mod tests {
         assert_eq!(form.nickname, "Addy");
         assert_eq!(form.gender, "F");
         assert_eq!(form.birth, "1815");
+        assert_eq!(form.birth_place, "London");
         assert_eq!(form.death, "1852");
+        assert_eq!(form.death_place, "Cuckfield");
+        assert_eq!(form.notes, "Nearest relation of the mayor.");
 
         let mut edited = form.clone();
         edited.given_name = "Augusta".to_string();
         edited.birth = "  ".to_string();
+        edited.birth_place = " ".to_string();
+        edited.notes = "  Edited.  ".to_string();
         let details = edited.to_details();
         assert_eq!(details.given_name, "Augusta");
         assert_eq!(details.middle_name, "Lynn", "middle name survives saves");
         assert_eq!(details.nickname, "Addy", "nickname survives saves");
         assert_eq!(details.birth_date, None, "blank dates clear the event");
+        assert_eq!(details.birth_place, None, "blank places clear the event");
         assert_eq!(details.death_date.as_deref(), Some("1852"));
+        assert_eq!(details.death_place.as_deref(), Some("Cuckfield"));
+        assert_eq!(details.notes, "Edited.", "notes are trimmed");
         assert_eq!(details.display_name(), "Augusta Lynn King");
     }
 
@@ -381,17 +588,26 @@ mod tests {
     }
 
     #[test]
-    fn connections_count_parents_spouses_and_children() {
+    fn connections_list_relatives_sorted_by_label() {
         let mut tree = FamilyTree::default();
         let father = Person::new("Papa", "Root", "M");
         let mother = Person::new("Mama", "Root", "F");
         let child = Person::new("Kid", "Root", "U");
+        let sibling = Person::new("Sib", "Root", "U");
+        let stepmother = Person::new("Stella", "Root", "F");
+        let half = Person::new("Haf", "Root", "U");
         let spouse = Person::new("Partner", "Spouse", "F");
         let grandchild = Person::new("Baby", "Spouse", "U");
-        let couple = crate::db::Family {
+        let childhood = crate::db::Family {
             id: "f-childhood".to_string(),
             husband_id: Some(father.id.clone()),
             wife_id: Some(mother.id.clone()),
+            created_at: "t".to_string(),
+        };
+        let second = crate::db::Family {
+            id: "f-second".to_string(),
+            husband_id: Some(father.id.clone()),
+            wife_id: Some(stepmother.id.clone()),
             created_at: "t".to_string(),
         };
         let own = crate::db::Family {
@@ -400,19 +616,65 @@ mod tests {
             wife_id: Some(spouse.id.clone()),
             created_at: "t".to_string(),
         };
-        let expected = Connections {
-            parents: 2,
-            spouses: 1,
-            children: 1,
-        };
-        tree.people = vec![father, mother, child.clone(), spouse, grandchild.clone()];
-        tree.families = vec![couple, own];
+        tree.people = vec![
+            father,
+            mother,
+            child.clone(),
+            sibling.clone(),
+            stepmother,
+            half.clone(),
+            spouse,
+            grandchild.clone(),
+        ];
+        tree.families = vec![childhood, second, own];
         tree.child_links = vec![
             ("f-childhood".to_string(), child.id.clone()),
+            ("f-childhood".to_string(), sibling.id.clone()),
+            ("f-second".to_string(), half.id.clone()),
             ("f-own".to_string(), grandchild.id.clone()),
         ];
+        let mut marriages = HashMap::new();
+        marriages.insert(
+            "f-own".to_string(),
+            MarriageInfo {
+                date: Some("1910".to_string()),
+                place: Some("Uppsala".to_string()),
+            },
+        );
 
-        assert_eq!(connections(&tree, &child.id), expected);
+        let found = connections(&tree, &child.id, &marriages);
+        assert_eq!(
+            found
+                .parents
+                .iter()
+                .map(|relative| relative.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Mama Root", "Papa Root"],
+            "parents sort alphabetically"
+        );
+        assert_eq!(
+            found
+                .siblings
+                .iter()
+                .map(|relative| relative.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Haf Root", "Sib Root"],
+            "remarriage half-siblings join full siblings"
+        );
+        assert_eq!(
+            found
+                .children
+                .iter()
+                .map(|relative| relative.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Baby Spouse"]
+        );
+        assert_eq!(found.spouses.len(), 1, "one spouse row");
+        let spouse_row = found.spouses.first().expect("spouse row exists");
+        assert_eq!(spouse_row.label, "Partner Spouse");
+        let marriage = spouse_row.marriage.as_ref().expect("marriage details");
+        assert_eq!(marriage.date.as_deref(), Some("1910"));
+        assert_eq!(marriage.place.as_deref(), Some("Uppsala"));
     }
 
     #[test]

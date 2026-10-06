@@ -21,10 +21,14 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 - `db::init_db(&conn)` creates the schema (5 tables, 7 indexes) in a single
   batch transaction: `people`, `families`, `family_children`, `events`,
   `citations`. Databases from older builds are upgraded in place —
-  `init_db` adds the `people.middle_name`/`people.nickname` columns
-  (PRAGMA + ALTER) when they are missing, so existing trees keep opening.
+  `init_db` adds the `people.middle_name`/`people.nickname`/`people.notes`
+  columns (PRAGMA + ALTER) when they are missing. The upgrade also runs
+  on every open (`gui::window::load_error` validates and migrates before
+  loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
   structs; ids are UUID strings.
+- `db::load_marriage_details(&conn)` maps each family id to its first
+  `MARRIAGE` event's date and place, for the inspector's spouse rows.
 
 Relationships are modelled through events and the `family_children` junction
 table. Foreign keys cascade deletes from people/families down to events,
@@ -34,7 +38,7 @@ citations and child links, while spouses are detached with `ON DELETE SET NULL`.
 `update_person`, `delete_person` (the FK cascade removes events, citations
 and child links; emptied spouse slots detach), the one-step relational
 creators `link_parent`, `link_spouse`, `link_child`, plus `load_vital_dates`
-which groups `BIRTH`/`DEATH` event dates by person id.
+which groups `BIRTH`/`DEATH` event dates and places by person id.
 
 ## Graph layer
 
@@ -68,8 +72,11 @@ which groups `BIRTH`/`DEATH` event dates by person id.
   given/surname split of `1 NAME`, `2 _MIDN` fills `people.middle_name`
   and `2 _PGVN`/`2 NICK` fill `people.nickname` (export writes those
   children back only when the columns are populated, so plain exports stay
-  byte-identical). Every other tag the importer recognises but does not
-  model — `REFN`, `NOTE`, `OBJE`, unknown level-0 records — is logged as a
+  byte-identical). The first `1 NOTE` under an `INDI` — including its
+  `2 CONT`/`2 CONC` continuations — fills `people.notes`; later note
+  blocks on the same person are ignored silently. Every other tag the
+  importer recognises but does not model — `REFN`, `OBJE`, FAM-level
+  `NOTE`, unknown level-0 records — is logged as a
   non-fatal `Line N: Tag recognized/unsupported or ignored [TAG value]`
   warning (payload truncated to 100 characters) and the import continues.
 - Warnings never block an import: the status bar appends the count
@@ -81,7 +88,8 @@ which groups `BIRTH`/`DEATH` event dates by person id.
 - `gedcom::export_to_gedcom(&conn)` serialises `people`, `families`,
   `family_children`, `events` and `citations` back into a deterministic
   GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, `SOUR` records, `INDI`
-  and `FAM` records, then `TRLR`.
+  and `FAM` records, then `TRLR`. Populated `people.notes` travel as
+  `1 NOTE` + `2 CONT` lines after `1 SEX`, so notes round-trip losslessly.
 - Family links are recovered from `HUSB`/`WIFE`/`CHIL`, backfilled from
   `FAMC`, and `FAMS` fills empty spouse slots when `SEX` makes it unambiguous.
 - Citations serialise as `0 @S@ SOUR` records (`1 TITL`, `1 NOTE`) that
@@ -161,11 +169,18 @@ views (the app always launches on Graph View):
   delete removes the person, their events, citations and child links.
   **+ Add Independent Person** inserts an unnamed person and focuses it.
 - **Person Inspector** — a right-side panel shown whenever a person is
-  selected: buffered profile fields (given name, middle name, surname,
-  nickname, gender, birth, death) committed with **Save Changes**,
-  connection counts, and **+ Add Parent**, **+ Add Spouse**,
+  selected, laid out as framed cards in a scrolling body with the accent
+  **Save Changes** footer pinned below: a **Header** card with the person's
+  name and gender, **Profile** (given name, middle name, surname, nickname,
+  gender) and **Vital Facts** (birth/death dates *and places*) editors, a
+  **Relationships** card listing parents, siblings, spouses and children —
+  rows select that relative on the graph and re-centre the view, spouse
+  rows carry the marriage date and place when a `MARRIAGE` event exists —
+  with **+ Add Parent**, **+ Add Spouse**,
   **+ Add Child** buttons whose pop-up creates and links the relative in
-  one step (parents choose a Father/Mother role that presets the gender).
+  one step (parents choose a Father/Mother role that presets the gender),
+  and a **Notes** card with a multi-line research-notes editor. All fields
+  commit together on save.
 
 `src/gui` builds it from straight SQLite data each time an import or person
 mutation finishes:
@@ -188,8 +203,12 @@ mutation finishes:
   execute.
 - `gui::tabs` renders the tab row, `gui::watchlist` owns the grid's
   filter/sort state and emits selection/add/delete events, and
-  `gui::inspector` draws the side panel, the profile editors shared with
-  the relation pop-up, and the connection counts.
+  `gui::inspector` draws the side panel as framed, titled cards (header,
+  profile, vitals, relationships, notes) around the profile editors
+  shared with the relation pop-up, and the relationship lists with
+  click-to-focus navigation (`InspectorAction::Focus` re-selects the
+  person, switches to the graph tab and centres the viewport on the
+  node).
 - `gui::import_report` renders the **Import Report** window opened after
   a warning-bearing import (virtualized rows, close button, hover for the
   full message), and `gui::settings` renders the `File > Settings…` dialog

@@ -564,15 +564,58 @@ fn init_db_upgrades_a_legacy_people_table() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     conn.execute(
-        "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender)
-         VALUES ('p1', 'Ivan', 'Petrovich', 'Ivanov', 'Vanya', 'M')",
+        "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender, notes)
+         VALUES ('p1', 'Ivan', 'Petrovich', 'Ivanov', 'Vanya', 'M', 'Lived in Tver')",
         [],
     )?;
-    let names: String = conn.query_row(
-        "SELECT middle_name || '/' || nickname FROM people WHERE id = 'p1'",
+    let person: (String, String) = conn.query_row(
+        "SELECT middle_name || '/' || nickname, notes FROM people WHERE id = 'p1'",
         [],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    assert_eq!(names, "Petrovich/Vanya");
+    assert_eq!(
+        person,
+        ("Petrovich/Vanya".to_string(), "Lived in Tver".to_string())
+    );
+    Ok(())
+}
+
+#[test]
+fn load_marriage_details_reads_the_first_marriage_per_family() -> rusqlite::Result<()> {
+    let conn = setup_test_db()?;
+    let fixture = family_tree(&conn)?;
+
+    let mut first = Event::new("MARRIAGE", None, Some(fixture.family.id.clone()));
+    first.date = Some("1861-06-12".to_string());
+    first.place = Some("Uppsala".to_string());
+    conn.execute(
+        "INSERT INTO events (id, event_type, date, place, family_id)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            first.id,
+            first.event_type,
+            first.date,
+            first.place,
+            first.family_id
+        ],
+    )?;
+    let second = Event::new("MARRIAGE", None, Some(fixture.family.id.clone()));
+    conn.execute(
+        "INSERT INTO events (id, event_type, family_id) VALUES (?1, ?2, ?3)",
+        params![second.id, second.event_type, second.family_id],
+    )?;
+    let unrelated = Event::new("MARRIAGE", Some(fixture.child.id.clone()), None);
+    conn.execute(
+        "INSERT INTO events (id, event_type, person_id) VALUES (?1, ?2, ?3)",
+        params![unrelated.id, unrelated.event_type, unrelated.person_id],
+    )?;
+
+    let marriages = super::load_marriage_details(&conn)?;
+    assert_eq!(marriages.len(), 1, "only family-scoped marriages count");
+    let info = marriages
+        .get(&fixture.family.id)
+        .expect("the family has a marriage");
+    assert_eq!(info.date.as_deref(), Some("1861-06-12"), "first event wins");
+    assert_eq!(info.place.as_deref(), Some("Uppsala"));
     Ok(())
 }

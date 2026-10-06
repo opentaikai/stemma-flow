@@ -55,6 +55,9 @@ pub(crate) struct IndiRecord {
     /// `2 _PGVN`/`2 NICK` preferred given name or nickname.
     pub nickname: String,
     pub gender: String,
+    /// First `1 NOTE` block, including `2 CONT`/`2 CONC` continuations;
+    /// later note blocks on the same person are ignored.
+    pub note: Option<String>,
     pub events: Vec<ParsedEvent>,
     pub famc: Vec<String>,
     pub fams: Vec<String>,
@@ -95,6 +98,7 @@ impl IndiRecord {
             surname: String::new(),
             nickname: String::new(),
             gender: "U".to_string(),
+            note: None,
             events: Vec::new(),
             famc: Vec::new(),
             fams: Vec::new(),
@@ -175,6 +179,22 @@ fn optional_payload(payload: &str) -> Option<String> {
     }
 }
 
+/// Appends a `2 CONT` (new line) or `2 CONC` (same line) segment to the
+/// person's first note; an empty note starts with the segment itself.
+fn append_note_continuation(rec: &mut IndiRecord, payload: &str, new_line: bool) {
+    let Some(note) = rec.note.as_mut() else {
+        return;
+    };
+    if note.is_empty() {
+        note.push_str(payload);
+        return;
+    }
+    if new_line {
+        note.push('\n');
+    }
+    note.push_str(payload);
+}
+
 /// Warning text for a tag the importer recognises but does not model: the
 /// record keeps importing, the tag is listed for review with its payload
 /// flattened (CONT newlines) and truncated to 100 characters.
@@ -205,6 +225,8 @@ enum Current {
     Indi {
         rec: Box<IndiRecord>,
         event_slot: Option<usize>,
+        /// True while level-2 lines belong to the person's first `1 NOTE`.
+        in_note: bool,
     },
     Fam {
         rec: Box<FamRecord>,
@@ -511,6 +533,7 @@ impl<R: BufRead> RecordReader<R> {
                     Some(xref) => Some(Current::Indi {
                         rec: Box::new(IndiRecord::new(xref)),
                         event_slot: None,
+                        in_note: false,
                     }),
                     None => {
                         let message =
@@ -588,9 +611,14 @@ impl<R: BufRead> RecordReader<R> {
                     }
                 }
             }
-            Some(Current::Indi { rec, event_slot }) => {
+            Some(Current::Indi {
+                rec,
+                event_slot,
+                in_note,
+            }) => {
                 if line.level == 1 {
                     *event_slot = None;
+                    *in_note = false;
                     match line.tag {
                         "NAME" => {
                             let (given_name, surname) = parse_name(line.payload);
@@ -610,7 +638,24 @@ impl<R: BufRead> RecordReader<R> {
                             });
                             *event_slot = Some(rec.events.len() - 1);
                         }
+                        "NOTE" => {
+                            // First note wins; later blocks are swallowed
+                            // so their continuations stay silent too.
+                            *in_note = rec.note.is_none();
+                            if *in_note {
+                                rec.note = Some(line.payload.to_string());
+                            }
+                        }
                         _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                    }
+                } else if *in_note {
+                    match line.tag {
+                        "CONT" => append_note_continuation(rec, line.payload, true),
+                        "CONC" => append_note_continuation(rec, line.payload, false),
+                        _ => {
+                            *in_note = false;
+                            warning = Some(unknown_tag_warning(line_no, &line));
+                        }
                     }
                 } else if event_slot.is_none() {
                     // Name-part children of `1 NAME` (GIVN/SURN/_MIDN/_PGVN…)
@@ -808,15 +853,16 @@ pub fn import_gedcom<R: BufRead>(
                 }
                 let id = Uuid::new_v4().to_string();
                 tx.execute(
-                    "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender, notes)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         id,
                         indi.given_name,
                         indi.middle_name,
                         indi.surname,
                         indi.nickname,
-                        indi.gender
+                        indi.gender,
+                        indi.note.unwrap_or_default()
                     ],
                 )?;
                 report.people += 1;

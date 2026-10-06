@@ -24,7 +24,7 @@ use super::welcome::{self, WelcomeAction};
 use crate::app::{self, StemmaApp, UiStatus};
 use crate::config::AppConfig;
 use crate::db::people::{PersonDetails, VitalDates};
-use crate::db::{self, FamilyTree};
+use crate::db::{self, FamilyTree, MarriageInfo};
 use crate::gedcom::ImportReport;
 
 const HINT_TEXT: &str = "Import a GEDCOM file to begin";
@@ -46,6 +46,7 @@ pub struct TreeWindow {
     watch: watchlist::WatchState,
     tree: FamilyTree,
     dates: HashMap<String, VitalDates>,
+    marriages: HashMap<String, MarriageInfo>,
     rows: Vec<PersonRow>,
     inspector: InspectorForm,
     inspected: Option<String>,
@@ -78,6 +79,7 @@ impl TreeWindow {
             watch: watchlist::WatchState::default(),
             tree: FamilyTree::default(),
             dates: HashMap::new(),
+            marriages: HashMap::new(),
             rows: Vec::new(),
             inspector: InspectorForm::default(),
             inspected: None,
@@ -137,13 +139,16 @@ impl TreeWindow {
             .and_then(|conn| {
                 let tree = db::load_family_tree(&conn).ok()?;
                 let dates = db::people::load_vital_dates(&conn).ok()?;
-                Some((tree, dates))
+                let marriages = db::load_marriage_details(&conn).ok()?;
+                Some((tree, dates, marriages))
             });
-        let (tree, dates) = loaded.unwrap_or_else(|| (FamilyTree::default(), HashMap::new()));
+        let (tree, dates, marriages) =
+            loaded.unwrap_or_else(|| (FamilyTree::default(), HashMap::new(), HashMap::new()));
         self.scene = layout::build_scene(&tree);
         self.rows = watchlist::rows(&tree, &dates);
         self.tree = tree;
         self.dates = dates;
+        self.marriages = marriages;
         self.watch.mark_dirty();
         self.seen_db = self.app.active_db().map(Path::to_path_buf);
         self.seen_generation = self.app.import_generation();
@@ -287,9 +292,11 @@ impl TreeWindow {
     /// Opens the tree at `path`, dropping recent entries whose file no
     /// longer loads.
     fn open_tree_at(&mut self, path: PathBuf, frame: &mut Frame) {
-        if !loadable(&path) {
-            self.app
-                .set_status(UiStatus::Error(format!("Cannot open {}", path.display())));
+        if let Some(reason) = load_error(&path) {
+            self.app.set_status(UiStatus::Error(format!(
+                "Cannot open {}: {reason}",
+                path.display()
+            )));
             self.recent.retain(|entry| *entry != path);
             self.save_recent(frame);
             return;
@@ -355,7 +362,7 @@ impl TreeWindow {
             .people
             .iter()
             .find(|person| person.id == person_id);
-        let connections = inspector::connections(&self.tree, &person_id);
+        let connections = inspector::connections(&self.tree, &person_id, &self.marriages);
         if let Some(action) = inspector::show(ui, person, &mut self.inspector, connections) {
             match action {
                 InspectorAction::Save(details) => self.edit_person(&details),
@@ -368,7 +375,23 @@ impl TreeWindow {
                 InspectorAction::AddChild => {
                     self.open_relation(&person_id, RelationKind::Child);
                 }
+                InspectorAction::Focus(target) => self.focus_person(&target),
             }
+        }
+    }
+
+    /// Selects `person_id`, jumps to the graph and centres the viewport
+    /// on its node, so a relative click always lands on the right place.
+    fn focus_person(&mut self, person_id: &str) {
+        self.app.set_selected_person(Some(person_id.to_string()));
+        self.tab = tabs::AppTab::Graph;
+        if let Some(node) = self
+            .scene
+            .nodes
+            .iter()
+            .find(|node| node.person_id == person_id)
+        {
+            self.viewport.pan = pan_centering(node.bounds.center(), self.viewport.zoom);
         }
     }
 
@@ -523,8 +546,8 @@ impl App for TreeWindow {
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         if self.app.active_db().is_some() && self.app.selected_person_id().is_some() {
             egui::Panel::right("person_inspector")
-                .min_size(240.0)
-                .default_size(260.0)
+                .min_size(260.0)
+                .default_size(300.0)
                 .show(ui, |ui| self.person_inspector(ui));
         }
         if self.app.active_db().is_some() {
@@ -563,11 +586,37 @@ fn empty_scene() -> TreeScene {
     }
 }
 
+/// Why the file at `path` cannot be opened as a family tree, or `None`
+/// when it loads. Opening runs the schema migration (`db::init_db`)
+/// first so databases from older builds keep working; the upgrade is
+/// best effort, so an already-current schema still loads from a
+/// read-only file. Only files that already carry a `people` table are
+/// considered — an unrelated SQLite file must neither open nor get our
+/// schema created inside it.
+fn load_error(path: &Path) -> Option<String> {
+    let conn = match db::open_connection(path) {
+        Ok(conn) => conn,
+        Err(error) => return Some(error.to_string()),
+    };
+    let is_tree = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'people'",
+            [],
+            |_| Ok(()),
+        )
+        .is_ok();
+    if !is_tree {
+        return Some("it has no people table".to_string());
+    }
+    let _ = db::init_db(&conn);
+    db::load_family_tree(&conn)
+        .err()
+        .map(|error| error.to_string())
+}
+
 /// True when `path` is a readable database carrying the stemma-flow schema.
 fn loadable(path: &Path) -> bool {
-    db::open_connection(path)
-        .map(|conn| db::load_family_tree(&conn).is_ok())
-        .unwrap_or(false)
+    load_error(path).is_none()
 }
 
 /// Pan that places `target` at the centre of the viewport (inverse of
@@ -725,6 +774,29 @@ mod tests {
         std::fs::write(&junk, b"this is not sqlite").expect("junk file must be writable");
         assert!(!loadable(&junk), "garbage bytes are not a tree");
 
+        let foreign = temp_path("db");
+        {
+            let conn = db::open_connection(&foreign).expect("foreign file must open");
+            conn.execute_batch("CREATE TABLE other(x TEXT)")
+                .expect("unrelated schema must be writable");
+        }
+        let reason = load_error(&foreign).expect("an unrelated sqlite file is not a tree");
+        assert!(
+            reason.contains("people"),
+            "the rejection names the missing marker: {reason}"
+        );
+        {
+            let conn = db::open_connection(&foreign).expect("foreign file must reopen");
+            let planted = conn
+                .query_row(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'people'",
+                    [],
+                    |_| Ok(()),
+                )
+                .is_ok();
+            assert!(!planted, "a foreign database must not gain our schema");
+        }
+
         let good = temp_path("db");
         import_people(
             &good,
@@ -733,7 +805,63 @@ mod tests {
         assert!(loadable(&good), "an imported database opens");
 
         let _ = std::fs::remove_file(&junk);
+        let _ = std::fs::remove_file(&foreign);
         let _ = std::fs::remove_file(&good);
+    }
+
+    #[test]
+    fn loadable_upgrades_a_legacy_database() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+        {
+            let conn = db::open_connection(&db_file).expect("connection opens");
+            conn.execute_batch("ALTER TABLE people DROP COLUMN notes")
+                .expect("simulated legacy schema must be writable");
+            assert!(
+                db::load_family_tree(&conn).is_err(),
+                "a pre-notes database fails to load before migration"
+            );
+        }
+
+        assert!(loadable(&db_file), "opening migrates the schema in place");
+
+        let conn = db::open_connection(&db_file).expect("connection reopens");
+        let has_notes = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('people') WHERE name = 'notes'",
+                [],
+                |_| Ok(()),
+            )
+            .is_ok();
+        assert!(has_notes, "the notes column comes back on open");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))
+            .expect("rows must be countable");
+        assert_eq!(count, 1, "rows survive the migration");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn opens_the_local_family_tree_db_when_present() {
+        // Private database in gitignored `test_data/`; skipped in CI.
+        let Ok(entries) = std::fs::read_dir("test_data") else {
+            return;
+        };
+        let db_file = entries
+            .flatten()
+            .find(|entry| entry.path().extension().is_some_and(|ext| ext == "db"));
+        let Some(db_file) = db_file else {
+            return;
+        };
+        assert!(
+            loadable(&db_file.path()),
+            "test_data/*.db must open: {:?}",
+            load_error(&db_file.path())
+        );
     }
 
     #[test]
@@ -893,18 +1021,33 @@ mod tests {
         app.activate_tree(&db_file);
         let mut window = TreeWindow::new(app, None);
         let person_id = window.rows.first().expect("one imported person").id.clone();
-        window.app.set_selected_person(Some(person_id));
+        window.app.set_selected_person(Some(person_id.clone()));
         window.sync_inspector_form();
         assert_eq!(window.inspector.given_name, "Johan", "buffer synced");
 
         window.inspector.given_name = "Hans".to_string();
         window.inspector.birth = "1870".to_string();
+        window.inspector.birth_place = "Cuckfield".to_string();
+        window.inspector.notes = "Emigrated in 1870.".to_string();
         let details = window.inspector.to_details();
         window.edit_person(&details);
 
         let row = window.rows.first().expect("the row survived");
         assert_eq!(row.given_name, "Hans");
         assert_eq!(row.birth.as_deref(), Some("1870"), "vitals reloaded");
+        let vitals = window.dates.get(&person_id).expect("vitals reloaded");
+        assert_eq!(
+            vitals.birth_place.as_deref(),
+            Some("Cuckfield"),
+            "places reload with the dates"
+        );
+        let person = window
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == person_id)
+            .expect("person reloaded");
+        assert_eq!(person.notes, "Emigrated in 1870.", "notes persist");
         assert!(matches!(window.app.status(), UiStatus::Success(_)));
 
         let _ = std::fs::remove_file(&db_file);
@@ -931,7 +1074,9 @@ mod tests {
 
         assert_eq!(window.tree.people.len(), 2, "the parent joined the tree");
         assert_eq!(
-            inspector::connections(&window.tree, &person_id).parents,
+            inspector::connections(&window.tree, &person_id, &window.marriages)
+                .parents
+                .len(),
             1,
             "the child gained one parent"
         );
@@ -940,6 +1085,43 @@ mod tests {
             window.app.selected_person_id(),
             Some(person_id.as_str()),
             "focus stays on the child"
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn focusing_a_person_selects_it_and_recenters_the_view() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.tab = tabs::AppTab::WatchList;
+        let person_id = window.rows.first().expect("one person").id.clone();
+
+        window.focus_person(&person_id);
+
+        assert_eq!(
+            window.app.selected_person_id(),
+            Some(person_id.as_str()),
+            "the relative becomes the selection"
+        );
+        assert_eq!(window.tab, tabs::AppTab::Graph, "the graph opens");
+        let node = window
+            .scene
+            .nodes
+            .iter()
+            .find(|node| node.person_id == person_id)
+            .expect("the node is laid out");
+        assert_eq!(
+            window.viewport.pan,
+            pan_centering(node.bounds.center(), window.viewport.zoom),
+            "the viewport centres on the node"
         );
 
         let _ = std::fs::remove_file(&db_file);

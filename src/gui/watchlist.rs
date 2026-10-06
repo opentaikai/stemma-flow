@@ -376,6 +376,7 @@ mod tests {
             VitalDates {
                 birth: Some("1815".to_string()),
                 death: Some("1852".to_string()),
+                ..Default::default()
             },
         );
 
