@@ -12,7 +12,7 @@ const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 /// What the user asked the shell to do from the inspector panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InspectorAction {
-    Save(PersonDetails),
+    Save(Box<PersonDetails>),
     AddParent,
     AddSpouse,
     AddChild,
@@ -228,7 +228,7 @@ pub fn show(
         .add(egui::Button::new(RichText::new("Save Changes").strong()).fill(ACCENT))
         .clicked()
     {
-        action = Some(InspectorAction::Save(form.to_details()));
+        action = Some(InspectorAction::Save(Box::new(form.to_details())));
     }
     action
 }
@@ -346,6 +346,7 @@ mod tests {
             VitalDates {
                 birth: Some("1815".to_string()),
                 death: Some("1852".to_string()),
+                ..Default::default()
             },
         );
         (person, dates)

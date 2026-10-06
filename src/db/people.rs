@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 /// The fields the inspector and watch list edit on a person.
 ///
-/// Dates are free GEDCOM text; blank values normalise to `None`.
+/// Dates and places are free GEDCOM text; blank values normalise to `None`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PersonDetails {
     pub given_name: String,
@@ -23,7 +23,11 @@ pub struct PersonDetails {
     /// One of `"M"`, `"F"`, `"U"` (enforced by a CHECK constraint).
     pub gender: String,
     pub birth_date: Option<String>,
+    pub birth_place: Option<String>,
     pub death_date: Option<String>,
+    pub death_place: Option<String>,
+    /// Free-form research notes; callers normalise blanks to `""`.
+    pub notes: String,
 }
 
 impl PersonDetails {
@@ -43,7 +47,10 @@ impl PersonDetails {
             nickname: nickname.into().trim().to_string(),
             gender: gender.into(),
             birth_date: clean(birth_date),
+            birth_place: None,
             death_date: clean(death_date),
+            death_place: None,
+            notes: String::new(),
         }
     }
 
@@ -98,11 +105,13 @@ impl ParentRole {
     }
 }
 
-/// Birth and death dates lifted from a person's events.
+/// Birth and death dates and places lifted from a person's events.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VitalDates {
     pub birth: Option<String>,
+    pub birth_place: Option<String>,
     pub death: Option<String>,
+    pub death_place: Option<String>,
 }
 
 fn validate(details: &PersonDetails) -> Result<(), String> {
@@ -140,13 +149,15 @@ pub fn update_person(
     let changed = tx
         .execute(
             "UPDATE people SET given_name = ?1, middle_name = ?2, surname = ?3,
-             nickname = ?4, gender = ?5, updated_at = datetime('now') WHERE id = ?6",
+             nickname = ?4, gender = ?5, notes = ?6, updated_at = datetime('now')
+             WHERE id = ?7",
             params![
                 details.given_name,
                 details.middle_name,
                 details.surname,
                 details.nickname,
                 details.gender,
+                details.notes,
                 person_id
             ],
         )
@@ -309,11 +320,11 @@ pub fn link_child(
     Ok(child_id)
 }
 
-/// Groups each person's `BIRTH`/`DEATH` event dates by person id.
+/// Groups each person's `BIRTH`/`DEATH` event dates and places by person id.
 pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>, rusqlite::Error> {
     let mut dates: HashMap<String, VitalDates> = HashMap::new();
     let mut stmt = conn.prepare(
-        "SELECT person_id, event_type, date FROM events
+        "SELECT person_id, event_type, date, place FROM events
          WHERE person_id IS NOT NULL AND event_type IN ('BIRTH', 'DEATH')
          ORDER BY rowid",
     )?;
@@ -322,14 +333,29 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
         ))
     })?;
     for row in rows {
-        let (person_id, event_type, date) = row?;
+        let (person_id, event_type, date, place) = row?;
         let entry = dates.entry(person_id).or_default();
         match event_type.as_str() {
-            "BIRTH" if entry.birth.is_none() => entry.birth = date,
-            "DEATH" if entry.death.is_none() => entry.death = date,
+            "BIRTH" => {
+                if entry.birth.is_none() {
+                    entry.birth = date;
+                }
+                if entry.birth_place.is_none() {
+                    entry.birth_place = place;
+                }
+            }
+            "DEATH" => {
+                if entry.death.is_none() {
+                    entry.death = date;
+                }
+                if entry.death_place.is_none() {
+                    entry.death_place = place;
+                }
+            }
             _ => {}
         }
     }
@@ -339,15 +365,16 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
 fn write_person(conn: &Connection, details: &PersonDetails) -> Result<String, String> {
     let id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             id,
             details.given_name,
             details.middle_name,
             details.surname,
             details.nickname,
-            details.gender
+            details.gender,
+            details.notes
         ],
     )
     .map_err(to_err)?;
@@ -359,16 +386,31 @@ fn write_dates(
     person_id: &str,
     details: &PersonDetails,
 ) -> rusqlite::Result<()> {
-    upsert_date(conn, person_id, "BIRTH", details.birth_date.as_deref())?;
-    upsert_date(conn, person_id, "DEATH", details.death_date.as_deref())?;
+    upsert_vital(
+        conn,
+        person_id,
+        "BIRTH",
+        details.birth_date.as_deref(),
+        details.birth_place.as_deref(),
+    )?;
+    upsert_vital(
+        conn,
+        person_id,
+        "DEATH",
+        details.death_date.as_deref(),
+        details.death_place.as_deref(),
+    )?;
     Ok(())
 }
 
-fn upsert_date(
+/// Creates or refreshes one vitals event; blank dates and places clear the
+/// stored columns while the row (and its citations) survives.
+fn upsert_vital(
     conn: &Connection,
     person_id: &str,
     event_type: &str,
     date: Option<&str>,
+    place: Option<&str>,
 ) -> rusqlite::Result<()> {
     let existing: Option<String> = conn
         .query_row(
@@ -378,27 +420,22 @@ fn upsert_date(
             |row| row.get(0),
         )
         .optional()?;
-    match (existing, date) {
-        (Some(event_id), Some(value)) => {
+    match (existing, date, place) {
+        (Some(event_id), _, _) => {
             conn.execute(
-                "UPDATE events SET date = ?1 WHERE id = ?2",
-                params![value, event_id],
+                "UPDATE events SET date = ?1, place = ?2 WHERE id = ?3",
+                params![date, place, event_id],
             )?;
         }
-        (Some(event_id), None) => {
-            conn.execute(
-                "UPDATE events SET date = NULL WHERE id = ?1",
-                params![event_id],
-            )?;
-        }
-        (None, Some(value)) => {
+        (None, None, None) => {}
+        (None, date, place) => {
             let event_id = Uuid::new_v4().to_string();
             conn.execute(
-                "INSERT INTO events (id, event_type, date, person_id) VALUES (?1, ?2, ?3, ?4)",
-                params![event_id, event_type, value, person_id],
+                "INSERT INTO events (id, event_type, date, place, person_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![event_id, event_type, date, place, person_id],
             )?;
         }
-        (None, None) => {}
     }
     Ok(())
 }
@@ -859,5 +896,65 @@ mod tests {
             !dates.contains_key(&bare),
             "people without events are absent"
         );
+    }
+
+    #[test]
+    fn places_and_notes_round_trip_through_insert_and_update() {
+        let mut conn = connection();
+        let mut profile = details("Ada", "F");
+        profile.birth_place = Some("London".to_string());
+        profile.death_place = Some("Cuckfield".to_string());
+        profile.notes = "Frequent correspondent.".to_string();
+        let id = insert_person(&mut conn, &profile).expect("insert succeeds");
+
+        let dates = load_vital_dates(&conn).expect("dates load");
+        let vitals = dates.get(&id).expect("person has vitals");
+        assert_eq!(vitals.birth.as_deref(), Some("1940"));
+        assert_eq!(vitals.birth_place.as_deref(), Some("London"));
+        assert_eq!(vitals.death.as_deref(), None, "no death date stored");
+        assert_eq!(vitals.death_place.as_deref(), Some("Cuckfield"));
+        let stored: String = conn
+            .query_row(
+                "SELECT notes FROM people WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .expect("notes column readable");
+        assert_eq!(stored, "Frequent correspondent.");
+
+        let mut cleared = details("Ada", "F");
+        update_person(&mut conn, &id, &cleared).expect("clear update");
+
+        let dates = load_vital_dates(&conn).expect("dates reload");
+        let vitals = dates.get(&id).expect("person still has vitals");
+        assert_eq!(vitals.birth_place, None, "blank places clear the columns");
+        assert_eq!(vitals.death_place, None);
+        let stored: String = conn
+            .query_row(
+                "SELECT notes FROM people WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .expect("notes column readable");
+        assert_eq!(stored, "", "blank notes clear the column");
+        let death_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE person_id = ?1 AND event_type = 'DEATH'",
+                params![id],
+                |row| row.get(0),
+            )
+            .expect("death count runs");
+        assert_eq!(death_rows, 1, "clearing keeps the event row");
+
+        cleared.notes = "Edited later.".to_string();
+        update_person(&mut conn, &id, &cleared).expect("second update succeeds");
+        let stored: String = conn
+            .query_row(
+                "SELECT notes FROM people WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .expect("notes column readable");
+        assert_eq!(stored, "Edited later.");
     }
 }

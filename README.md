@@ -21,10 +21,13 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 - `db::init_db(&conn)` creates the schema (5 tables, 7 indexes) in a single
   batch transaction: `people`, `families`, `family_children`, `events`,
   `citations`. Databases from older builds are upgraded in place —
-  `init_db` adds the `people.middle_name`/`people.nickname` columns
-  (PRAGMA + ALTER) when they are missing, so existing trees keep opening.
+  `init_db` adds the `people.middle_name`/`people.nickname`/`people.notes`
+  columns (PRAGMA + ALTER) when they are missing, so existing trees keep
+  opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
   structs; ids are UUID strings.
+- `db::load_marriage_details(&conn)` maps each family id to its first
+  `MARRIAGE` event's date and place, for the inspector's spouse rows.
 
 Relationships are modelled through events and the `family_children` junction
 table. Foreign keys cascade deletes from people/families down to events,
@@ -34,7 +37,7 @@ citations and child links, while spouses are detached with `ON DELETE SET NULL`.
 `update_person`, `delete_person` (the FK cascade removes events, citations
 and child links; emptied spouse slots detach), the one-step relational
 creators `link_parent`, `link_spouse`, `link_child`, plus `load_vital_dates`
-which groups `BIRTH`/`DEATH` event dates by person id.
+which groups `BIRTH`/`DEATH` event dates and places by person id.
 
 ## Graph layer
 

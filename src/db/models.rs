@@ -16,6 +16,9 @@ pub struct Person {
     pub nickname: String,
     /// One of `"M"`, `"F"`, `"U"` (enforced by a CHECK constraint).
     pub gender: String,
+    /// Free-form research notes attached to this person.
+    #[serde(default)]
+    pub notes: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -64,6 +67,7 @@ impl Person {
             surname: surname.into(),
             nickname: String::new(),
             gender: gender.into(),
+            notes: String::new(),
             created_at: String::new(),
             updated_at: String::new(),
         }

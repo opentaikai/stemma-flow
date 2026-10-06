@@ -1131,6 +1131,7 @@ mod tests {
             surname: surname.to_string(),
             nickname: String::new(),
             gender: "U".to_string(),
+            notes: String::new(),
             created_at: String::new(),
             updated_at: String::new(),
         }

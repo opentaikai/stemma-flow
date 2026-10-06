@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS people (
     surname TEXT NOT NULL,
     nickname TEXT NOT NULL DEFAULT '',
     gender TEXT NOT NULL CHECK (gender IN ('M', 'F', 'U')),
+    notes TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -67,6 +68,7 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(SCHEMA_SQL)?;
     ensure_column(conn, "people", "middle_name", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "people", "nickname", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "people", "notes", "TEXT NOT NULL DEFAULT ''")?;
     Ok(())
 }
 
