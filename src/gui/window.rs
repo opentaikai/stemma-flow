@@ -292,9 +292,11 @@ impl TreeWindow {
     /// Opens the tree at `path`, dropping recent entries whose file no
     /// longer loads.
     fn open_tree_at(&mut self, path: PathBuf, frame: &mut Frame) {
-        if !loadable(&path) {
-            self.app
-                .set_status(UiStatus::Error(format!("Cannot open {}", path.display())));
+        if let Some(reason) = load_error(&path) {
+            self.app.set_status(UiStatus::Error(format!(
+                "Cannot open {}: {reason}",
+                path.display()
+            )));
             self.recent.retain(|entry| *entry != path);
             self.save_recent(frame);
             return;
@@ -584,11 +586,37 @@ fn empty_scene() -> TreeScene {
     }
 }
 
+/// Why the file at `path` cannot be opened as a family tree, or `None`
+/// when it loads. Opening runs the schema migration (`db::init_db`)
+/// first so databases from older builds keep working; the upgrade is
+/// best effort, so an already-current schema still loads from a
+/// read-only file. Only files that already carry a `people` table are
+/// considered — an unrelated SQLite file must neither open nor get our
+/// schema created inside it.
+fn load_error(path: &Path) -> Option<String> {
+    let conn = match db::open_connection(path) {
+        Ok(conn) => conn,
+        Err(error) => return Some(error.to_string()),
+    };
+    let is_tree = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'people'",
+            [],
+            |_| Ok(()),
+        )
+        .is_ok();
+    if !is_tree {
+        return Some("it has no people table".to_string());
+    }
+    let _ = db::init_db(&conn);
+    db::load_family_tree(&conn)
+        .err()
+        .map(|error| error.to_string())
+}
+
 /// True when `path` is a readable database carrying the stemma-flow schema.
 fn loadable(path: &Path) -> bool {
-    db::open_connection(path)
-        .map(|conn| db::load_family_tree(&conn).is_ok())
-        .unwrap_or(false)
+    load_error(path).is_none()
 }
 
 /// Pan that places `target` at the centre of the viewport (inverse of
@@ -746,6 +774,29 @@ mod tests {
         std::fs::write(&junk, b"this is not sqlite").expect("junk file must be writable");
         assert!(!loadable(&junk), "garbage bytes are not a tree");
 
+        let foreign = temp_path("db");
+        {
+            let conn = db::open_connection(&foreign).expect("foreign file must open");
+            conn.execute_batch("CREATE TABLE other(x TEXT)")
+                .expect("unrelated schema must be writable");
+        }
+        let reason = load_error(&foreign).expect("an unrelated sqlite file is not a tree");
+        assert!(
+            reason.contains("people"),
+            "the rejection names the missing marker: {reason}"
+        );
+        {
+            let conn = db::open_connection(&foreign).expect("foreign file must reopen");
+            let planted = conn
+                .query_row(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'people'",
+                    [],
+                    |_| Ok(()),
+                )
+                .is_ok();
+            assert!(!planted, "a foreign database must not gain our schema");
+        }
+
         let good = temp_path("db");
         import_people(
             &good,
@@ -754,7 +805,63 @@ mod tests {
         assert!(loadable(&good), "an imported database opens");
 
         let _ = std::fs::remove_file(&junk);
+        let _ = std::fs::remove_file(&foreign);
         let _ = std::fs::remove_file(&good);
+    }
+
+    #[test]
+    fn loadable_upgrades_a_legacy_database() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+        {
+            let conn = db::open_connection(&db_file).expect("connection opens");
+            conn.execute_batch("ALTER TABLE people DROP COLUMN notes")
+                .expect("simulated legacy schema must be writable");
+            assert!(
+                db::load_family_tree(&conn).is_err(),
+                "a pre-notes database fails to load before migration"
+            );
+        }
+
+        assert!(loadable(&db_file), "opening migrates the schema in place");
+
+        let conn = db::open_connection(&db_file).expect("connection reopens");
+        let has_notes = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('people') WHERE name = 'notes'",
+                [],
+                |_| Ok(()),
+            )
+            .is_ok();
+        assert!(has_notes, "the notes column comes back on open");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))
+            .expect("rows must be countable");
+        assert_eq!(count, 1, "rows survive the migration");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn opens_the_local_family_tree_db_when_present() {
+        // Private database in gitignored `test_data/`; skipped in CI.
+        let Ok(entries) = std::fs::read_dir("test_data") else {
+            return;
+        };
+        let db_file = entries
+            .flatten()
+            .find(|entry| entry.path().extension().is_some_and(|ext| ext == "db"));
+        let Some(db_file) = db_file else {
+            return;
+        };
+        assert!(
+            loadable(&db_file.path()),
+            "test_data/*.db must open: {:?}",
+            load_error(&db_file.path())
+        );
     }
 
     #[test]

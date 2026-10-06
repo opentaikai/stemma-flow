@@ -22,8 +22,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   batch transaction: `people`, `families`, `family_children`, `events`,
   `citations`. Databases from older builds are upgraded in place —
   `init_db` adds the `people.middle_name`/`people.nickname`/`people.notes`
-  columns (PRAGMA + ALTER) when they are missing, so existing trees keep
-  opening.
+  columns (PRAGMA + ALTER) when they are missing. The upgrade also runs
+  on every open (`gui::window::load_error` validates and migrates before
+  loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
   structs; ids are UUID strings.
 - `db::load_marriage_details(&conn)` maps each family id to its first
