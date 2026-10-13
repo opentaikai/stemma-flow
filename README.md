@@ -23,7 +23,7 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   `citations`. Databases from older builds are upgraded in place —
   `init_db` adds the `people.middle_name`/`people.nickname`/`people.notes`
   columns (PRAGMA + ALTER) when they are missing. The upgrade also runs
-  on every open (`gui::window::load_error` validates and migrates before
+  on every open (the `gui::window` loader validates and migrates before
   loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
   structs; ids are UUID strings.
@@ -184,7 +184,11 @@ views (the app always launches on Graph View):
   commit together on save.
 
 `src/gui` builds it from straight SQLite data each time an import or person
-mutation finishes:
+mutation finishes; the three largest areas — `gui::layout`, `gui::window`
+and `gui::inspector` — are split into focused submodules (scene, graph,
+packing, compounds, placement / loading, lifecycle, panels, actions /
+form, connections, panel, relation), with the public API and tests kept in
+each module's `mod.rs`:
 
 - `gui::canvas::ViewportState` owns pan/zoom with canvas<->screen
   transforms, cursor-anchored zooming (`fit_to` scales and centres a
