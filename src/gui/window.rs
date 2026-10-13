@@ -459,6 +459,13 @@ impl TreeWindow {
         }
     }
 
+    /// Scales and centres the whole loaded scene inside `viewport_rect`
+    /// once per reload, so even a very wide tree opens fully visible
+    /// instead of showing a small slice at 1:1.
+    fn fit_scene(&mut self, viewport_rect: Rect) {
+        self.viewport.fit_to(self.scene.bounds, viewport_rect);
+    }
+
     fn canvas(&mut self, ui: &mut Ui) {
         let (response, painter) =
             ui.allocate_painter(ui.available_size_before_wrap(), Sense::click_and_drag());
@@ -468,7 +475,7 @@ impl TreeWindow {
         }
 
         if self.pending_framing {
-            self.viewport.pan = pan_centering(self.scene.bounds.center(), self.viewport.zoom);
+            self.fit_scene(viewport_rect);
             self.pending_framing = false;
         }
 
@@ -684,6 +691,37 @@ mod tests {
         let window = TreeWindow::new(StemmaApp::new(), None);
         assert!(window.scene.nodes.is_empty());
         assert!(window.pending_framing, "first frame must centre the view");
+    }
+
+    #[test]
+    fn first_frame_fits_the_whole_scene_into_the_viewport() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 @I2@ INDI\n1 NAME Maria /Ekdahl/\n\
+             0 @I3@ INDI\n1 NAME Elsa /Ahlberg/\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        assert!(window.pending_framing, "a fresh scene wants framing");
+        assert_eq!(window.scene.nodes.len(), 3);
+
+        let viewport_rect = Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0));
+        window.fit_scene(viewport_rect);
+
+        for node in &window.scene.nodes {
+            let screen = window.viewport.screen_rect(node.bounds, viewport_rect);
+            assert!(
+                screen.min.x >= viewport_rect.min.x - 0.5
+                    && screen.max.x <= viewport_rect.max.x + 0.5
+                    && screen.min.y >= viewport_rect.min.y - 0.5
+                    && screen.max.y <= viewport_rect.max.y + 0.5,
+                "node {} must be visible after framing",
+                node.person_id
+            );
+        }
+        let _ = std::fs::remove_file(&db_file);
     }
 
     #[test]

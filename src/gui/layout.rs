@@ -937,6 +937,44 @@ impl<'a> LayoutBuilder<'a> {
         self.placed.insert(compound);
     }
 
+    /// Clears every placed node and union so a component can be measured
+    /// or placed from scratch.
+    fn reset_placement(&mut self) {
+        self.placed.clear();
+        self.place_active.clear();
+        self.bounds_by_id.clear();
+        self.union_x.clear();
+    }
+
+    /// Bounding box a component's compounds occupy when laid out from the
+    /// origin. Measuring the real extent beats summing block widths, which
+    /// counts every descendant twice and inflates the box handed to
+    /// [`pack_components`] (mis-sizing the shelf rows).
+    fn measure_bucket(&mut self, bucket: &[usize]) -> (f32, f32) {
+        self.reset_placement();
+        let mut cursor: f32 = 0.0;
+        for &compound in bucket {
+            if self.placed.contains(&compound) {
+                continue;
+            }
+            let width = self.block_of(compound).width;
+            self.place_compound(compound, cursor);
+            cursor += width + H_SPACING;
+        }
+        let mut min = Pos2::new(f32::INFINITY, f32::INFINITY);
+        let mut max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
+        for rect in self.bounds_by_id.values() {
+            min.x = min.x.min(rect.min.x);
+            min.y = min.y.min(rect.min.y);
+            max.x = max.x.max(rect.max.x);
+            max.y = max.y.max(rect.max.y);
+        }
+        if min.x > max.x || min.y > max.y {
+            return (0.0, 0.0);
+        }
+        (max.x - min.x, max.y - min.y)
+    }
+
     /// Buckets every compound into its connected family group (roots
     /// first, then the cycle leftovers), shelf-packs the group boxes
     /// onto the grid, and places each group from its grid offset.
@@ -972,25 +1010,12 @@ impl<'a> LayoutBuilder<'a> {
 
         let mut sizes = Vec::with_capacity(buckets.len());
         for bucket in &buckets {
-            let mut width: f32 = 0.0;
-            let mut max_rank: u32 = 0;
-            for (position, &compound) in bucket.iter().enumerate() {
-                if position > 0 {
-                    width += H_SPACING;
-                }
-                width += self.block_of(compound).width;
-                let rank = self
-                    .compounds
-                    .get(compound)
-                    .map(|compound| compound.rank)
-                    .unwrap_or(0);
-                max_rank = max_rank.max(rank);
-            }
-            sizes.push((width, max_rank as f32 * (NODE_H + V_GAP) + NODE_H));
+            sizes.push(self.measure_bucket(bucket));
         }
         for (component, offset) in pack_components(&sizes).into_iter().enumerate() {
             self.component_offsets.insert(component, offset);
         }
+        self.reset_placement();
         for (component, bucket) in buckets.into_iter().enumerate() {
             let mut cursor = self
                 .component_offsets
@@ -1581,6 +1606,32 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn component_extent_is_measured_not_summed() {
+        let tree = lineage_tree();
+        let mut builder = LayoutBuilder::new(&tree);
+        let bucket: Vec<usize> = (0..builder.compounds.len()).collect();
+        let inflated: f32 = bucket
+            .iter()
+            .map(|&compound| builder.block_of(compound).width)
+            .sum::<f32>()
+            + H_SPACING * (bucket.len().saturating_sub(1)) as f32;
+
+        let (width, height) = builder.measure_bucket(&bucket);
+
+        let scene = build_scene(&tree);
+        assert!(
+            (width - scene.bounds.width()).abs() < 0.5,
+            "measured width {width} must match the scene {}",
+            scene.bounds.width()
+        );
+        assert!((height - scene.bounds.height()).abs() < 0.5);
+        assert!(
+            width < inflated,
+            "descendants must not be counted twice: {width} < {inflated}"
+        );
     }
 
     #[test]

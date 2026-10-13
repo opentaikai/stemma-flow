@@ -7,10 +7,13 @@
 
 use egui::{Pos2, Rect, Ui, Vec2};
 
-/// Lower bound for the zoom factor.
-pub const ZOOM_MIN: f32 = 0.3;
+/// Lower bound for the zoom factor. Low enough that a large, wide tree
+/// (tens of thousands of canvas units) can still be fitted on screen.
+pub const ZOOM_MIN: f32 = 0.02;
 /// Upper bound for the zoom factor.
 pub const ZOOM_MAX: f32 = 3.0;
+/// Fraction of the viewport the fitted bounds occupy, leaving a margin.
+const FIT_PADDING: f32 = 0.92;
 
 /// Zoom speed: one wheel notch (~50pt of scroll) changes the scale by ~10%.
 const SCROLL_ZOOM_SPEED: f32 = 0.002;
@@ -63,6 +66,22 @@ impl ViewportState {
     /// Translates the view by a screen-space `delta`.
     pub fn pan_by(&mut self, delta: Vec2) {
         self.pan += delta;
+    }
+
+    /// Scales and centres the view so `bounds` fits inside `viewport_rect`,
+    /// leaving a small margin. Zoom stays within `[ZOOM_MIN, ZOOM_MAX]`, so
+    /// an extremely wide tree fills the viewport width rather than being
+    /// cut off; empty bounds leave the view untouched.
+    pub fn fit_to(&mut self, bounds: Rect, viewport_rect: Rect) {
+        if bounds.width() <= 0.0 || bounds.height() <= 0.0 {
+            return;
+        }
+        let scale = (viewport_rect.width() / bounds.width())
+            .min(viewport_rect.height() / bounds.height())
+            * FIT_PADDING;
+        self.zoom = scale.clamp(ZOOM_MIN, ZOOM_MAX);
+        let centre = bounds.center();
+        self.pan = Vec2::new(-centre.x, -centre.y) * self.zoom;
     }
 
     /// Multiplies the zoom by `factor`, clamped to `[ZOOM_MIN, ZOOM_MAX]`,
@@ -199,6 +218,54 @@ mod tests {
         };
         beyond_min.apply_scroll_y(-50.0, cursor, rect);
         assert_eq!(beyond_min.zoom, ZOOM_MIN);
+    }
+
+    #[test]
+    fn fit_to_scales_and_centres_the_bounds() {
+        let rect = viewport();
+        let bounds = Rect::from_min_size(Pos2::new(1000.0, 2000.0), vec2(4000.0, 1000.0));
+        let mut state = ViewportState::default();
+        state.fit_to(bounds, rect);
+        // Width-limited: 800/4000 * FIT_PADDING.
+        assert!((state.zoom - 800.0 / 4000.0 * 0.92).abs() < 1e-4);
+        let centre = state.canvas_to_screen(bounds.center(), rect);
+        assert_approx(centre.x, rect.center().x);
+        assert_approx(centre.y, rect.center().y);
+    }
+
+    #[test]
+    fn fit_to_keeps_a_wide_tree_inside_the_viewport() {
+        let rect = viewport();
+        let bounds = Rect::from_min_size(Pos2::new(-1200.0, 40.0), vec2(31_782.0, 1464.0));
+        let mut state = ViewportState::default();
+        state.fit_to(bounds, rect);
+        assert!((ZOOM_MIN..1.0).contains(&state.zoom), "zoom {}", state.zoom);
+        let screen = state.screen_rect(bounds, rect);
+        assert!(screen.min.x >= rect.min.x - 0.5 && screen.max.x <= rect.max.x + 0.5);
+        assert!(screen.min.y >= rect.min.y - 0.5 && screen.max.y <= rect.max.y + 0.5);
+    }
+
+    #[test]
+    fn fit_to_clamps_at_the_zoom_floor() {
+        let rect = viewport();
+        let mut state = ViewportState::default();
+        state.fit_to(
+            Rect::from_min_size(Pos2::ZERO, vec2(400_000.0, 400_000.0)),
+            rect,
+        );
+        assert_eq!(state.zoom, ZOOM_MIN);
+    }
+
+    #[test]
+    fn fit_to_leaves_empty_bounds_untouched() {
+        let rect = viewport();
+        let mut state = ViewportState {
+            pan: vec2(12.0, -8.0),
+            zoom: 1.5,
+        };
+        state.fit_to(Rect::from_min_size(Pos2::ZERO, Vec2::ZERO), rect);
+        assert_eq!(state.zoom, 1.5);
+        assert_eq!(state.pan, vec2(12.0, -8.0));
     }
 
     #[test]
