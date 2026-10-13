@@ -154,12 +154,13 @@ a tree becomes usable:
 With a tree open the `eframe` window (1200x800) shows a tab bar with two
 views (the app always launches on Graph View):
 
-- **Graph View** — the interactive canvas: **Pan** with the middle mouse
-  button or by dragging the background with the left button (drags that
-  start on a person do not pan), **Zoom** with the mouse wheel,
-  cursor-anchored, 0.3x - 3.0x, and **Select** with a left click; the
-  selected node gets a blue accent border. Clicking empty space clears the
-  selection.
+- **Graph View** — the interactive canvas: opening (or reloading) a tree
+  **fits the whole scene** inside the viewport, then **Pan** with the
+  middle mouse button or by dragging the background with the left button
+  (drags that start on a person do not pan), **Zoom** with the mouse
+  wheel, cursor-anchored, 0.02x - 3.0x, and **Select** with a left click;
+  the selected node gets a blue accent border. Clicking empty space clears
+  the selection.
 - **Watch List** — an `egui_extras::TableBuilder` grid listing every
   person with Given Name, Surname, Gender, Birth Date, Death Date and an
   Actions cell. The filter box narrows rows by either name
@@ -186,13 +187,17 @@ views (the app always launches on Graph View):
 mutation finishes:
 
 - `gui::canvas::ViewportState` owns pan/zoom with canvas<->screen
-  transforms, cursor-anchored zooming and off-screen culling tests.
+  transforms, cursor-anchored zooming (`fit_to` scales and centres a
+  bounding box on open) and off-screen culling tests.
 - `gui::layout::build_scene` ranks whole couples as one compound (Kahn
   ordering with cycle fallbacks), draws remarriage spouse chains with
   12px union gaps, interlocks sibling subtrees with depth-contour
   packing (24px node gaps), grid-packs disconnected family groups
-  toward a 16:9 canvas target, and spaces ranks 120 apart; names are
-  truncated to fit the nodes.
+  toward a 16:9 canvas target (each group box is *measured* from its
+  placed nodes, not summed), and spaces ranks 120 apart; names are
+  truncated to fit the nodes. A single large connected group still lays
+  out as one wide, shallow chart, which the open-time fit then scales to
+  the window.
 - `gui::connectors::build_segments` routes spouse bars and three-segment
   orthogonal drops (union -> trunk row inside the rank gap -> children)
   as pure geometry.
