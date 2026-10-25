@@ -242,6 +242,41 @@ impl StemmaApp {
         Ok(child_id)
     }
 
+    /// Links an existing person as `child_id`'s parent.
+    pub fn link_existing_parent(
+        &mut self,
+        child_id: &str,
+        parent_id: &str,
+        role: ParentRole,
+    ) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        people::link_existing_parent(&mut conn, child_id, parent_id, role)?;
+        self.finish_link()
+    }
+
+    /// Links an existing person as `person_id`'s spouse.
+    pub fn link_existing_spouse(&mut self, person_id: &str, spouse_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        people::link_existing_spouse(&mut conn, person_id, spouse_id)?;
+        self.finish_link()
+    }
+
+    /// Links an existing person as `parent_id`'s child.
+    pub fn link_existing_child(&mut self, parent_id: &str, child_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        people::link_existing_child(&mut conn, parent_id, child_id)?;
+        self.finish_link()
+    }
+
+    fn finish_link(&mut self) -> Result<(), String> {
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success("Linked existing person".to_string()));
+        Ok(())
+    }
+
     fn begin(&mut self, job: Job, db_path: Option<PathBuf>) {
         if self.busy {
             return;
