@@ -40,6 +40,10 @@ and child links; emptied spouse slots detach), the one-step relational
 creators `link_parent`, `link_spouse`, `link_child`, plus `load_vital_dates`
 which groups `BIRTH`/`DEATH` event dates and places by person id.
 
+Manual saves require at least a given name or surname; nameless drafts and
+imported nameless individuals are still allowed to exist and display as
+`(unnamed)` until named.
+
 Vital dates are GEDCOM date values kept in canonical form. Writes accept
 exact dates (`12 JAN 1850`, `JAN 1850`, `1850`), ISO convenience input
 (`1850-01-12`, `1850-01`), qualifiers (`ABT`/`CAL`/`EST`/`BEF`/`AFT`),
@@ -178,11 +182,13 @@ views (the app always launches on Graph View):
   are virtualized for large trees, and clicking a row (or **Edit**)
   selects the person. **Delete** asks for confirmation before the cascading
   delete removes the person, their events, citations and child links.
-  **+ Add Independent Person** inserts an unnamed person and focuses it.
+  **+ Add Independent Person** inserts an unnamed draft and focuses it; a
+  first or last name is required before it can be saved.
 - **Person Inspector** — a right-side panel shown whenever a person is
   selected, with a pinned **×** button that closes it by clearing the
   selection. It is laid out as framed cards in a scrolling body with the
-  accent **Save Changes** footer pinned below: a **Header** card with the
+  accent **Save Changes** footer pinned below, enabled only once a first
+  or last name is present: a **Header** card with the
   person's name and gender, **Profile** (given name, middle name, surname,
   nickname, gender) and **Vital Facts** (birth/death dates *and places*)
   editors — the date fields accept GEDCOM or ISO input, and an invalid

@@ -17,6 +17,7 @@ pub fn field_editors(ui: &mut Ui, form: &mut InspectorForm) {
 
 /// Name and gender fields, used by every form that edits a person.
 pub fn name_editors(ui: &mut Ui, form: &mut InspectorForm) {
+    let has_name = form.has_name();
     egui::Grid::new("person_name_fields")
         .num_columns(2)
         .spacing([10.0, 6.0])
@@ -32,6 +33,15 @@ pub fn name_editors(ui: &mut Ui, form: &mut InspectorForm) {
             ui.label("Surname:");
             ui.text_edit_singleline(&mut form.surname);
             ui.end_row();
+            if !has_name {
+                ui.label("");
+                ui.label(
+                    RichText::new("Enter at least a first or last name.")
+                        .color(ui.visuals().error_fg_color)
+                        .small(),
+                );
+                ui.end_row();
+            }
 
             ui.label("Nickname:");
             ui.text_edit_singleline(&mut form.nickname);
@@ -188,10 +198,10 @@ pub fn show(
             });
         });
     ui.separator();
-    let dates_valid = form.dates_valid();
+    let can_save = form.has_name() && form.dates_valid();
     if ui
         .add_enabled(
-            dates_valid,
+            can_save,
             egui::Button::new(RichText::new("Save Changes").strong()).fill(ACCENT),
         )
         .clicked()

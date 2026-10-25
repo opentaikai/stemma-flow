@@ -59,6 +59,20 @@ impl PersonDetails {
         Self::new("", "", "", "", "U", None, None)
     }
 
+    /// Whether a given name or surname is present.
+    pub fn has_name(&self) -> bool {
+        !self.given_name.trim().is_empty() || !self.surname.trim().is_empty()
+    }
+
+    /// Validation message for a missing name, if any.
+    pub fn name_error(&self) -> Option<&'static str> {
+        if self.has_name() {
+            None
+        } else {
+            Some("enter at least a first or last name")
+        }
+    }
+
     /// Name used in status messages; falls back for blank records.
     pub fn display_name(&self) -> String {
         let combined = [
@@ -124,6 +138,15 @@ fn normalize(details: &PersonDetails) -> Result<PersonDetails, String> {
     Ok(normalized)
 }
 
+/// Like [`normalize`], but requires a given name or surname.
+fn normalize_named(details: &PersonDetails) -> Result<PersonDetails, String> {
+    let normalized = normalize(details)?;
+    if let Some(error) = normalized.name_error() {
+        return Err(error.to_string());
+    }
+    Ok(normalized)
+}
+
 fn normalize_date(value: Option<&str>, label: &str) -> Result<Option<String>, String> {
     let Some(text) = value.map(str::trim).filter(|text| !text.is_empty()) else {
         return Ok(None);
@@ -156,7 +179,7 @@ pub fn update_person(
     person_id: &str,
     details: &PersonDetails,
 ) -> Result<(), String> {
-    let details = normalize(details)?;
+    let details = normalize_named(details)?;
     let tx = conn.transaction().map_err(to_err)?;
     let changed = tx
         .execute(
@@ -213,7 +236,7 @@ pub fn link_parent(
     role: ParentRole,
     details: &PersonDetails,
 ) -> Result<String, String> {
-    let details = normalize(details)?;
+    let details = normalize_named(details)?;
     let tx = conn.transaction().map_err(to_err)?;
     let parent_id = write_person(&tx, &details)?;
     write_dates(&tx, &parent_id, &details).map_err(to_err)?;
@@ -229,7 +252,7 @@ pub fn link_spouse(
     person_id: &str,
     details: &PersonDetails,
 ) -> Result<String, String> {
-    let details = normalize(details)?;
+    let details = normalize_named(details)?;
     let tx = conn.transaction().map_err(to_err)?;
     let spouse_id = write_person(&tx, &details)?;
     write_dates(&tx, &spouse_id, &details).map_err(to_err)?;
@@ -246,7 +269,7 @@ pub fn link_child(
     person_id: &str,
     details: &PersonDetails,
 ) -> Result<String, String> {
-    let details = normalize(details)?;
+    let details = normalize_named(details)?;
     let tx = conn.transaction().map_err(to_err)?;
     let child_id = write_person(&tx, &details)?;
     write_dates(&tx, &child_id, &details).map_err(to_err)?;
@@ -1320,5 +1343,60 @@ mod tests {
             )
             .expect("family readable");
         assert_eq!(wife.as_deref(), Some(partner.as_str()));
+    }
+    #[test]
+    fn name_presence_accepts_either_part() {
+        assert!(!PersonDetails::unnamed().has_name());
+
+        let mut given_only = PersonDetails::unnamed();
+        given_only.given_name = "Ada".to_string();
+        assert!(given_only.has_name());
+
+        let mut surname_only = PersonDetails::unnamed();
+        surname_only.surname = "King".to_string();
+        assert!(surname_only.has_name());
+
+        let mut spaces = PersonDetails::unnamed();
+        spaces.given_name = "   ".to_string();
+        assert!(!spaces.has_name());
+    }
+
+    #[test]
+    fn update_person_rejects_blank_names() {
+        let mut conn = connection();
+        let id = insert_person(&mut conn, &details("Ada", "F")).expect("insert succeeds");
+        let mut blank = details("", "F");
+        blank.surname = String::new();
+
+        let error = update_person(&mut conn, &id, &blank).expect_err("blank name rejected");
+        assert!(error.contains("first or last name"), "{error}");
+        let stored: String = conn
+            .query_row(
+                "SELECT given_name FROM people WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .expect("name readable");
+        assert_eq!(stored, "Ada", "the stored name is untouched");
+    }
+
+    #[test]
+    fn relation_creation_requires_a_name() {
+        let mut conn = connection();
+        let child = insert_person(&mut conn, &details("Kid", "U")).expect("child");
+        let blank = PersonDetails::unnamed();
+
+        let error = link_parent(&mut conn, &child, ParentRole::Father, &blank)
+            .expect_err("blank parent rejected");
+        assert!(error.contains("first or last name"), "{error}");
+        let error = link_spouse(&mut conn, &child, &blank).expect_err("blank spouse rejected");
+        assert!(error.contains("first or last name"), "{error}");
+        let error = link_child(&mut conn, &child, &blank).expect_err("blank child rejected");
+        assert!(error.contains("first or last name"), "{error}");
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM people"),
+            1,
+            "no blank person was inserted"
+        );
     }
 }

@@ -105,6 +105,22 @@ mod tests {
     }
 
     #[test]
+    fn a_person_needs_a_first_or_last_name() {
+        let mut form = InspectorForm::default();
+        assert!(!form.has_name(), "a blank form has no name");
+
+        form.given_name = "Ada".to_string();
+        assert!(form.has_name(), "a given name is enough");
+
+        form.given_name.clear();
+        form.surname = "King".to_string();
+        assert!(form.has_name(), "a surname is enough");
+
+        form.surname = "   ".to_string();
+        assert!(!form.has_name(), "whitespace alone does not count");
+    }
+
+    #[test]
     fn default_form_gender_is_unknown() {
         assert_eq!(InspectorForm::default().gender, "U");
     }
