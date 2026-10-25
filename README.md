@@ -170,11 +170,13 @@ views (the app always launches on Graph View):
   delete removes the person, their events, citations and child links.
   **+ Add Independent Person** inserts an unnamed person and focuses it.
 - **Person Inspector** — a right-side panel shown whenever a person is
-  selected, laid out as framed cards in a scrolling body with the accent
-  **Save Changes** footer pinned below: a **Header** card with the person's
-  name and gender, **Profile** (given name, middle name, surname, nickname,
-  gender) and **Vital Facts** (birth/death dates *and places*) editors, a
-  **Relationships** card listing parents, siblings, spouses and children —
+  selected, with a pinned **✕** button that closes it by clearing the
+  selection. It is laid out as framed cards in a scrolling body with the
+  accent **Save Changes** footer pinned below: a **Header** card with the
+  person's name and gender, **Profile** (given name, middle name, surname,
+  nickname, gender) and **Vital Facts** (birth/death dates *and places*)
+  editors, a **Relationships** card listing parents, siblings, spouses and
+  children —
   rows select that relative on the graph and re-centre the view, spouse
   rows carry the marriage date and place when a `MARRIAGE` event exists —
   with **+ Add Parent**, **+ Add Spouse**,

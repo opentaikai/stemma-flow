@@ -25,6 +25,8 @@ pub enum InspectorAction {
     AddChild,
     /// Select `person_id` and re-centre the graph on it.
     Focus(String),
+    /// Close the inspector by clearing the selection.
+    Close,
 }
 
 #[cfg(test)]
