@@ -170,7 +170,7 @@ views (the app always launches on Graph View):
   delete removes the person, their events, citations and child links.
   **+ Add Independent Person** inserts an unnamed person and focuses it.
 - **Person Inspector** — a right-side panel shown whenever a person is
-  selected, with a pinned **✕** button that closes it by clearing the
+  selected, with a pinned **×** button that closes it by clearing the
   selection. It is laid out as framed cards in a scrolling body with the
   accent **Save Changes** footer pinned below: a **Header** card with the
   person's name and gender, **Profile** (given name, middle name, surname,
