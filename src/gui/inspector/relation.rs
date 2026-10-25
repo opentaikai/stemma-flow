@@ -92,7 +92,11 @@ pub fn relation_window(ctx: &egui::Context, form: &mut RelationForm) -> Option<R
                 if ui.button("Cancel").clicked() {
                     outcome = Some(RelationOutcome::Cancel);
                 }
-                if ui.button("Add").clicked() {
+                let dates_valid = form.details.dates_valid();
+                if ui
+                    .add_enabled(dates_valid, egui::Button::new("Add"))
+                    .clicked()
+                {
                     outcome = Some(RelationOutcome::Submit);
                 }
             });

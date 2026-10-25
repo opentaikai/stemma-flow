@@ -49,21 +49,40 @@ pub fn name_editors(ui: &mut Ui, form: &mut InspectorForm) {
 
 /// Birth and death dates with their places.
 pub fn vital_editors(ui: &mut Ui, form: &mut InspectorForm) {
+    let errors = form.date_errors();
     egui::Grid::new("person_vital_fields")
         .num_columns(2)
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
             ui.label("Birth date:");
-            ui.text_edit_singleline(&mut form.birth);
+            ui.add(egui::TextEdit::singleline(&mut form.birth).hint_text("e.g. 12 JAN 1850"));
             ui.end_row();
+            if let Some(error) = &errors.birth {
+                ui.label("");
+                ui.label(
+                    RichText::new(error)
+                        .color(ui.visuals().error_fg_color)
+                        .small(),
+                );
+                ui.end_row();
+            }
 
             ui.label("Birth place:");
             ui.text_edit_singleline(&mut form.birth_place);
             ui.end_row();
 
             ui.label("Death date:");
-            ui.text_edit_singleline(&mut form.death);
+            ui.add(egui::TextEdit::singleline(&mut form.death).hint_text("e.g. 12 JAN 1850"));
             ui.end_row();
+            if let Some(error) = &errors.death {
+                ui.label("");
+                ui.label(
+                    RichText::new(error)
+                        .color(ui.visuals().error_fg_color)
+                        .small(),
+                );
+                ui.end_row();
+            }
 
             ui.label("Death place:");
             ui.text_edit_singleline(&mut form.death_place);
@@ -169,8 +188,12 @@ pub fn show(
             });
         });
     ui.separator();
+    let dates_valid = form.dates_valid();
     if ui
-        .add(egui::Button::new(RichText::new("Save Changes").strong()).fill(ACCENT))
+        .add_enabled(
+            dates_valid,
+            egui::Button::new(RichText::new("Save Changes").strong()).fill(ACCENT),
+        )
         .clicked()
     {
         action = Some(InspectorAction::Save(Box::new(form.to_details())));

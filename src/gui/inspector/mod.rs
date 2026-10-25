@@ -88,6 +88,23 @@ mod tests {
     }
 
     #[test]
+    fn date_validation_flags_bad_input_and_accepts_gedcom_or_iso() {
+        let mut form = InspectorForm::default();
+        assert!(form.dates_valid(), "blank dates are valid");
+
+        form.birth = "12 jan 1850".to_string();
+        form.death = "1852-03-04".to_string();
+        assert!(form.dates_valid());
+        assert!(form.date_errors().birth.is_none());
+
+        form.death = "31 FEB 1852".to_string();
+        assert!(!form.dates_valid());
+        let errors = form.date_errors();
+        assert!(errors.death.is_some(), "the death field carries the error");
+        assert!(errors.birth.is_none());
+    }
+
+    #[test]
     fn default_form_gender_is_unknown() {
         assert_eq!(InspectorForm::default().gender, "U");
     }
