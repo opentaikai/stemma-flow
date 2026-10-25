@@ -165,6 +165,7 @@ mod tests {
     use super::*;
     use crate::app::JobEvent;
     use crate::db;
+    use crate::db::people::ParentRole;
     use crate::gui::inspector;
     use crate::gui::inspector::InspectorAction;
     use crate::gui::inspector::RelationKind;
@@ -685,6 +686,33 @@ mod tests {
             Some(person_id.as_str()),
             "focus stays on the child"
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn linking_an_existing_person_as_a_spouse_updates_the_tree() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n\
+             0 @I2@ INDI\n1 NAME Maria /Ekdahl/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let first = window.rows.first().expect("first person").id.clone();
+        let second = window.rows.get(1).expect("second person").id.clone();
+
+        window.link_existing_relation(&first, RelationKind::Spouse, &second, ParentRole::Father);
+
+        let linked = window.tree.families.iter().any(|family| {
+            let couple = [family.husband_id.as_deref(), family.wife_id.as_deref()];
+            couple.contains(&Some(first.as_str())) && couple.contains(&Some(second.as_str()))
+        });
+        assert!(linked, "the two people share a family after linking");
+        assert!(matches!(window.app.status(), UiStatus::Success(_)));
 
         let _ = std::fs::remove_file(&db_file);
     }
