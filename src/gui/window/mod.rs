@@ -166,6 +166,7 @@ mod tests {
     use crate::app::JobEvent;
     use crate::db;
     use crate::gui::inspector;
+    use crate::gui::inspector::InspectorAction;
     use crate::gui::inspector::RelationKind;
     use crate::gui::welcome;
     use egui::{Pos2, Rect, vec2};
@@ -577,6 +578,32 @@ mod tests {
             "selection cleared with the person"
         );
         assert!(matches!(window.app.status(), UiStatus::Success(_)));
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn closing_the_inspector_clears_the_selection() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one imported person").id.clone();
+        window.app.set_selected_person(Some(person_id.clone()));
+        assert!(window.app.selected_person_id().is_some());
+
+        window.apply_inspector_action(InspectorAction::Close, &person_id);
+
+        assert_eq!(
+            window.app.selected_person_id(),
+            None,
+            "closing the panel clears the selection so it hides"
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }

@@ -124,19 +124,19 @@ impl TreeWindow {
             .find(|person| person.id == person_id);
         let connections = inspector::connections(&self.tree, &person_id, &self.marriages);
         if let Some(action) = inspector::show(ui, person, &mut self.inspector, connections) {
-            match action {
-                InspectorAction::Save(details) => self.edit_person(&details),
-                InspectorAction::AddParent => {
-                    self.open_relation(&person_id, RelationKind::Parent);
-                }
-                InspectorAction::AddSpouse => {
-                    self.open_relation(&person_id, RelationKind::Spouse);
-                }
-                InspectorAction::AddChild => {
-                    self.open_relation(&person_id, RelationKind::Child);
-                }
-                InspectorAction::Focus(target) => self.focus_person(&target),
-            }
+            self.apply_inspector_action(action, &person_id);
+        }
+    }
+
+    /// Applies an action emitted by the inspector for `person_id`.
+    pub(super) fn apply_inspector_action(&mut self, action: InspectorAction, person_id: &str) {
+        match action {
+            InspectorAction::Save(details) => self.edit_person(&details),
+            InspectorAction::AddParent => self.open_relation(person_id, RelationKind::Parent),
+            InspectorAction::AddSpouse => self.open_relation(person_id, RelationKind::Spouse),
+            InspectorAction::AddChild => self.open_relation(person_id, RelationKind::Child),
+            InspectorAction::Focus(target) => self.focus_person(&target),
+            InspectorAction::Close => self.app.set_selected_person(None),
         }
     }
 

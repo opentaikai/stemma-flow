@@ -84,6 +84,19 @@ pub fn show(
     };
 
     let mut action = None;
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // U+00D7 is in Ubuntu-Light; U+2715 (✕) is missing from the
+            // bundled fonts and would render as a replacement box.
+            if ui
+                .small_button("×")
+                .on_hover_text("Close inspector")
+                .clicked()
+            {
+                action = Some(InspectorAction::Close);
+            }
+        });
+    });
     let footer_height = ui.spacing().interact_size.y + ui.spacing().item_spacing.y * 5.0;
     let body_height = (ui.available_height() - footer_height).max(120.0);
     egui::ScrollArea::vertical()
