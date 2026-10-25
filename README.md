@@ -192,10 +192,11 @@ views (the app always launches on Graph View):
   rows select that relative on the graph and re-centre the view, spouse
   rows carry the marriage date and place when a `MARRIAGE` event exists —
   with **+ Add Parent**, **+ Add Spouse**,
-  **+ Add Child** buttons whose pop-up creates and links the relative in
-  one step (parents choose a Father/Mother role that presets the gender),
-  and a **Notes** card with a multi-line research-notes editor. All fields
-  commit together on save.
+  **+ Add Child** buttons whose pop-up can **search and link an existing
+  person** (filtered by role; duplicates, self links and cycles are
+  rejected) or create a new one in one step (parents choose a
+  Father/Mother role that presets the gender), and a **Notes** card with a
+  multi-line research-notes editor. All fields commit together on save.
 
 `src/gui` builds it from straight SQLite data each time an import or person
 mutation finishes; the three largest areas — `gui::layout`, `gui::window`
