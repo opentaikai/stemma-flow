@@ -4,6 +4,8 @@ Local-first genealogy application in Rust. Family data lives in a single
 SQLite database with an event-centric, Gramps-style model built for snappy
 queries on trees with 10,000+ individuals.
 
+See [docs/roadmap.md](docs/roadmap.md) for the planned feature roadmap.
+
 ## Build, test, run
 
 ```bash
