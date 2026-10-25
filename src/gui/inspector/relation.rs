@@ -237,11 +237,8 @@ pub fn relation_window(
                 .show(ui, |ui| {
                     field_editors(ui, &mut form.details);
                     ui.separator();
-                    let dates_valid = form.details.dates_valid();
-                    if ui
-                        .add_enabled(dates_valid, egui::Button::new("Add"))
-                        .clicked()
-                    {
+                    let can_add = form.details.has_name() && form.details.dates_valid();
+                    if ui.add_enabled(can_add, egui::Button::new("Add")).clicked() {
                         outcome = Some(RelationOutcome::Submit);
                     }
                 });

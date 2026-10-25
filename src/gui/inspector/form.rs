@@ -92,6 +92,11 @@ impl InspectorForm {
     pub(super) fn dates_valid(&self) -> bool {
         self.date_errors().is_empty()
     }
+
+    /// Whether a given name or surname is present.
+    pub(super) fn has_name(&self) -> bool {
+        !self.given_name.trim().is_empty() || !self.surname.trim().is_empty()
+    }
 }
 
 /// Validation messages for the optional vital dates.

@@ -557,6 +557,51 @@ mod tests {
     }
 
     #[test]
+    fn a_blank_draft_cannot_be_saved_until_named() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.add_person();
+        let person_id = window
+            .app
+            .selected_person_id()
+            .expect("the draft is selected")
+            .to_string();
+        window.sync_inspector_form();
+        assert!(
+            !window.inspector.to_details().has_name(),
+            "the draft starts unnamed"
+        );
+
+        let blank = window.inspector.to_details();
+        window.edit_person(&blank);
+        assert!(
+            matches!(window.app.status(), UiStatus::Error(message) if message.contains("first or last name")),
+            "an unnamed draft is rejected"
+        );
+
+        window.inspector.given_name = "New".to_string();
+        let named = window.inspector.to_details();
+        window.edit_person(&named);
+        assert!(matches!(window.app.status(), UiStatus::Success(_)));
+        let person = window
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == person_id)
+            .expect("the draft is still there");
+        assert_eq!(person.given_name, "New");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn deleting_the_selected_person_clears_the_selection() {
         let db_file = temp_path("db");
         import_people(
