@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 
 use crate::gedcom::GedcomError;
+use crate::model::date;
 
 struct PersonRow {
     id: String,
@@ -51,6 +52,20 @@ fn gedcom_event_tag(event_type: &str) -> &str {
 
 type CitationsByEvent<'a> = HashMap<&'a str, Vec<&'a CitationRow>>;
 
+/// Canonicalises a stored date for export. Unparseable legacy text is
+/// emitted as a GEDCOM date phrase so the file stays valid and the text
+/// survives; whitespace (including newlines) collapses to single spaces.
+fn date_payload(raw: &str) -> Option<String> {
+    let cleaned = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.is_empty() {
+        return None;
+    }
+    Some(match date::canonicalize(&cleaned) {
+        Ok(canonical) => canonical,
+        Err(_) => format!("({cleaned})"),
+    })
+}
+
 fn push_event(
     out: &mut String,
     event: &EventRow,
@@ -59,8 +74,10 @@ fn push_event(
     source_xrefs: &HashMap<&str, String>,
 ) {
     out.push_str(&format!("1 {tag}\n"));
-    if let Some(date) = &event.date {
-        out.push_str(&format!("2 DATE {date}\n"));
+    if let Some(date) = &event.date
+        && let Some(payload) = date_payload(date)
+    {
+        out.push_str(&format!("2 DATE {payload}\n"));
     }
     if let Some(place) = &event.place {
         out.push_str(&format!("2 PLAC {place}\n"));

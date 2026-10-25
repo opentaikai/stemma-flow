@@ -114,11 +114,23 @@ pub struct VitalDates {
     pub death_place: Option<String>,
 }
 
-fn validate(details: &PersonDetails) -> Result<(), String> {
+fn normalize(details: &PersonDetails) -> Result<PersonDetails, String> {
     if !matches!(details.gender.as_str(), "M" | "F" | "U") {
         return Err(format!("unknown gender code {}", details.gender));
     }
-    Ok(())
+    let mut normalized = details.clone();
+    normalized.birth_date = normalize_date(details.birth_date.as_deref(), "Birth date")?;
+    normalized.death_date = normalize_date(details.death_date.as_deref(), "Death date")?;
+    Ok(normalized)
+}
+
+fn normalize_date(value: Option<&str>, label: &str) -> Result<Option<String>, String> {
+    let Some(text) = value.map(str::trim).filter(|text| !text.is_empty()) else {
+        return Ok(None);
+    };
+    crate::model::date::canonicalize(text)
+        .map(Some)
+        .map_err(|error| format!("{label}: {error}"))
 }
 
 fn to_err(error: rusqlite::Error) -> String {
@@ -127,10 +139,10 @@ fn to_err(error: rusqlite::Error) -> String {
 
 /// Writes a new person plus optional birth/death events, returning the id.
 pub fn insert_person(conn: &mut Connection, details: &PersonDetails) -> Result<String, String> {
-    validate(details)?;
+    let details = normalize(details)?;
     let tx = conn.transaction().map_err(to_err)?;
-    let id = write_person(&tx, details)?;
-    write_dates(&tx, &id, details).map_err(to_err)?;
+    let id = write_person(&tx, &details)?;
+    write_dates(&tx, &id, &details).map_err(to_err)?;
     tx.commit().map_err(to_err)?;
     Ok(id)
 }
@@ -144,7 +156,7 @@ pub fn update_person(
     person_id: &str,
     details: &PersonDetails,
 ) -> Result<(), String> {
-    validate(details)?;
+    let details = normalize(details)?;
     let tx = conn.transaction().map_err(to_err)?;
     let changed = tx
         .execute(
@@ -165,7 +177,7 @@ pub fn update_person(
     if changed == 0 {
         return Err(format!("no person with id {person_id}"));
     }
-    write_dates(&tx, person_id, details).map_err(to_err)?;
+    write_dates(&tx, person_id, &details).map_err(to_err)?;
     tx.commit().map_err(to_err)?;
     Ok(())
 }
@@ -201,10 +213,10 @@ pub fn link_parent(
     role: ParentRole,
     details: &PersonDetails,
 ) -> Result<String, String> {
-    validate(details)?;
+    let details = normalize(details)?;
     let tx = conn.transaction().map_err(to_err)?;
-    let parent_id = write_person(&tx, details)?;
-    write_dates(&tx, &parent_id, details).map_err(to_err)?;
+    let parent_id = write_person(&tx, &details)?;
+    write_dates(&tx, &parent_id, &details).map_err(to_err)?;
     let free_family = find_family_with_free_slot(&tx, child_id, role).map_err(to_err)?;
     match free_family {
         Some(family_id) => fill_slot(&tx, &family_id, role, &parent_id).map_err(to_err)?,
@@ -237,10 +249,10 @@ pub fn link_spouse(
     person_id: &str,
     details: &PersonDetails,
 ) -> Result<String, String> {
-    validate(details)?;
+    let details = normalize(details)?;
     let tx = conn.transaction().map_err(to_err)?;
-    let spouse_id = write_person(&tx, details)?;
-    write_dates(&tx, &spouse_id, details).map_err(to_err)?;
+    let spouse_id = write_person(&tx, &details)?;
+    write_dates(&tx, &spouse_id, &details).map_err(to_err)?;
     let own_gender: String = tx
         .query_row(
             "SELECT gender FROM people WHERE id = ?1",
@@ -272,10 +284,10 @@ pub fn link_child(
     person_id: &str,
     details: &PersonDetails,
 ) -> Result<String, String> {
-    validate(details)?;
+    let details = normalize(details)?;
     let tx = conn.transaction().map_err(to_err)?;
-    let child_id = write_person(&tx, details)?;
-    write_dates(&tx, &child_id, details).map_err(to_err)?;
+    let child_id = write_person(&tx, &details)?;
+    write_dates(&tx, &child_id, &details).map_err(to_err)?;
     let primary: Option<String> = tx
         .query_row(
             "SELECT id FROM families WHERE husband_id = ?1 OR wife_id = ?1
@@ -590,6 +602,61 @@ mod tests {
             "message names the problem: {error}"
         );
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM people"), 0);
+    }
+
+    #[test]
+    fn insert_person_normalises_valid_dates() {
+        let mut conn = connection();
+        let profile = PersonDetails::new(
+            "Ada",
+            "",
+            "King",
+            "",
+            "F",
+            Some("12 jan 1850".to_string()),
+            Some("1852-03-04".to_string()),
+        );
+        let id = insert_person(&mut conn, &profile).expect("insert succeeds");
+
+        let stored = load_vital_dates(&conn).expect("vitals load");
+        let vitals = stored.get(&id).expect("vitals exist");
+        assert_eq!(vitals.birth.as_deref(), Some("12 JAN 1850"));
+        assert_eq!(vitals.death.as_deref(), Some("4 MAR 1852"));
+    }
+
+    #[test]
+    fn insert_person_rejects_invalid_dates() {
+        let mut conn = connection();
+        let error = insert_person(
+            &mut conn,
+            &PersonDetails::new(
+                "Ada",
+                "",
+                "King",
+                "",
+                "F",
+                Some("31 FEB 1850".to_string()),
+                None,
+            ),
+        )
+        .expect_err("impossible date fails");
+        assert!(
+            error.contains("Birth date"),
+            "message names the field: {error}"
+        );
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM people"), 0);
+    }
+
+    #[test]
+    fn update_person_rejects_invalid_dates() {
+        let mut conn = connection();
+        let id = insert_person(&mut conn, &details("Ada", "F")).expect("insert succeeds");
+        let edited = PersonDetails::new("Ada", "", "King", "", "F", None, Some("soon".to_string()));
+        let error = update_person(&mut conn, &id, &edited).expect_err("bad death date fails");
+        assert!(
+            error.contains("Death date"),
+            "message names the field: {error}"
+        );
     }
 
     #[test]

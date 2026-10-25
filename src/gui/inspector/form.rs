@@ -79,6 +79,42 @@ impl InspectorForm {
         details.notes = self.notes.trim().to_string();
         details
     }
+
+    /// Validation messages for the optional birth and death dates.
+    pub(super) fn date_errors(&self) -> DateErrors {
+        DateErrors {
+            birth: date_error(&self.birth),
+            death: date_error(&self.death),
+        }
+    }
+
+    /// Whether both optional vital dates are blank or valid.
+    pub(super) fn dates_valid(&self) -> bool {
+        self.date_errors().is_empty()
+    }
+}
+
+/// Validation messages for the optional vital dates.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct DateErrors {
+    pub birth: Option<String>,
+    pub death: Option<String>,
+}
+
+impl DateErrors {
+    fn is_empty(&self) -> bool {
+        self.birth.is_none() && self.death.is_none()
+    }
+}
+
+fn date_error(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    crate::model::date::canonicalize(trimmed)
+        .err()
+        .map(|error| error.to_string())
 }
 
 fn blank_to_none(text: &str) -> Option<String> {

@@ -395,6 +395,45 @@ fn export_round_trips_imported_data() -> Result<(), GedcomError> {
     Ok(())
 }
 
+fn seed_event(conn: &Connection, date: &str) -> Result<(), GedcomError> {
+    conn.execute(
+        "INSERT INTO people (id, given_name, surname, gender) VALUES ('p1', 'Ada', 'King', 'F')",
+        [],
+    )
+    .map_err(GedcomError::Db)?;
+    conn.execute(
+        "INSERT INTO events (id, event_type, date, person_id)
+         VALUES ('e1', 'BIRTH', ?1, 'p1')",
+        params![date],
+    )
+    .map_err(GedcomError::Db)?;
+    Ok(())
+}
+
+#[test]
+fn export_canonicalises_stored_dates() -> Result<(), GedcomError> {
+    let conn = setup_test_db().map_err(GedcomError::Db)?;
+    seed_event(&conn, "12 jan 1850")?;
+    let exported = export_to_gedcom(&conn)?;
+    assert!(
+        exported.contains("2 DATE 12 JAN 1850"),
+        "stored dates are canonicalised on export: {exported}"
+    );
+    Ok(())
+}
+
+#[test]
+fn export_wraps_unparseable_dates_as_phrases() -> Result<(), GedcomError> {
+    let conn = setup_test_db().map_err(GedcomError::Db)?;
+    seed_event(&conn, "circa whenever\nnext line")?;
+    let exported = export_to_gedcom(&conn)?;
+    assert!(
+        exported.contains("2 DATE (circa whenever next line)"),
+        "invalid dates become single-line phrases: {exported}"
+    );
+    Ok(())
+}
+
 #[test]
 fn parse_name_handles_nonstandard_input() {
     assert_eq!(

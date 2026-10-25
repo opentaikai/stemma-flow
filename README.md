@@ -40,6 +40,13 @@ and child links; emptied spouse slots detach), the one-step relational
 creators `link_parent`, `link_spouse`, `link_child`, plus `load_vital_dates`
 which groups `BIRTH`/`DEATH` event dates and places by person id.
 
+Vital dates are GEDCOM date values kept in canonical form. Writes accept
+exact dates (`12 JAN 1850`, `JAN 1850`, `1850`), ISO convenience input
+(`1850-01-12`, `1850-01`), qualifiers (`ABT`/`CAL`/`EST`/`BEF`/`AFT`),
+ranges (`BET … AND …`), periods (`FROM … TO …`, `FROM …`, `TO …`) and
+phrases (`(free text)`), normalise them through `model::date`, and reject
+impossible calendar days (`31 FEB 1850`) with a field-named error.
+
 ## Graph layer
 
 `src/model` holds the in-memory graph state the `egui` canvas renders:
@@ -90,6 +97,9 @@ which groups `BIRTH`/`DEATH` event dates and places by person id.
   GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, `SOUR` records, `INDI`
   and `FAM` records, then `TRLR`. Populated `people.notes` travel as
   `1 NOTE` + `2 CONT` lines after `1 SEX`, so notes round-trip losslessly.
+  Dates are canonicalised on the way out (`12 jan 1850` → `12 JAN 1850`),
+  and stored text that does not parse is written as a single-line
+  `(date phrase)` instead, so a dirty date can never corrupt a record.
 - Family links are recovered from `HUSB`/`WIFE`/`CHIL`, backfilled from
   `FAMC`, and `FAMS` fills empty spouse slots when `SEX` makes it unambiguous.
 - Citations serialise as `0 @S@ SOUR` records (`1 TITL`, `1 NOTE`) that
@@ -175,7 +185,9 @@ views (the app always launches on Graph View):
   accent **Save Changes** footer pinned below: a **Header** card with the
   person's name and gender, **Profile** (given name, middle name, surname,
   nickname, gender) and **Vital Facts** (birth/death dates *and places*)
-  editors, a **Relationships** card listing parents, siblings, spouses and
+  editors — the date fields accept GEDCOM or ISO input, and an invalid
+  date shows an inline message and disables saving — a
+  **Relationships** card listing parents, siblings, spouses and
   children —
   rows select that relative on the graph and re-centre the view, spouse
   rows carry the marriage date and place when a `MARRIAGE` event exists —
