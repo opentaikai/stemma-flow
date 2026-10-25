@@ -213,9 +213,14 @@ mod tests {
         assert!(captured.is_none(), "no pointer input triggers nothing");
 
         let mut relation = RelationForm::new(&person.id, RelationKind::Parent, "Ada King");
+        let tree = FamilyTree {
+            people: vec![person.clone()],
+            families: Vec::new(),
+            child_links: Vec::new(),
+        };
         let mut outcome = Some(RelationOutcome::Submit);
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            outcome = relation_window(ui.ctx(), &mut relation);
+            outcome = relation_window(ui.ctx(), &mut relation, &tree);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the pop-up paints");

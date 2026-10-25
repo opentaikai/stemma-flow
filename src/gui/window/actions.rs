@@ -2,7 +2,7 @@
 
 use crate::app;
 use crate::app::UiStatus;
-use crate::db::people::PersonDetails;
+use crate::db::people::{ParentRole, PersonDetails};
 use crate::gui::dialogs;
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
@@ -199,10 +199,13 @@ impl TreeWindow {
         let Some(mut form) = self.pending_relation.take() else {
             return;
         };
-        match inspector::relation_window(ctx, &mut form) {
+        match inspector::relation_window(ctx, &mut form, &self.tree) {
             None => self.pending_relation = Some(form),
             Some(RelationOutcome::Cancel) => {}
             Some(RelationOutcome::Submit) => self.submit_relation(form),
+            Some(RelationOutcome::Link(person_id)) => {
+                self.link_existing_relation(&form.target, form.kind, &person_id, form.role);
+            }
         }
     }
 
@@ -215,6 +218,25 @@ impl TreeWindow {
         };
         match result {
             Ok(_) => self.reload_scene(),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    /// Links an existing person as the target's parent, spouse or child.
+    pub(super) fn link_existing_relation(
+        &mut self,
+        target: &str,
+        kind: RelationKind,
+        person_id: &str,
+        role: ParentRole,
+    ) {
+        let result = match kind {
+            RelationKind::Parent => self.app.link_existing_parent(target, person_id, role),
+            RelationKind::Spouse => self.app.link_existing_spouse(target, person_id),
+            RelationKind::Child => self.app.link_existing_child(target, person_id),
+        };
+        match result {
+            Ok(()) => self.reload_scene(),
             Err(message) => self.app.set_status(UiStatus::Error(message)),
         }
     }

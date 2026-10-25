@@ -217,27 +217,7 @@ pub fn link_parent(
     let tx = conn.transaction().map_err(to_err)?;
     let parent_id = write_person(&tx, &details)?;
     write_dates(&tx, &parent_id, &details).map_err(to_err)?;
-    let free_family = find_family_with_free_slot(&tx, child_id, role).map_err(to_err)?;
-    match free_family {
-        Some(family_id) => fill_slot(&tx, &family_id, role, &parent_id).map_err(to_err)?,
-        None => {
-            let family_id = Uuid::new_v4().to_string();
-            let (husband, wife) = match role {
-                ParentRole::Father => (Some(parent_id.clone()), None),
-                ParentRole::Mother => (None, Some(parent_id.clone())),
-            };
-            tx.execute(
-                "INSERT INTO families (id, husband_id, wife_id) VALUES (?1, ?2, ?3)",
-                params![family_id, husband, wife],
-            )
-            .map_err(to_err)?;
-            tx.execute(
-                "INSERT INTO family_children (family_id, child_id) VALUES (?1, ?2)",
-                params![family_id, child_id],
-            )
-            .map_err(to_err)?;
-        }
-    }
+    attach_parent(&tx, child_id, &parent_id, role).map_err(to_err)?;
     tx.commit().map_err(to_err)?;
     Ok(parent_id)
 }
@@ -253,25 +233,7 @@ pub fn link_spouse(
     let tx = conn.transaction().map_err(to_err)?;
     let spouse_id = write_person(&tx, &details)?;
     write_dates(&tx, &spouse_id, &details).map_err(to_err)?;
-    let own_gender: String = tx
-        .query_row(
-            "SELECT gender FROM people WHERE id = ?1",
-            params![person_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(to_err)?
-        .ok_or_else(|| format!("no person with id {person_id}"))?;
-    let (husband, wife) = match own_gender.as_str() {
-        "F" => (Some(spouse_id.clone()), Some(person_id.to_string())),
-        _ => (Some(person_id.to_string()), Some(spouse_id.clone())),
-    };
-    let family_id = Uuid::new_v4().to_string();
-    tx.execute(
-        "INSERT INTO families (id, husband_id, wife_id) VALUES (?1, ?2, ?3)",
-        params![family_id, husband, wife],
-    )
-    .map_err(to_err)?;
+    create_spouse_family(&tx, person_id, &spouse_id).map_err(to_err)?;
     tx.commit().map_err(to_err)?;
     Ok(spouse_id)
 }
@@ -288,48 +250,286 @@ pub fn link_child(
     let tx = conn.transaction().map_err(to_err)?;
     let child_id = write_person(&tx, &details)?;
     write_dates(&tx, &child_id, &details).map_err(to_err)?;
-    let primary: Option<String> = tx
+    attach_child(&tx, person_id, &child_id).map_err(to_err)?;
+    tx.commit().map_err(to_err)?;
+    Ok(child_id)
+}
+
+/// Links an existing person as `child_id`'s parent, rejecting self links,
+/// duplicates, gender/role mismatches and cycles.
+pub fn link_existing_parent(
+    conn: &mut Connection,
+    child_id: &str,
+    parent_id: &str,
+    role: ParentRole,
+) -> Result<(), String> {
+    if child_id == parent_id {
+        return Err("a person cannot be their own parent".to_string());
+    }
+    let tx = conn.transaction().map_err(to_err)?;
+    ensure_person(&tx, child_id)?;
+    ensure_person(&tx, parent_id)?;
+    let gender = person_gender(&tx, parent_id)?;
+    match (role, gender.as_str()) {
+        (ParentRole::Father, "F") => {
+            return Err("a female person can only be linked as Mother".to_string());
+        }
+        (ParentRole::Mother, "M") => {
+            return Err("a male person can only be linked as Father".to_string());
+        }
+        _ => {}
+    }
+    if is_parent_of(&tx, parent_id, child_id)? {
+        return Err("that person is already a parent".to_string());
+    }
+    if is_descendant(&tx, child_id, parent_id)? {
+        return Err("that link would create a cycle".to_string());
+    }
+    attach_parent(&tx, child_id, parent_id, role).map_err(to_err)?;
+    tx.commit().map_err(to_err)?;
+    Ok(())
+}
+
+/// Links an existing person as `person_id`'s spouse, rejecting self links
+/// and duplicates; a free spouse slot in an existing family is reused.
+pub fn link_existing_spouse(
+    conn: &mut Connection,
+    person_id: &str,
+    spouse_id: &str,
+) -> Result<(), String> {
+    if person_id == spouse_id {
+        return Err("a person cannot be their own spouse".to_string());
+    }
+    let tx = conn.transaction().map_err(to_err)?;
+    ensure_person(&tx, person_id)?;
+    ensure_person(&tx, spouse_id)?;
+    if are_spouses(&tx, person_id, spouse_id)? {
+        return Err("those people are already spouses".to_string());
+    }
+    attach_spouse_slot_or_family(&tx, person_id, spouse_id).map_err(to_err)?;
+    tx.commit().map_err(to_err)?;
+    Ok(())
+}
+
+/// Links an existing person as `parent_id`'s child, rejecting self links,
+/// duplicates and cycles.
+pub fn link_existing_child(
+    conn: &mut Connection,
+    parent_id: &str,
+    child_id: &str,
+) -> Result<(), String> {
+    if parent_id == child_id {
+        return Err("a person cannot be their own child".to_string());
+    }
+    let tx = conn.transaction().map_err(to_err)?;
+    ensure_person(&tx, parent_id)?;
+    ensure_person(&tx, child_id)?;
+    if is_parent_of(&tx, parent_id, child_id)? {
+        return Err("that person is already a child".to_string());
+    }
+    if is_descendant(&tx, child_id, parent_id)? {
+        return Err("that link would create a cycle".to_string());
+    }
+    attach_child(&tx, parent_id, child_id).map_err(to_err)?;
+    tx.commit().map_err(to_err)?;
+    Ok(())
+}
+
+/// Links `parent_id` to `child_id`, filling a free spouse slot in one of
+/// the child's families or starting a new family.
+fn attach_parent(
+    conn: &Connection,
+    child_id: &str,
+    parent_id: &str,
+    role: ParentRole,
+) -> rusqlite::Result<()> {
+    match find_family_with_free_slot(conn, child_id, role)? {
+        Some(family_id) => fill_slot(conn, &family_id, role, parent_id),
+        None => {
+            let family_id = Uuid::new_v4().to_string();
+            let (husband, wife) = match role {
+                ParentRole::Father => (Some(parent_id.to_string()), None),
+                ParentRole::Mother => (None, Some(parent_id.to_string())),
+            };
+            conn.execute(
+                "INSERT INTO families (id, husband_id, wife_id) VALUES (?1, ?2, ?3)",
+                params![family_id, husband, wife],
+            )?;
+            conn.execute(
+                "INSERT INTO family_children (family_id, child_id) VALUES (?1, ?2)",
+                params![family_id, child_id],
+            )?;
+            Ok(())
+        }
+    }
+}
+
+/// Adds `child_id` to `person_id`'s primary family, creating one if needed.
+fn attach_child(conn: &Connection, person_id: &str, child_id: &str) -> rusqlite::Result<()> {
+    let primary: Option<String> = conn
         .query_row(
             "SELECT id FROM families WHERE husband_id = ?1 OR wife_id = ?1
              ORDER BY rowid LIMIT 1",
             params![person_id],
             |row| row.get(0),
         )
-        .optional()
-        .map_err(to_err)?;
+        .optional()?;
     let family_id = match primary {
         Some(family_id) => family_id,
         None => {
-            let gender: String = tx
-                .query_row(
-                    "SELECT gender FROM people WHERE id = ?1",
-                    params![person_id],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(to_err)?
-                .ok_or_else(|| format!("no person with id {person_id}"))?;
+            let gender: String = conn.query_row(
+                "SELECT gender FROM people WHERE id = ?1",
+                params![person_id],
+                |row| row.get(0),
+            )?;
             let (husband, wife) = if gender == "F" {
                 (None, Some(person_id.to_string()))
             } else {
                 (Some(person_id.to_string()), None)
             };
             let family_id = Uuid::new_v4().to_string();
-            tx.execute(
+            conn.execute(
                 "INSERT INTO families (id, husband_id, wife_id) VALUES (?1, ?2, ?3)",
                 params![family_id, husband, wife],
-            )
-            .map_err(to_err)?;
+            )?;
             family_id
         }
     };
-    tx.execute(
+    conn.execute(
         "INSERT INTO family_children (family_id, child_id) VALUES (?1, ?2)",
         params![family_id, child_id],
+    )?;
+    Ok(())
+}
+
+/// Creates a brand-new family seating both partners by `person_id`'s gender.
+fn create_spouse_family(
+    conn: &Connection,
+    person_id: &str,
+    spouse_id: &str,
+) -> rusqlite::Result<()> {
+    let own_gender: String = conn.query_row(
+        "SELECT gender FROM people WHERE id = ?1",
+        params![person_id],
+        |row| row.get(0),
+    )?;
+    let (husband, wife) = match own_gender.as_str() {
+        "F" => (Some(spouse_id.to_string()), Some(person_id.to_string())),
+        _ => (Some(person_id.to_string()), Some(spouse_id.to_string())),
+    };
+    let family_id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO families (id, husband_id, wife_id) VALUES (?1, ?2, ?3)",
+        params![family_id, husband, wife],
+    )?;
+    Ok(())
+}
+
+/// Seats `spouse_id` in a free slot of one of `person_id`'s families, or
+/// creates a new family when every existing one already has two spouses.
+fn attach_spouse_slot_or_family(
+    conn: &Connection,
+    person_id: &str,
+    spouse_id: &str,
+) -> rusqlite::Result<()> {
+    let free: Option<(String, bool)> = conn
+        .query_row(
+            "SELECT id, husband_id = ?1 FROM families
+             WHERE (husband_id = ?1 AND wife_id IS NULL)
+                OR (wife_id = ?1 AND husband_id IS NULL)
+             ORDER BY rowid LIMIT 1",
+            params![person_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((family_id, person_is_husband)) = free {
+        let sql = if person_is_husband {
+            "UPDATE families SET wife_id = ?1 WHERE id = ?2"
+        } else {
+            "UPDATE families SET husband_id = ?1 WHERE id = ?2"
+        };
+        conn.execute(sql, params![spouse_id, family_id])?;
+        return Ok(());
+    }
+    create_spouse_family(conn, person_id, spouse_id)
+}
+
+fn ensure_person(conn: &Connection, person_id: &str) -> Result<(), String> {
+    let found: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM people WHERE id = ?1",
+            params![person_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(to_err)?;
+    found
+        .map(|_| ())
+        .ok_or_else(|| format!("no person with id {person_id}"))
+}
+
+fn person_gender(conn: &Connection, person_id: &str) -> Result<String, String> {
+    conn.query_row(
+        "SELECT gender FROM people WHERE id = ?1",
+        params![person_id],
+        |row| row.get(0),
     )
-    .map_err(to_err)?;
-    tx.commit().map_err(to_err)?;
-    Ok(child_id)
+    .map_err(to_err)
+}
+
+/// Whether `parent_id` already appears as a parent in a family of `child_id`.
+fn is_parent_of(conn: &Connection, parent_id: &str, child_id: &str) -> Result<bool, String> {
+    let found: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM families f
+             JOIN family_children fc ON fc.family_id = f.id
+             WHERE fc.child_id = ?2 AND (f.husband_id = ?1 OR f.wife_id = ?1)
+             LIMIT 1",
+            params![parent_id, child_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(to_err)?;
+    Ok(found.is_some())
+}
+
+fn are_spouses(conn: &Connection, left: &str, right: &str) -> Result<bool, String> {
+    let found: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM families
+             WHERE (husband_id = ?1 AND wife_id = ?2)
+                OR (husband_id = ?2 AND wife_id = ?1)
+             LIMIT 1",
+            params![left, right],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(to_err)?;
+    Ok(found.is_some())
+}
+
+/// Whether `person_id` is reachable as a descendant of `ancestor_id`.
+fn is_descendant(conn: &Connection, ancestor_id: &str, person_id: &str) -> Result<bool, String> {
+    let found: Option<i64> = conn
+        .query_row(
+            "WITH RECURSIVE descendants(id) AS (
+                 SELECT fc.child_id
+                 FROM family_children fc
+                 JOIN families f ON f.id = fc.family_id
+                 WHERE f.husband_id = ?1 OR f.wife_id = ?1
+                 UNION
+                 SELECT fc.child_id
+                 FROM family_children fc
+                 JOIN families f ON f.id = fc.family_id
+                 JOIN descendants d ON f.husband_id = d.id OR f.wife_id = d.id
+             )
+             SELECT 1 FROM descendants WHERE id = ?2 LIMIT 1",
+            params![ancestor_id, person_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(to_err)?;
+    Ok(found.is_some())
 }
 
 /// Groups each person's `BIRTH`/`DEATH` event dates and places by person id.
@@ -1023,5 +1223,102 @@ mod tests {
             )
             .expect("notes column readable");
         assert_eq!(stored, "Edited later.");
+    }
+    fn family_count(conn: &Connection) -> i64 {
+        count(conn, "SELECT COUNT(*) FROM families")
+    }
+
+    #[test]
+    fn link_existing_parent_attaches_and_rejects_conflicts() {
+        let mut conn = connection();
+        let child = insert_person(&mut conn, &details("Kid", "U")).expect("child");
+        let father = insert_person(&mut conn, &details("Papa", "M")).expect("father");
+
+        link_existing_parent(&mut conn, &child, &father, ParentRole::Father)
+            .expect("link succeeds");
+        let (husband, wife): (Option<String>, Option<String>) = conn
+            .query_row("SELECT husband_id, wife_id FROM families", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("family exists");
+        assert_eq!(husband.as_deref(), Some(father.as_str()));
+        assert_eq!(wife, None);
+
+        let error = link_existing_parent(&mut conn, &child, &father, ParentRole::Father)
+            .expect_err("duplicate rejected");
+        assert!(error.contains("already a parent"), "{error}");
+
+        let self_link = link_existing_parent(&mut conn, &child, &child, ParentRole::Father)
+            .expect_err("self link rejected");
+        assert!(self_link.contains("own parent"), "{self_link}");
+
+        let mother = insert_person(&mut conn, &details("Mama", "F")).expect("mother");
+        let mismatch = link_existing_parent(&mut conn, &child, &mother, ParentRole::Father)
+            .expect_err("gender mismatch rejected");
+        assert!(mismatch.contains("Mother"), "{mismatch}");
+    }
+
+    #[test]
+    fn link_existing_parent_rejects_cycles() {
+        let mut conn = connection();
+        let parent = insert_person(&mut conn, &details("Parent", "U")).expect("parent");
+        let child = insert_person(&mut conn, &details("Child", "U")).expect("child");
+        link_existing_parent(&mut conn, &child, &parent, ParentRole::Father)
+            .expect("forward link succeeds");
+
+        let error = link_existing_parent(&mut conn, &parent, &child, ParentRole::Father)
+            .expect_err("cycle rejected");
+        assert!(error.contains("cycle"), "{error}");
+    }
+
+    #[test]
+    fn link_existing_child_attaches_and_rejects_cycles() {
+        let mut conn = connection();
+        let parent = insert_person(&mut conn, &details("Parent", "U")).expect("parent");
+        let child = insert_person(&mut conn, &details("Child", "U")).expect("child");
+
+        link_existing_child(&mut conn, &parent, &child).expect("link succeeds");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM family_children"), 1);
+
+        let duplicate =
+            link_existing_child(&mut conn, &parent, &child).expect_err("duplicate rejected");
+        assert!(duplicate.contains("already a child"), "{duplicate}");
+
+        let cycle = link_existing_child(&mut conn, &child, &parent).expect_err("cycle rejected");
+        assert!(cycle.contains("cycle"), "{cycle}");
+    }
+
+    #[test]
+    fn link_existing_spouse_attaches_and_reuses_a_free_slot() {
+        let mut conn = connection();
+        let person = insert_person(&mut conn, &details("Ada", "F")).expect("person");
+        let spouse = insert_person(&mut conn, &details("Otto", "M")).expect("spouse");
+
+        link_existing_spouse(&mut conn, &person, &spouse).expect("link succeeds");
+        assert_eq!(family_count(&conn), 1);
+        let error =
+            link_existing_spouse(&mut conn, &person, &spouse).expect_err("duplicate rejected");
+        assert!(error.contains("already spouses"), "{error}");
+        let self_link =
+            link_existing_spouse(&mut conn, &person, &person).expect_err("self rejected");
+        assert!(self_link.contains("own spouse"), "{self_link}");
+
+        let single = insert_person(&mut conn, &details("Solo", "M")).expect("single");
+        let partner = insert_person(&mut conn, &details("Other", "F")).expect("partner");
+        conn.execute(
+            "INSERT INTO families (id, husband_id, wife_id) VALUES ('f-solo', ?1, NULL)",
+            params![single],
+        )
+        .expect("single-parent family");
+        link_existing_spouse(&mut conn, &single, &partner).expect("slot link succeeds");
+        assert_eq!(family_count(&conn), 2, "the free slot is reused");
+        let wife: Option<String> = conn
+            .query_row(
+                "SELECT wife_id FROM families WHERE id = 'f-solo'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("family readable");
+        assert_eq!(wife.as_deref(), Some(partner.as_str()));
     }
 }
