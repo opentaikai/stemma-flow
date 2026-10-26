@@ -1,5 +1,6 @@
 //! Local storage layer: SQLite schema, connection setup and entity models.
 
+mod migrations;
 pub mod models;
 pub mod people;
 pub mod schema;
@@ -101,9 +102,11 @@ pub struct MarriageInfo {
 pub fn load_marriage_details(conn: &Connection) -> rusqlite::Result<HashMap<String, MarriageInfo>> {
     let mut marriages = HashMap::new();
     let mut stmt = conn.prepare(
-        "SELECT family_id, date, place FROM events
-         WHERE event_type = 'MARRIAGE' AND family_id IS NOT NULL
-         ORDER BY rowid",
+        "SELECT e.family_id, e.date, p.name
+         FROM events e
+         LEFT JOIN places p ON p.id = e.place_id
+         WHERE e.event_type = 'MARRIAGE' AND e.family_id IS NOT NULL
+         ORDER BY e.rowid",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((

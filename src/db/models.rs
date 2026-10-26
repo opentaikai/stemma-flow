@@ -38,19 +38,23 @@ pub struct Event {
     pub id: String,
     pub event_type: String,
     pub date: Option<String>,
-    pub place: Option<String>,
+    /// Reference into `places`; the name lives on the place record.
+    pub place_id: Option<String>,
     pub description: Option<String>,
     pub person_id: Option<String>,
     pub family_id: Option<String>,
 }
 
-/// A source citation backing an event.
+/// A citation of a source backing an event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Citation {
     pub id: String,
-    pub source_title: String,
+    pub source_id: String,
     pub page_or_reference: Option<String>,
     pub notes: Option<String>,
+    pub quality_source: Option<String>,
+    pub quality_information: Option<String>,
+    pub quality_evidence: Option<String>,
     pub event_id: Option<String>,
 }
 
@@ -95,7 +99,7 @@ impl Event {
             id: Uuid::new_v4().to_string(),
             event_type: event_type.into(),
             date: None,
-            place: None,
+            place_id: None,
             description: None,
             person_id,
             family_id,
@@ -104,12 +108,15 @@ impl Event {
 }
 
 impl Citation {
-    pub fn new(source_title: impl Into<String>) -> Self {
+    pub fn new(source_id: impl Into<String>) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
-            source_title: source_title.into(),
+            source_id: source_id.into(),
             page_or_reference: None,
             notes: None,
+            quality_source: None,
+            quality_information: None,
+            quality_evidence: None,
             event_id: None,
         }
     }

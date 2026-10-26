@@ -488,27 +488,20 @@ fn citations_round_trip_through_sour_records() -> Result<(), GedcomError> {
         )
         .map_err(GedcomError::Db)?;
     conn.execute(
-        "INSERT INTO citations (id, source_title, page_or_reference, notes, event_id)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            "cit-cited",
-            "Parish Church Book",
-            "12",
-            "Abbot 1900",
-            birth_id
-        ],
+        "INSERT INTO sources (id, title, notes)
+         VALUES ('src-cited', 'Parish Church Book', 'Abbot 1900')",
+        [],
     )
     .map_err(GedcomError::Db)?;
     conn.execute(
-        "INSERT INTO citations (id, source_title, page_or_reference, notes, event_id)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            "cit-standalone",
-            "Municipal Archive",
-            "roll 7",
-            None::<String>,
-            None::<String>
-        ],
+        "INSERT INTO citations (id, source_id, page_or_reference, event_id)
+         VALUES ('cit-cited', 'src-cited', '12', ?1)",
+        params![birth_id],
+    )
+    .map_err(GedcomError::Db)?;
+    conn.execute(
+        "INSERT INTO sources (id, title) VALUES ('src-standalone', 'Municipal Archive')",
+        [],
     )
     .map_err(GedcomError::Db)?;
 
@@ -530,7 +523,7 @@ fn citations_round_trip_through_sour_records() -> Result<(), GedcomError> {
 
     let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
     let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
-    assert_eq!(report.citations, 2, "both SOUR records must be restored");
+    assert_eq!(report.citations, 1, "only a cited source yields a citation");
     assert!(
         report.warnings.is_empty(),
         "citation export must re-import cleanly: {:?}",
@@ -539,8 +532,9 @@ fn citations_round_trip_through_sour_records() -> Result<(), GedcomError> {
 
     let cited: (String, Option<String>, Option<String>) = fresh
         .query_row(
-            "SELECT c.source_title, c.page_or_reference, c.notes
+            "SELECT s.title, c.page_or_reference, s.notes
              FROM citations c
+             JOIN sources s ON s.id = c.source_id
              JOIN events e ON e.id = c.event_id
              WHERE e.event_type = 'BIRTH'",
             [],
@@ -558,10 +552,11 @@ fn citations_round_trip_through_sour_records() -> Result<(), GedcomError> {
     );
     let standalone: i64 = scalar_count(
         &fresh,
-        "SELECT COUNT(*) FROM citations WHERE event_id IS NULL",
+        "SELECT COUNT(*) FROM sources s WHERE s.title = 'Municipal Archive'
+         AND NOT EXISTS (SELECT 1 FROM citations c WHERE c.source_id = s.id)",
     )
     .map_err(GedcomError::Db)?;
-    assert_eq!(standalone, 1, "the uncited SOUR must stay standalone");
+    assert_eq!(standalone, 1, "the uncited SOUR must stay a source");
 
     assert_eq!(
         export_to_gedcom(&fresh)?,
@@ -653,7 +648,7 @@ fn import_joins_conc_and_cont_payloads_byte_wise() -> Result<(), GedcomError> {
     let report = import_gedcom(&mut conn, Cursor::new(sample))?;
 
     let note: String = conn
-        .query_row("SELECT notes FROM citations", [], |row| row.get(0))
+        .query_row("SELECT notes FROM sources", [], |row| row.get(0))
         .map_err(GedcomError::Db)?;
     assert_eq!(note, "abcd\nefgh");
     assert!(
@@ -1107,5 +1102,74 @@ fn unknown_level_zero_records_warn_once_with_a_silent_subtree() -> Result<(), Ge
         "{:?}",
         report.warnings
     );
+    Ok(())
+}
+
+#[test]
+fn import_creates_places_and_links_events() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 12 JAN 1850
+2 PLAC Uppsala, Sweden
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.events, 1);
+    let place: String = conn
+        .query_row(
+            "SELECT p.name
+             FROM events e JOIN places p ON p.id = e.place_id
+             WHERE e.event_type = 'BIRTH'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(place, "Uppsala, Sweden");
+    let places: i64 = conn
+        .query_row("SELECT COUNT(*) FROM places", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(places, 1, "one place row for the event");
+    Ok(())
+}
+
+#[test]
+fn import_reuses_one_source_for_repeated_pointers() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @S1@ SOUR
+1 TITL Parish Book
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 1850
+2 SOUR @S1@
+3 PAGE 1
+1 DEAT
+2 DATE 1900
+2 SOUR @S1@
+3 PAGE 2
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.citations, 2, "both pointers become citations");
+    let sources: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sources", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(sources, 1, "the shared SOUR record is stored once");
+    let pages: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM citations WHERE page_or_reference IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(pages, 2);
     Ok(())
 }

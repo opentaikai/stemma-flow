@@ -48,9 +48,9 @@ Priority:
 | First-or-last-name requirement on manual saves | done | P0 | Drafts may exist until named |
 | Theme and font scaling settings | done | P2 | Persisted config |
 | Background import and export jobs | done | P1 | UI stays responsive |
-| Sources and citations | partial | P0 | Schema and GEDCOM only, no UI |
+| Sources and citations | partial | P0 | Normalised in schema v2; no editor yet |
 | Facts and events | partial | P0 | BIRT, DEAT and MARR only |
-| Places | partial | P0 | Free text on events, no authority list |
+| Places | partial | P0 | Place records in schema v2; no place page yet |
 | Names | partial | P0 | Given, middle, surname, nickname only |
 | Notes | partial | P1 | Person level only, no rich text or spell check |
 | Search | partial | P1 | Watch-list name filter and relation picker only |
@@ -77,14 +77,14 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2: sources, repositories, places, media, fact catalogue, tasks, groups | planned | P0 | Versioned migration from v1 |
-| Citations linked to sources instead of embedded source titles | planned | P0 | Preserve imported citations |
+| Schema v2: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | Versioned migration from v1 |
+| Citations linked to sources instead of embedded source titles | done | P0 | Preserve imported citations |
 | Source templates (Evidence Explained style, start with a small set) | planned | P0 | Extensible template definitions |
 | Free-form sources with footnote, short footnote and bibliography | planned | P0 | Fallback when no template fits |
-| Citation quality fields (source, information, evidence) | planned | P1 | Industry-standard terminology |
+| Citation quality fields (source, information, evidence) | partial | P1 | Columns exist; editor pending |
 | Reusable citations across people, facts and families | planned | P1 | Copy or reference model |
 | Source list with edit, merge and template conversion | planned | P1 | One place to manage documentation |
-| Repositories and repository list | planned | P1 | Sources reference repositories |
+| Repositories and repository list | partial | P1 | Schema only; grid pending |
 | Place authority: list, reverse ordering, notes, latitude and longitude | planned | P0 | Replaces free-text place duplication |
 | Place usage lists and editing people from a place | planned | P1 | See M4 for maps |
 | Fact catalogue: 60+ predefined fact types | planned | P0 | Birth, death, marriage first |
@@ -96,8 +96,8 @@ places, facts, alternate names and notes as first-class records.
 | Surname-first display option | planned | P2 | Per-file preference |
 | Notes on person, family, fact, citation and place | planned | P0 | Current person notes migrate |
 | Associations (friends, associates, neighbours) | planned | P2 | With relationship labels |
-| Media records and links to people, families, facts, sources and places | planned | P1 | UI work in M4 |
-| Task and group tables | planned | P1 | UI work in M3 |
+| Media records and links to people, families, facts, sources and places | partial | P1 | Schema and cascading link tables; UI in M4 |
+| Task and group tables | done | P1 | Schema and link tables; UI in M3 |
 | Migrations and GEDCOM mapping for every new entity | planned | P0 | Fidelity tests required |
 
 ## M2 - Editing and navigation (P0)
