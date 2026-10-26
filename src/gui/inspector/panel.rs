@@ -1,5 +1,7 @@
 //! Rendering the inspector panel: framed cards and the profile editors.
 
+use crate::gui::citations::{self, CitationsEvent, CitationsState};
+
 use egui::{RichText, Ui};
 
 use crate::db::Person;
@@ -106,6 +108,7 @@ pub fn show(
     person: Option<&Person>,
     form: &mut InspectorForm,
     connections: Connections,
+    citations: &mut CitationsState,
 ) -> Option<InspectorAction> {
     let Some(person) = person else {
         ui.label(RichText::new("Selected person not found.").weak());
@@ -142,6 +145,25 @@ pub fn show(
             });
             card(ui, "Profile", |ui| name_editors(ui, form));
             card(ui, "Vital Facts", |ui| vital_editors(ui, form));
+            card(ui, "Citations", |ui| {
+                if let Some(event) = citations::show(ui, citations) {
+                    action = Some(match event {
+                        CitationsEvent::Save(edits) => {
+                            InspectorAction::SaveCitations(Box::new(edits))
+                        }
+                        CitationsEvent::Add {
+                            source_id,
+                            event_type,
+                            page,
+                        } => InspectorAction::AddCitation {
+                            source_id,
+                            event_type,
+                            page,
+                        },
+                        CitationsEvent::Delete(id) => InspectorAction::DeleteCitation(id),
+                    });
+                }
+            });
             card(ui, "Relationships", |ui| {
                 for (title, relatives) in [
                     ("Parents", &connections.parents),

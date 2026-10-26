@@ -9,6 +9,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use crate::db;
+use crate::db::citations::{self as citation_store, CitationEdit, CitationRecord};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::sources::{self as source_store, SourceDraft, SourceRecord, SourceSummary};
 use crate::gedcom::{ImportReport, export_to_gedcom, import_gedcom};
@@ -276,6 +277,46 @@ impl StemmaApp {
     fn finish_link(&mut self) -> Result<(), String> {
         self.import_generation += 1;
         self.set_status(UiStatus::Success("Linked existing person".to_string()));
+        Ok(())
+    }
+
+    /// Lists the citations attached to a person's events.
+    pub fn list_person_citations(&self, person_id: &str) -> Result<Vec<CitationRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        citation_store::list_person_citations(&conn, person_id)
+    }
+
+    /// Updates a citation's page and quality values.
+    pub fn save_citation(&mut self, edit: &CitationEdit) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        citation_store::save_citation(&conn, edit)?;
+        self.set_status(UiStatus::Success("Citation saved".to_string()));
+        Ok(())
+    }
+
+    /// Attaches a source to a person's event, creating the event if needed.
+    pub fn add_citation(
+        &mut self,
+        source_id: &str,
+        person_id: &str,
+        event_type: &str,
+        page: Option<&str>,
+    ) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = citation_store::add_citation(&mut conn, source_id, person_id, event_type, page)?;
+        self.set_status(UiStatus::Success("Citation added".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes a citation without touching its source or event.
+    pub fn delete_citation(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        citation_store::delete_citation(&conn, id)?;
+        self.set_status(UiStatus::Success("Citation deleted".to_string()));
         Ok(())
     }
 

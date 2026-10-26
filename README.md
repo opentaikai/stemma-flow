@@ -225,8 +225,8 @@ views (the app always launches on Graph View):
   appended (or substituted for `{page}`) in the live preview. Templated
   sources show the same three forms from their fields and cache their mapped
   fields into the GEDCOM-compatible source columns on save; required fields
-  disable saving until filled. Attaching citations to events is the next
-  roadmap item.
+  disable saving until filled. Citations are attached and rated from the
+  inspector's Citations card.
 - **Person Inspector** — a right-side panel shown whenever a person is
   selected, with a pinned **×** button that closes it by clearing the
   selection. It is laid out as framed cards in a scrolling body with the
@@ -235,7 +235,10 @@ views (the app always launches on Graph View):
   person's name and gender, **Profile** (given name, middle name, surname,
   nickname, gender) and **Vital Facts** (birth/death dates *and places*)
   editors — the date fields accept GEDCOM or ISO input, and an invalid
-  date shows an inline message and disables saving — a
+  date shows an inline message and disables saving — a **Citations** card
+  that attaches an existing source to the birth or death event and records
+  the page, the Evidence Explained source/information/evidence quality and
+  the GEDCOM certainty (each optionally "Don't know"), a
   **Relationships** card listing parents, siblings, spouses and
   children —
   rows select that relative on the graph and re-centre the view, spouse

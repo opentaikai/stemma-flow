@@ -77,6 +77,7 @@ impl TreeWindow {
         self.seen_generation = self.app.import_generation();
         if switched {
             self.sources = crate::gui::sources::SourcesState::default();
+            self.citations = crate::gui::citations::CitationsState::default();
         }
     }
 
