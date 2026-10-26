@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -213,6 +213,33 @@ INSERT OR IGNORE INTO fact_types (key, label, category, gedcom_tag, is_builtin) 
     ('MARRIAGE', 'Marriage', 'Family', 'MARR', 1);
 "#;
 
+/// Columns added in schema v3.
+pub(super) const V3_COLUMNS: [(&str, &str, &str); 7] = [
+    ("sources", "abbreviation", "TEXT"),
+    ("sources", "data_date", "TEXT"),
+    ("sources", "data_text", "TEXT"),
+    ("citations", "quality_certainty", "TEXT"),
+    ("citations", "media_type", "TEXT"),
+    ("citations", "data_date", "TEXT"),
+    ("citations", "data_text", "TEXT"),
+];
+
+/// A source can cite more than one repository in GEDCOM.
+pub(super) const V3_TABLES_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS source_repositories (
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+    call_number TEXT,
+    media_type TEXT,
+    PRIMARY KEY (source_id, repository_id)
+);
+"#;
+
+pub(super) const V3_INDEXES_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_source_repositories_source ON source_repositories(source_id);
+CREATE INDEX IF NOT EXISTS idx_source_repositories_repository ON source_repositories(repository_id);
+"#;
+
 /// The v1 tables, used only to fill gaps in partially created databases
 /// before migrating them.
 const V1_SCHEMA_SQL: &str = r#"
@@ -269,16 +296,20 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         )));
     }
     if version == 0 && !table_exists(conn, "people")? {
-        create_v2(conn)
-    } else if version < SCHEMA_VERSION {
-        if version == 0 {
-            conn.execute_batch(V1_SCHEMA_SQL)?;
-        }
-        ensure_v1_columns(conn)?;
-        super::migrations::migrate_v1_to_v2(conn)
-    } else {
-        ensure_v2(conn)
+        create_v2(conn)?;
+        return super::migrations::migrate_v2_to_v3(conn);
     }
+    if version < SCHEMA_VERSION {
+        if version < 2 {
+            if version == 0 {
+                conn.execute_batch(V1_SCHEMA_SQL)?;
+            }
+            ensure_v1_columns(conn)?;
+            super::migrations::migrate_v1_to_v2(conn)?;
+        }
+        return super::migrations::migrate_v2_to_v3(conn);
+    }
+    ensure_v3(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -288,16 +319,21 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.execute_batch(LINK_TABLES_SQL)?;
     tx.execute_batch(INDEXES_SQL)?;
     tx.execute_batch(FACT_SEED_SQL)?;
-    tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    tx.pragma_update(None, "user_version", 2)?;
     tx.commit()
 }
 
-fn ensure_v2(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v3(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
     conn.execute_batch(LINK_TABLES_SQL)?;
     conn.execute_batch(INDEXES_SQL)?;
+    for (table, column, definition) in V3_COLUMNS {
+        ensure_column(conn, table, column, definition)?;
+    }
+    conn.execute_batch(V3_TABLES_SQL)?;
+    conn.execute_batch(V3_INDEXES_SQL)?;
     conn.execute_batch(FACT_SEED_SQL)?;
     Ok(())
 }
@@ -311,7 +347,7 @@ fn ensure_v1_columns(conn: &Connection) -> rusqlite::Result<()> {
 
 /// Adds `column` to `table` when a database predates it (`CREATE TABLE IF
 /// NOT EXISTS` leaves old layouts untouched).
-fn ensure_column(
+pub(super) fn ensure_column(
     conn: &Connection,
     table: &str,
     column: &str,

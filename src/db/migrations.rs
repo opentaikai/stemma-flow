@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use uuid::Uuid;
 
-use super::schema::{CORE_TABLES_SQL, FACT_SEED_SQL, INDEXES_SQL, LINK_TABLES_SQL, SCHEMA_VERSION};
+use super::schema::{
+    CORE_TABLES_SQL, FACT_SEED_SQL, INDEXES_SQL, LINK_TABLES_SQL, SCHEMA_VERSION, V3_COLUMNS,
+    V3_INDEXES_SQL, V3_TABLES_SQL, ensure_column,
+};
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
 pub(super) fn migrate_v1_to_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -17,6 +20,23 @@ pub(super) fn migrate_v1_to_v2(conn: &Connection) -> rusqlite::Result<()> {
     rebuild_citations(&tx)?;
     tx.execute_batch(LINK_TABLES_SQL)?;
     tx.execute_batch(INDEXES_SQL)?;
+    tx.pragma_update(None, "user_version", 2)?;
+    tx.commit()
+}
+
+/// Adds the v3 source/citation fields and the repository link table.
+pub(super) fn migrate_v2_to_v3(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
+    for (table, column, definition) in V3_COLUMNS {
+        ensure_column(&tx, table, column, definition)?;
+    }
+    tx.execute_batch(V3_TABLES_SQL)?;
+    tx.execute_batch(V3_INDEXES_SQL)?;
+    tx.execute_batch(
+        "INSERT OR IGNORE INTO source_repositories (source_id, repository_id)
+         SELECT id, repository_id FROM sources WHERE repository_id IS NOT NULL;",
+    )?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()
 }

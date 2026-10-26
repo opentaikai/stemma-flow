@@ -9,7 +9,7 @@ use rusqlite::{Connection, params};
 
 use super::{Citation, Event, Family, Person, init_db, open_connection};
 
-const TABLES: [&str; 16] = [
+const TABLES: [&str; 17] = [
     "people",
     "families",
     "family_children",
@@ -26,8 +26,9 @@ const TABLES: [&str; 16] = [
     "task_links",
     "groups",
     "group_members",
+    "source_repositories",
 ];
-const INDEXES: [&str; 29] = [
+const INDEXES: [&str; 31] = [
     "idx_families_husband",
     "idx_families_wife",
     "idx_family_children_child",
@@ -57,6 +58,8 @@ const INDEXES: [&str; 29] = [
     "idx_task_links_place",
     "idx_task_links_media",
     "idx_group_members_person",
+    "idx_source_repositories_source",
+    "idx_source_repositories_repository",
 ];
 
 struct Tree {
@@ -712,15 +715,62 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<
 }
 
 #[test]
-fn new_database_is_schema_v2() -> rusqlite::Result<()> {
+fn new_database_is_schema_v3() -> rusqlite::Result<()> {
     let conn = setup_test_db()?;
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
     assert!(has_column(&conn, "citations", "source_id")?);
     assert!(!has_column(&conn, "citations", "source_title")?);
+    assert!(has_column(&conn, "citations", "quality_certainty")?);
+    assert!(has_column(&conn, "citations", "media_type")?);
+    assert!(has_column(&conn, "citations", "data_date")?);
+    assert!(has_column(&conn, "citations", "data_text")?);
     assert!(has_column(&conn, "events", "place_id")?);
     assert!(!has_column(&conn, "events", "place")?);
+    assert!(has_column(&conn, "sources", "abbreviation")?);
+    assert!(has_column(&conn, "sources", "data_date")?);
+    assert!(has_column(&conn, "sources", "data_text")?);
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM source_repositories")?,
+        0
+    );
     assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM fact_types")?, 3);
+    Ok(())
+}
+
+#[test]
+fn init_db_migrates_a_v2_database() -> rusqlite::Result<()> {
+    let conn = Connection::open_in_memory()?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    conn.execute_batch(V1_SCHEMA)?;
+    super::migrations::migrate_v1_to_v2(&conn)?;
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 2);
+
+    conn.execute(
+        "INSERT INTO repositories (id, name) VALUES ('repo-1', 'Archive')",
+        [],
+    )?;
+    conn.execute(
+        "INSERT INTO sources (id, title, repository_id) VALUES ('src-1', 'Book', 'repo-1')",
+        [],
+    )?;
+
+    init_db(&conn)?;
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 3);
+    assert!(has_column(&conn, "sources", "abbreviation")?);
+    assert!(has_column(&conn, "citations", "quality_certainty")?);
+    assert_eq!(
+        scalar_count(
+            &conn,
+            "SELECT COUNT(*) FROM source_repositories
+             WHERE source_id = 'src-1' AND repository_id = 'repo-1'",
+        )?,
+        1,
+        "the legacy repository link moves into the join table"
+    );
     Ok(())
 }
 
@@ -746,7 +796,7 @@ fn init_db_migrates_a_v1_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
     assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM people")?, 2);
     assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM sources")?, 2);
     assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM places")?, 1);
@@ -828,7 +878,7 @@ fn migrates_the_local_family_tree_db_when_present() -> rusqlite::Result<()> {
         assert!(before > 0, "the fixture must contain people");
         init_db(&conn)?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
         let after: i64 = conn.query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))?;
         assert_eq!(after, before, "migration preserves every person");
     }
