@@ -159,8 +159,9 @@ pub fn list_citation_targets(
         .query_map(params![person_id], |row| {
             let event_id: Option<String> = row.get(1)?;
             let date: Option<String> = row.get(2)?;
-            let spouse = [row.get::<_, String>(3)?, row.get(4)?, row.get(5)?]
+            let spouse = [row.get::<_, Option<String>>(3)?, row.get(4)?, row.get(5)?]
                 .into_iter()
+                .flatten()
                 .filter(|part| !part.trim().is_empty())
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -665,6 +666,21 @@ mod tests {
             targets[2].event_id.is_some(),
             "the marriage event now exists"
         );
+    }
+
+    #[test]
+    fn marriage_target_without_a_known_spouse_still_lists() {
+        let conn = connection();
+        let ada = person(&conn, "p1", "Ada");
+        conn.execute(
+            "INSERT INTO families (id, wife_id) VALUES ('f1', ?1)",
+            params![ada],
+        )
+        .expect("single-parent family");
+
+        let targets = list_citation_targets(&conn, &ada).expect("targets");
+        assert_eq!(targets[2].key, "MARRIAGE:f1");
+        assert_eq!(targets[2].label, "Marriage");
     }
 
     #[test]
