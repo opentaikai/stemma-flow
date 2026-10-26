@@ -8,6 +8,7 @@ pub mod inspector;
 pub mod layout;
 pub mod nodes;
 pub mod settings;
+pub mod sources;
 pub mod tabs;
 pub mod theme;
 pub mod watchlist;

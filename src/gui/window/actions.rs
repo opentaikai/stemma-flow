@@ -3,6 +3,7 @@
 use crate::app;
 use crate::app::UiStatus;
 use crate::db::people::{ParentRole, PersonDetails};
+use crate::db::sources::SourceDraft;
 use crate::gui::dialogs;
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
@@ -10,6 +11,7 @@ use crate::gui::inspector::InspectorForm;
 use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
+use crate::gui::sources::{self, SourcesEvent};
 use crate::gui::tabs;
 use crate::gui::watchlist;
 use crate::gui::watchlist::WatchEvent;
@@ -91,6 +93,84 @@ impl TreeWindow {
                 WatchEvent::Delete(person_id) => self.delete_person(&person_id),
             }
         }
+    }
+
+    pub(super) fn sources_tab(&mut self, ui: &mut Ui) {
+        if !self.sources.loaded {
+            self.reload_sources();
+        }
+        if let Some(event) = sources::show(ui, &mut self.sources) {
+            match event {
+                SourcesEvent::New => self.new_source(),
+                SourcesEvent::Select(id) => self.load_source_draft(&id),
+                SourcesEvent::Save(draft) => match self.app.save_source(&draft) {
+                    Ok(id) => {
+                        self.sources.selected = Some(id);
+                        self.sources.error = None;
+                        self.reload_sources();
+                    }
+                    Err(message) => self.sources.error = Some(message),
+                },
+                SourcesEvent::Delete(id) => match self.app.delete_source(&id) {
+                    Ok(()) => {
+                        self.sources.selected = None;
+                        self.sources.draft = SourceDraft::default();
+                        self.reload_sources();
+                    }
+                    Err(message) => self.sources.error = Some(message),
+                },
+            }
+        }
+    }
+
+    pub(super) fn reload_sources(&mut self) {
+        let templates = self.app.source_templates();
+        let list = self.app.list_sources();
+        match (templates, list) {
+            (Ok(templates), Ok(list)) => {
+                self.sources.templates = templates;
+                self.sources.list = list;
+                self.sources.loaded = true;
+                self.sources.error = None;
+                if let Some(id) = self.sources.selected.clone() {
+                    self.load_source_draft(&id);
+                }
+            }
+            (Err(message), _) | (_, Err(message)) => {
+                self.sources.error = Some(message);
+                self.sources.loaded = true;
+            }
+        }
+    }
+
+    pub(super) fn load_source_draft(&mut self, id: &str) {
+        match self.app.load_source(id) {
+            Ok(Some(record)) => {
+                self.sources.selected = Some(id.to_string());
+                self.sources.draft = SourceDraft::from_record(&record);
+                self.sources.preview.clear();
+            }
+            Ok(None) => {
+                self.sources.selected = None;
+                self.sources.draft = SourceDraft::default();
+            }
+            Err(message) => self.sources.error = Some(message),
+        }
+    }
+
+    pub(super) fn new_source(&mut self) {
+        self.sources.selected = None;
+        let template_key = self
+            .sources
+            .templates
+            .first()
+            .map(|template| template.key.clone());
+        self.sources.draft = SourceDraft {
+            template_key,
+            ..SourceDraft::default()
+        };
+        self.sources.preview.clear();
+        self.sources.error = None;
     }
 
     /// Instant add: inserts an unnamed person and focuses it.
