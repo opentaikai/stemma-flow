@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::io::BufRead;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
 use crate::gedcom::{GedcomError, ImportReport};
@@ -841,6 +841,8 @@ pub fn import_gedcom<R: BufRead>(
     let mut sour_meta: HashMap<String, (String, Option<String>)> = HashMap::new();
     let mut sour_order: Vec<String> = Vec::new();
     let mut pending_citations: Vec<PendingCitation> = Vec::new();
+    let mut source_cache: HashMap<(String, Option<String>), String> = HashMap::new();
+    let mut place_cache: HashMap<String, String> = HashMap::new();
 
     // Pass 1: stream records into the tables, recording xref -> UUID mappings.
     while let Some(record) = reader.next_record()? {
@@ -867,13 +869,15 @@ pub fn import_gedcom<R: BufRead>(
                 )?;
                 report.people += 1;
                 for event in &indi.events {
-                    let event_id = insert_event(&tx, event, Some(&id), None, &mut report)?;
+                    let event_id =
+                        insert_event(&tx, event, Some(&id), None, &mut report, &mut place_cache)?;
                     collect_source_refs(
                         &tx,
                         event,
                         &event_id,
                         &mut report,
                         &mut pending_citations,
+                        &mut source_cache,
                     )?;
                 }
                 id_map.insert(indi.xref.clone(), id.clone());
@@ -895,13 +899,15 @@ pub fn import_gedcom<R: BufRead>(
                 tx.execute("INSERT INTO families (id) VALUES (?1)", [&id])?;
                 report.families += 1;
                 for event in &fam.events {
-                    let event_id = insert_event(&tx, event, None, Some(&id), &mut report)?;
+                    let event_id =
+                        insert_event(&tx, event, None, Some(&id), &mut report, &mut place_cache)?;
                     collect_source_refs(
                         &tx,
                         event,
                         &event_id,
                         &mut report,
                         &mut pending_citations,
+                        &mut source_cache,
                     )?;
                 }
                 id_map.insert(fam.xref.clone(), id.clone());
@@ -1010,39 +1016,28 @@ pub fn import_gedcom<R: BufRead>(
         }
     }
 
-    // Resolve event source pointers against the collected SOUR records.
+    // Materialise SOUR records as sources, then attach the pending citations.
     // Insertion follows document order so repeated exports stay deterministic.
-    let mut refs_by_source: HashMap<&str, Vec<&PendingCitation>> = HashMap::new();
-    for citation in &pending_citations {
-        if sour_meta.contains_key(&citation.xref) {
-            refs_by_source
-                .entry(&citation.xref)
-                .or_default()
-                .push(citation);
-        } else {
-            report
-                .warnings
-                .push(format!("dangling SOUR pointer {}", citation.xref));
-        }
-    }
+    let mut source_ids: HashMap<&str, String> = HashMap::with_capacity(sour_order.len());
     for xref in &sour_order {
         let Some((title, note)) = sour_meta.get(xref.as_str()) else {
             continue;
         };
-        match refs_by_source.get(xref.as_str()) {
-            Some(refs) => {
-                for citation in refs {
-                    insert_citation(
-                        &tx,
-                        title,
-                        citation.page.as_deref(),
-                        note.as_deref(),
-                        Some(&citation.event_id),
-                        &mut report,
-                    )?;
-                }
-            }
-            None => insert_citation(&tx, title, None, note.as_deref(), None, &mut report)?,
+        let source_id = resolve_source(&tx, &mut source_cache, title, note.as_deref())?;
+        source_ids.insert(xref.as_str(), source_id);
+    }
+    for citation in &pending_citations {
+        match source_ids.get(citation.xref.as_str()) {
+            Some(source_id) => insert_citation(
+                &tx,
+                source_id,
+                citation.page.as_deref(),
+                Some(&citation.event_id),
+                &mut report,
+            )?,
+            None => report
+                .warnings
+                .push(format!("dangling SOUR pointer {}", citation.xref)),
         }
     }
 
@@ -1058,6 +1053,7 @@ fn collect_source_refs(
     event_id: &str,
     report: &mut ImportReport,
     pending: &mut Vec<PendingCitation>,
+    sources: &mut HashMap<(String, Option<String>), String>,
 ) -> rusqlite::Result<()> {
     for source in &event.source_refs {
         if let Some(xref) = &source.xref {
@@ -1067,11 +1063,11 @@ fn collect_source_refs(
                 page: source.page.clone(),
             });
         } else if let Some(title) = &source.text {
+            let source_id = resolve_source(conn, sources, title, None)?;
             insert_citation(
                 conn,
-                title,
+                &source_id,
                 source.page.as_deref(),
-                None,
                 Some(event_id),
                 report,
             )?;
@@ -1082,20 +1078,18 @@ fn collect_source_refs(
 
 fn insert_citation(
     conn: &Connection,
-    source_title: &str,
+    source_id: &str,
     page_or_reference: Option<&str>,
-    notes: Option<&str>,
     event_id: Option<&str>,
     report: &mut ImportReport,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO citations (id, source_title, page_or_reference, notes, event_id)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO citations (id, source_id, page_or_reference, notes, event_id)
+         VALUES (?1, ?2, ?3, NULL, ?4)",
         params![
             Uuid::new_v4().to_string(),
-            source_title,
+            source_id,
             page_or_reference,
-            notes,
             event_id
         ],
     )?;
@@ -1109,20 +1103,88 @@ fn insert_event(
     person_id: Option<&str>,
     family_id: Option<&str>,
     report: &mut ImportReport,
+    places: &mut HashMap<String, String>,
 ) -> rusqlite::Result<String> {
     let id = Uuid::new_v4().to_string();
+    let place_id = resolve_place(conn, places, event.place.as_deref())?;
     conn.execute(
-        "INSERT INTO events (id, event_type, date, place, person_id, family_id)
+        "INSERT INTO events (id, event_type, date, place_id, person_id, family_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             id,
             event.event_type,
             event.date,
-            event.place,
+            place_id,
             person_id,
             family_id
         ],
     )?;
     report.events += 1;
     Ok(id)
+}
+
+/// Finds or creates a source for `(title, notes)`.
+fn resolve_source(
+    conn: &Connection,
+    cache: &mut HashMap<(String, Option<String>), String>,
+    title: &str,
+    notes: Option<&str>,
+) -> rusqlite::Result<String> {
+    let key = (title.to_string(), notes.map(str::to_string));
+    if let Some(id) = cache.get(&key) {
+        return Ok(id.clone());
+    }
+    if let Some(id) = conn
+        .query_row(
+            "SELECT id FROM sources WHERE title = ?1 AND notes IS ?2
+             ORDER BY rowid LIMIT 1",
+            params![title, notes],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+    {
+        cache.insert(key, id.clone());
+        return Ok(id);
+    }
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO sources (id, title, notes) VALUES (?1, ?2, ?3)",
+        params![id, title, notes],
+    )?;
+    cache.insert(key, id.clone());
+    Ok(id)
+}
+
+/// Finds or creates a place for a trimmed non-empty name.
+fn resolve_place(
+    conn: &Connection,
+    cache: &mut HashMap<String, String>,
+    name: Option<&str>,
+) -> rusqlite::Result<Option<String>> {
+    let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
+        return Ok(None);
+    };
+    if let Some(id) = cache.get(name) {
+        return Ok(Some(id.clone()));
+    }
+    let id: String = match conn
+        .query_row(
+            "SELECT id FROM places WHERE name = ?1",
+            params![name],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+    {
+        Some(id) => id,
+        None => {
+            let id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO places (id, name) VALUES (?1, ?2)",
+                params![id, name],
+            )?;
+            id
+        }
+    };
+    cache.insert(name.to_string(), id.clone());
+    Ok(Some(id))
 }

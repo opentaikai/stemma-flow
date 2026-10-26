@@ -32,11 +32,15 @@ struct EventRow {
     family_id: Option<String>,
 }
 
-struct CitationRow {
+struct SourceRow {
     id: String,
-    source_title: String,
-    page_or_reference: Option<String>,
+    title: String,
     notes: Option<String>,
+}
+
+struct CitationRow {
+    source_id: String,
+    page_or_reference: Option<String>,
     event_id: Option<String>,
 }
 
@@ -84,7 +88,7 @@ fn push_event(
     }
     if let Some(cited) = citations.get(event.id.as_str()) {
         for citation in cited {
-            let Some(xref) = source_xrefs.get(citation.id.as_str()) else {
+            let Some(xref) = source_xrefs.get(citation.source_id.as_str()) else {
                 continue;
             };
             out.push_str(&format!("2 SOUR {xref}\n"));
@@ -156,8 +160,10 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 
     let mut events = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT id, event_type, date, place, person_id, family_id
-         FROM events ORDER BY rowid",
+        "SELECT e.id, e.event_type, e.date, p.name, e.person_id, e.family_id
+         FROM events e
+         LEFT JOIN places p ON p.id = e.place_id
+         ORDER BY e.rowid",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(EventRow {
@@ -173,18 +179,29 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         events.push(row?);
     }
 
+    let mut sources = Vec::new();
+    let mut stmt = conn.prepare("SELECT id, title, notes FROM sources ORDER BY rowid")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SourceRow {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            notes: row.get(2)?,
+        })
+    })?;
+    for row in rows {
+        sources.push(row?);
+    }
+
     let mut citations = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT id, source_title, page_or_reference, notes, event_id
+        "SELECT source_id, page_or_reference, event_id
          FROM citations ORDER BY rowid",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(CitationRow {
-            id: row.get(0)?,
-            source_title: row.get(1)?,
-            page_or_reference: row.get(2)?,
-            notes: row.get(3)?,
-            event_id: row.get(4)?,
+            source_id: row.get(0)?,
+            page_or_reference: row.get(1)?,
+            event_id: row.get(2)?,
         })
     })?;
     for row in rows {
@@ -200,8 +217,8 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         family_xref.insert(&family.id, format!("@F{}@", index + 1));
     }
     let mut source_xref: HashMap<&str, String> = HashMap::new();
-    for (index, citation) in citations.iter().enumerate() {
-        source_xref.insert(&citation.id, format!("@S{}@", index + 1));
+    for (index, source) in sources.iter().enumerate() {
+        source_xref.insert(&source.id, format!("@S{}@", index + 1));
     }
 
     let mut famc_by_child: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -246,11 +263,17 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 
     // Source records precede INDI/FAM so a streaming importer can resolve
     // event pointers in a single forward pass.
-    for (index, citation) in citations.iter().enumerate() {
+    for (index, source) in sources.iter().enumerate() {
         out.push_str(&format!("0 @S{}@ SOUR\n", index + 1));
-        out.push_str(&format!("1 TITL {}\n", citation.source_title));
-        if let Some(note) = &citation.notes {
-            out.push_str(&format!("1 NOTE {note}\n"));
+        out.push_str(&format!("1 TITL {}\n", source.title));
+        if let Some(note) = &source.notes {
+            let mut lines = note.split('\n');
+            if let Some(first) = lines.next() {
+                out.push_str(&format!("1 NOTE {first}\n"));
+                for line in lines {
+                    out.push_str(&format!("2 CONT {line}\n"));
+                }
+            }
         }
     }
 

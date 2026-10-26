@@ -559,9 +559,11 @@ fn is_descendant(conn: &Connection, ancestor_id: &str, person_id: &str) -> Resul
 pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>, rusqlite::Error> {
     let mut dates: HashMap<String, VitalDates> = HashMap::new();
     let mut stmt = conn.prepare(
-        "SELECT person_id, event_type, date, place FROM events
-         WHERE person_id IS NOT NULL AND event_type IN ('BIRTH', 'DEATH')
-         ORDER BY rowid",
+        "SELECT e.person_id, e.event_type, e.date, p.name
+         FROM events e
+         LEFT JOIN places p ON p.id = e.place_id
+         WHERE e.person_id IS NOT NULL AND e.event_type IN ('BIRTH', 'DEATH')
+         ORDER BY e.rowid",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((
@@ -655,24 +657,48 @@ fn upsert_vital(
             |row| row.get(0),
         )
         .optional()?;
-    match (existing, date, place) {
-        (Some(event_id), _, _) => {
+    let place_id = resolve_place(conn, place)?;
+    match existing {
+        Some(event_id) => {
             conn.execute(
-                "UPDATE events SET date = ?1, place = ?2 WHERE id = ?3",
-                params![date, place, event_id],
+                "UPDATE events SET date = ?1, place_id = ?2 WHERE id = ?3",
+                params![date, place_id.as_deref(), event_id],
             )?;
         }
-        (None, None, None) => {}
-        (None, date, place) => {
+        None if date.is_none() && place_id.is_none() => {}
+        None => {
             let event_id = Uuid::new_v4().to_string();
             conn.execute(
-                "INSERT INTO events (id, event_type, date, place, person_id)
+                "INSERT INTO events (id, event_type, date, place_id, person_id)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![event_id, event_type, date, place, person_id],
+                params![event_id, event_type, date, place_id.as_deref(), person_id],
             )?;
         }
     }
     Ok(())
+}
+
+/// Resolves a free-text place to a `places` row, creating it when needed.
+fn resolve_place(conn: &Connection, name: Option<&str>) -> rusqlite::Result<Option<String>> {
+    let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
+        return Ok(None);
+    };
+    if let Some(id) = conn
+        .query_row(
+            "SELECT id FROM places WHERE name = ?1",
+            params![name],
+            |row| row.get(0),
+        )
+        .optional()?
+    {
+        return Ok(Some(id));
+    }
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO places (id, name) VALUES (?1, ?2)",
+        params![id, name],
+    )?;
+    Ok(Some(id))
 }
 
 fn find_family_with_free_slot(
@@ -976,8 +1002,13 @@ mod tests {
         )
         .expect("family b");
         conn.execute(
-            "INSERT INTO citations (id, source_title, event_id)
-             SELECT 'cite-1', 'Src', id FROM events WHERE person_id = ?1 LIMIT 1",
+            "INSERT INTO sources (id, title) VALUES ('src-1', 'Src')",
+            [],
+        )
+        .expect("source insert");
+        conn.execute(
+            "INSERT INTO citations (id, source_id, event_id)
+             SELECT 'cite-1', 'src-1', id FROM events WHERE person_id = ?1 LIMIT 1",
             params![father],
         )
         .expect("citation attaches to the father's birth");

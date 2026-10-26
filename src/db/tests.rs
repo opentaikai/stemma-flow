@@ -9,21 +9,54 @@ use rusqlite::{Connection, params};
 
 use super::{Citation, Event, Family, Person, init_db, open_connection};
 
-const TABLES: [&str; 5] = [
+const TABLES: [&str; 16] = [
     "people",
     "families",
     "family_children",
+    "repositories",
+    "sources",
+    "source_fields",
+    "places",
+    "fact_types",
     "events",
     "citations",
+    "media",
+    "media_links",
+    "tasks",
+    "task_links",
+    "groups",
+    "group_members",
 ];
-const INDEXES: [&str; 7] = [
+const INDEXES: [&str; 29] = [
     "idx_families_husband",
     "idx_families_wife",
     "idx_family_children_child",
     "idx_events_person",
     "idx_events_family",
+    "idx_events_place",
+    "idx_citations_source",
     "idx_citations_event",
     "idx_people_names",
+    "idx_places_name",
+    "idx_sources_title",
+    "idx_sources_repository",
+    "idx_source_fields_source",
+    "idx_media_links_media",
+    "idx_media_links_person",
+    "idx_media_links_family",
+    "idx_media_links_event",
+    "idx_media_links_source",
+    "idx_media_links_citation",
+    "idx_media_links_place",
+    "idx_task_links_task",
+    "idx_task_links_person",
+    "idx_task_links_family",
+    "idx_task_links_event",
+    "idx_task_links_source",
+    "idx_task_links_citation",
+    "idx_task_links_place",
+    "idx_task_links_media",
+    "idx_group_members_person",
 ];
 
 struct Tree {
@@ -252,11 +285,15 @@ fn test_cascading_deletes() -> rusqlite::Result<()> {
             "INSERT INTO events (id, event_type, person_id) VALUES (?1, ?2, ?3)",
             params![death.id, death.event_type, death.person_id],
         )?;
-        let mut citation = Citation::new("Parish register, Ornskoldsvik");
+        conn.execute(
+            "INSERT INTO sources (id, title) VALUES ('source-1', 'Parish register, Ornskoldsvik')",
+            [],
+        )?;
+        let mut citation = Citation::new("source-1");
         citation.event_id = Some(birth.id.clone());
         conn.execute(
-            "INSERT INTO citations (id, source_title, event_id) VALUES (?1, ?2, ?3)",
-            params![citation.id, citation.source_title, citation.event_id],
+            "INSERT INTO citations (id, source_id, event_id) VALUES (?1, ?2, ?3)",
+            params![citation.id, citation.source_id, citation.event_id],
         )?;
 
         conn.execute("DELETE FROM people WHERE id = ?1", [&tree.child.id])?;
@@ -585,17 +622,21 @@ fn load_marriage_details_reads_the_first_marriage_per_family() -> rusqlite::Resu
     let conn = setup_test_db()?;
     let fixture = family_tree(&conn)?;
 
+    conn.execute(
+        "INSERT INTO places (id, name) VALUES ('place-uppsala', 'Uppsala')",
+        [],
+    )?;
     let mut first = Event::new("MARRIAGE", None, Some(fixture.family.id.clone()));
     first.date = Some("1861-06-12".to_string());
-    first.place = Some("Uppsala".to_string());
+    first.place_id = Some("place-uppsala".to_string());
     conn.execute(
-        "INSERT INTO events (id, event_type, date, place, family_id)
+        "INSERT INTO events (id, event_type, date, place_id, family_id)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             first.id,
             first.event_type,
             first.date,
-            first.place,
+            first.place_id,
             first.family_id
         ],
     )?;
@@ -617,5 +658,185 @@ fn load_marriage_details_reads_the_first_marriage_per_family() -> rusqlite::Resu
         .expect("the family has a marriage");
     assert_eq!(info.date.as_deref(), Some("1861-06-12"), "first event wins");
     assert_eq!(info.place.as_deref(), Some("Uppsala"));
+    Ok(())
+}
+
+const V1_SCHEMA: &str = r#"
+CREATE TABLE people (
+    id TEXT PRIMARY KEY,
+    given_name TEXT NOT NULL,
+    surname TEXT NOT NULL,
+    gender TEXT NOT NULL CHECK (gender IN ('M', 'F', 'U')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE families (
+    id TEXT PRIMARY KEY,
+    husband_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+    wife_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE family_children (
+    family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+    child_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    PRIMARY KEY (family_id, child_id)
+);
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    date TEXT,
+    place TEXT,
+    description TEXT,
+    person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+    family_id TEXT REFERENCES families(id) ON DELETE CASCADE
+);
+CREATE TABLE citations (
+    id TEXT PRIMARY KEY,
+    source_title TEXT NOT NULL,
+    page_or_reference TEXT,
+    notes TEXT,
+    event_id TEXT REFERENCES events(id) ON DELETE CASCADE
+);
+"#;
+
+fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut found = false;
+    for name in stmt.query_map([], |row| row.get::<_, String>(1))? {
+        if name? == column {
+            found = true;
+            break;
+        }
+    }
+    Ok(found)
+}
+
+#[test]
+fn new_database_is_schema_v2() -> rusqlite::Result<()> {
+    let conn = setup_test_db()?;
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 2);
+    assert!(has_column(&conn, "citations", "source_id")?);
+    assert!(!has_column(&conn, "citations", "source_title")?);
+    assert!(has_column(&conn, "events", "place_id")?);
+    assert!(!has_column(&conn, "events", "place")?);
+    assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM fact_types")?, 3);
+    Ok(())
+}
+
+#[test]
+fn init_db_migrates_a_v1_database() -> rusqlite::Result<()> {
+    let conn = Connection::open_in_memory()?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    conn.execute_batch(V1_SCHEMA)?;
+    conn.execute_batch(
+        "INSERT INTO people (id, given_name, surname, gender) VALUES
+            ('p1', 'Ada', 'King', 'F'),
+            ('p2', 'Otto', 'King', 'M');
+         INSERT INTO families (id, husband_id, wife_id) VALUES ('f1', 'p2', 'p1');
+         INSERT INTO events (id, event_type, date, place, person_id) VALUES
+            ('e1', 'BIRTH', '1815', 'Uppsala', 'p1'),
+            ('e2', 'DEATH', NULL, 'Uppsala', 'p1');
+         INSERT INTO citations (id, source_title, page_or_reference, notes, event_id) VALUES
+            ('c1', 'Book A', '12', 'Note A', 'e1'),
+            ('c2', 'Book A', '13', 'Note A', 'e2'),
+            ('c3', 'Book B', NULL, 'Note B', 'e1');",
+    )?;
+
+    init_db(&conn)?;
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 2);
+    assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM people")?, 2);
+    assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM sources")?, 2);
+    assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM places")?, 1);
+    assert_eq!(
+        scalar_count(
+            &conn,
+            "SELECT COUNT(*) FROM events WHERE place_id IS NOT NULL"
+        )?,
+        2,
+        "both events keep their place"
+    );
+    assert_eq!(
+        scalar_count(
+            &conn,
+            "SELECT COUNT(*) FROM citations WHERE source_id IS NOT NULL"
+        )?,
+        3,
+        "every citation points at a source"
+    );
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM fact_types")?,
+        3,
+        "built-in fact types are seeded"
+    );
+    let (title, notes): (String, Option<String>) = conn.query_row(
+        "SELECT s.title, s.notes
+         FROM citations c JOIN sources s ON s.id = c.source_id
+         WHERE c.id = 'c1'",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!(title, "Book A");
+    assert_eq!(notes.as_deref(), Some("Note A"));
+    assert!(!has_column(&conn, "citations", "source_title")?);
+    assert!(!has_column(&conn, "events", "place")?);
+
+    init_db(&conn)?;
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM sources")?,
+        2,
+        "re-running the migration must not duplicate sources"
+    );
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM places")?,
+        1,
+        "re-running the migration must not duplicate places"
+    );
+    Ok(())
+}
+
+#[test]
+fn init_db_rejects_a_newer_schema() -> rusqlite::Result<()> {
+    let conn = setup_test_db()?;
+    conn.pragma_update(None, "user_version", 99)?;
+    assert!(init_db(&conn).is_err(), "a newer schema must be rejected");
+    Ok(())
+}
+
+#[test]
+fn migrates_the_local_family_tree_db_when_present() -> rusqlite::Result<()> {
+    let source = std::path::Path::new("test_data/family_tree.db");
+    if !source.exists() {
+        return Ok(());
+    }
+    let temp =
+        std::env::temp_dir().join(format!("stemma-flow-migrate-{}.db", uuid::Uuid::new_v4()));
+    std::fs::copy(source, &temp).expect("fixture copy");
+    for suffix in ["-wal", "-shm"] {
+        let from = std::path::PathBuf::from(format!("{}{suffix}", source.display()));
+        if from.exists() {
+            let to = std::path::PathBuf::from(format!("{}{suffix}", temp.display()));
+            std::fs::copy(&from, &to).expect("sidecar copy");
+        }
+    }
+
+    {
+        let conn = open_connection(&temp)?;
+        let before: i64 = conn.query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))?;
+        assert!(before > 0, "the fixture must contain people");
+        init_db(&conn)?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        assert_eq!(version, 2);
+        let after: i64 = conn.query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))?;
+        assert_eq!(after, before, "migration preserves every person");
+    }
+
+    let _ = std::fs::remove_file(&temp);
+    for suffix in ["-wal", "-shm"] {
+        let path = std::path::PathBuf::from(format!("{}{suffix}", temp.display()));
+        let _ = std::fs::remove_file(path);
+    }
     Ok(())
 }
