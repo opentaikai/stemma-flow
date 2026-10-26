@@ -111,7 +111,8 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
         .size(12.0),
     );
 
-    let grid_height = (ui.available_height() * 0.45).max(140.0);
+    let available = ui.available_height();
+    let grid_height = (available * 0.45).max(140.0).min(available.max(0.0));
     ui.allocate_ui(egui::vec2(ui.available_width(), grid_height), |ui| {
         if state.repositories.is_empty() {
             ui.label(
@@ -224,7 +225,7 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
     });
 
     ui.separator();
-    let editor_height = ui.available_height();
+    let editor_height = ui.available_height().max(0.0);
     ui.allocate_ui(egui::vec2(ui.available_width(), editor_height), |ui| {
         editor(ui, state, &mut event);
     });
@@ -328,11 +329,9 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                         .small(),
                 );
             } else {
-                if state
-                    .add_source
-                    .as_deref()
-                    .is_some_and(|id| linked.contains(id))
-                {
+                if state.add_source.as_deref().is_some_and(|id| {
+                    linked.contains(id) || !state.sources.iter().any(|source| source.id == id)
+                }) {
                     state.add_source = None;
                 }
                 let choices: Vec<(String, String)> = state
