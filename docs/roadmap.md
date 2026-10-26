@@ -48,7 +48,7 @@ Priority:
 | First-or-last-name requirement on manual saves | done | P0 | Drafts may exist until named |
 | Theme and font scaling settings | done | P2 | Persisted config |
 | Background import and export jobs | done | P1 | UI stays responsive |
-| Sources and citations | partial | P0 | Source and citation editors; reusable citations pending |
+| Sources and citations | partial | P0 | Source and citation editors with reusable citations |
 | Facts and events | partial | P0 | BIRT, DEAT and MARR only |
 | Places | partial | P0 | Place records in schema v2; no place page yet |
 | Names | partial | P0 | Given, middle, surname, nickname only |
@@ -77,12 +77,12 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2/v3/v4: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 source templates |
-| Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; editor pending |
+| Schema v2-v6: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 citation links |
+| Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
 | Citation quality fields (source, information, evidence) | done | P1 | Inspector editor with source/information/evidence and editable QUAY |
-| Reusable citations across people, facts and families | planned | P1 | Copy or reference model |
+| Reusable citations across people, facts and families | done | P1 | Reference model; person and family-event reuse in the inspector |
 | Source list with edit, merge and template conversion | partial | P1 | List, edit and template selection; merge/conversion pending |
 | Repositories and repository list | partial | P1 | Schema and GEDCOM round-trip; grid pending |
 | Place authority: list, reverse ordering, notes, latitude and longitude | planned | P0 | Replaces free-text place duplication |

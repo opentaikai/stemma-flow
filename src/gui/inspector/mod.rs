@@ -30,14 +30,26 @@ pub enum InspectorAction {
     Close,
     /// Save buffered citation edits.
     SaveCitations(Box<Vec<CitationEdit>>),
-    /// Attach an existing source to a person's event.
+    /// Attach a source to a person or family event.
     AddCitation {
         source_id: String,
-        event_type: String,
+        target: String,
         page: Option<String>,
     },
-    /// Remove a citation.
+    /// Attach an existing citation to another event.
+    AttachCitation {
+        citation_id: String,
+        target: String,
+    },
+    /// Remove one citation-to-event link.
+    DetachCitation {
+        citation_id: String,
+        event_id: String,
+    },
+    /// Remove a citation and all of its links.
     DeleteCitation(String),
+    /// Load the reusable citations of a source.
+    LoadCitationChoices(String),
 }
 
 #[cfg(test)]

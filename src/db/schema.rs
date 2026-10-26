@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -123,7 +123,8 @@ CREATE TABLE IF NOT EXISTS groups (
 );
 "#;
 
-/// The citations table references sources and events.
+/// The citations table references sources. `event_id` is legacy and is kept
+/// nullable for v5 databases; v6 attaches citations through `citation_links`.
 pub(super) const CITATIONS_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS citations (
     id TEXT PRIMARY KEY,
@@ -135,6 +136,20 @@ CREATE TABLE IF NOT EXISTS citations (
     quality_evidence TEXT,
     event_id TEXT REFERENCES events(id) ON DELETE CASCADE
 );
+"#;
+
+/// One canonical citation can support many events (schema v6).
+pub(super) const CITATION_LINKS_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS citation_links (
+    citation_id TEXT NOT NULL REFERENCES citations(id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    PRIMARY KEY (citation_id, event_id)
+);
+"#;
+
+pub(super) const CITATION_LINKS_INDEXES_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_citation_links_citation ON citation_links(citation_id);
+CREATE INDEX IF NOT EXISTS idx_citation_links_event ON citation_links(event_id);
 "#;
 
 /// Join tables that attach media and tasks to any record and people to groups.
@@ -336,7 +351,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         create_v2(conn)?;
         super::migrations::migrate_v2_to_v3(conn)?;
         super::migrations::migrate_v3_to_v4(conn)?;
-        return super::migrations::migrate_v4_to_v5(conn);
+        super::migrations::migrate_v4_to_v5(conn)?;
+        return super::migrations::migrate_v5_to_v6(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -352,9 +368,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 4 {
             super::migrations::migrate_v3_to_v4(conn)?;
         }
-        return super::migrations::migrate_v4_to_v5(conn);
+        if version < 5 {
+            super::migrations::migrate_v4_to_v5(conn)?;
+        }
+        return super::migrations::migrate_v5_to_v6(conn);
     }
-    ensure_v5(conn)
+    ensure_v6(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -368,7 +387,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v5(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v6(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
@@ -384,6 +403,13 @@ fn ensure_v5(conn: &Connection) -> rusqlite::Result<()> {
     for (table, column, definition) in V5_COLUMNS {
         ensure_column(conn, table, column, definition)?;
     }
+    conn.execute_batch(CITATION_LINKS_TABLE_SQL)?;
+    conn.execute_batch(CITATION_LINKS_INDEXES_SQL)?;
+    conn.execute_batch(
+        "INSERT OR IGNORE INTO citation_links (citation_id, event_id)
+         SELECT id, event_id FROM citations WHERE event_id IS NOT NULL;
+         UPDATE citations SET event_id = NULL WHERE event_id IS NOT NULL;",
+    )?;
     conn.execute_batch(FACT_SEED_SQL)?;
     Ok(())
 }

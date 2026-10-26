@@ -244,11 +244,11 @@ impl TreeWindow {
             }
             InspectorAction::AddCitation {
                 source_id,
-                event_type,
+                target,
                 page,
             } => match self
                 .app
-                .add_citation(&source_id, person_id, &event_type, page.as_deref())
+                .add_citation(&source_id, person_id, &target, page.as_deref())
             {
                 Ok(_) => {
                     self.citations.add_page.clear();
@@ -256,14 +256,35 @@ impl TreeWindow {
                 }
                 Err(message) => self.citations.error = Some(message),
             },
-            InspectorAction::DeleteCitation(id) => match self.app.delete_citation(&id) {
+            InspectorAction::AttachCitation {
+                citation_id,
+                target,
+            } => match self.app.attach_citation(&citation_id, person_id, &target) {
+                Ok(_) => self.citations.loaded = false,
+                Err(message) => self.citations.error = Some(message),
+            },
+            InspectorAction::DetachCitation {
+                citation_id,
+                event_id,
+            } => match self.app.detach_citation(&citation_id, &event_id) {
                 Ok(()) => self.citations.loaded = false,
                 Err(message) => self.citations.error = Some(message),
             },
+            InspectorAction::DeleteCitation(id) => match self.app.delete_citation(&id) {
+                Ok(()) => {
+                    self.citations.pending_delete = None;
+                    self.citations.loaded = false;
+                }
+                Err(message) => self.citations.error = Some(message),
+            },
+            InspectorAction::LoadCitationChoices(source_id) => {
+                self.citations.add_source = Some(source_id);
+                self.load_citation_choices();
+            }
         }
     }
 
-    /// Loads citations and sources for the selected person.
+    /// Loads citations, sources and attachment targets for the selected person.
     pub(super) fn sync_citations(&mut self) {
         let current = self.app.selected_person_id().map(str::to_string);
         if self.citations.loaded && self.citations.person_id == current {
@@ -273,21 +294,69 @@ impl TreeWindow {
         self.citations.loaded = true;
         self.citations.error = None;
         self.citations.dirty = false;
+        self.citations.pending_delete = None;
+        self.citations.choices.clear();
+        self.citations.choices_source = None;
         let Some(person_id) = current else {
             self.citations.citations.clear();
             self.citations.sources.clear();
+            self.citations.targets.clear();
             return;
         };
         match (
             self.app.list_person_citations(&person_id),
             self.app.list_sources(),
+            self.app.citation_targets(&person_id),
         ) {
-            (Ok(citations), Ok(sources)) => {
-                self.citations.citations =
-                    citations.iter().map(CitationDraft::from_record).collect();
+            (Ok(citations), Ok(sources), Ok(targets)) => {
+                self.citations.citations = CitationDraft::from_records(&citations);
                 self.citations.sources = sources;
+                self.citations.targets = targets;
+                if !self
+                    .citations
+                    .targets
+                    .iter()
+                    .any(|target| target.key == self.citations.add_target)
+                {
+                    self.citations.add_target = self
+                        .citations
+                        .targets
+                        .first()
+                        .map(|target| target.key.clone())
+                        .unwrap_or_else(|| "BIRTH".to_string());
+                }
+                if let Some(source_id) = self.citations.add_source.as_deref()
+                    && !self
+                        .citations
+                        .sources
+                        .iter()
+                        .any(|source| source.id == source_id)
+                {
+                    self.citations.add_source = None;
+                }
+                self.load_citation_choices();
             }
-            (Err(message), _) | (_, Err(message)) => {
+            (Err(message), _, _) | (_, Err(message), _) | (_, _, Err(message)) => {
+                self.citations.error = Some(message);
+            }
+        }
+    }
+
+    /// Loads the citations of the source selected for reuse.
+    pub(super) fn load_citation_choices(&mut self) {
+        let Some(source_id) = self.citations.add_source.clone() else {
+            self.citations.choices.clear();
+            self.citations.choices_source = None;
+            return;
+        };
+        match self.app.source_citations(&source_id) {
+            Ok(choices) => {
+                self.citations.choices = choices;
+                self.citations.choices_source = Some(source_id);
+            }
+            Err(message) => {
+                self.citations.choices.clear();
+                self.citations.choices_source = None;
                 self.citations.error = Some(message);
             }
         }

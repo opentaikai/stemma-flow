@@ -1007,8 +1007,13 @@ mod tests {
         )
         .expect("source insert");
         conn.execute(
-            "INSERT INTO citations (id, source_id, event_id)
-             SELECT 'cite-1', 'src-1', id FROM events WHERE person_id = ?1 LIMIT 1",
+            "INSERT INTO citations (id, source_id) VALUES ('cite-1', 'src-1')",
+            [],
+        )
+        .expect("citation insert");
+        conn.execute(
+            "INSERT INTO citation_links (citation_id, event_id)
+             SELECT 'cite-1', id FROM events WHERE person_id = ?1 LIMIT 1",
             params![father],
         )
         .expect("citation attaches to the father's birth");
@@ -1033,9 +1038,17 @@ mod tests {
             .expect("count query runs");
         assert_eq!(father_events, 0, "events cascade away");
         assert_eq!(
-            count(&conn, "SELECT COUNT(*) FROM citations WHERE id = 'cite-1'"),
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM citation_links WHERE citation_id = 'cite-1'"
+            ),
             0,
-            "citations cascade away"
+            "citation links cascade away"
+        );
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM citations WHERE id = 'cite-1'"),
+            1,
+            "the reusable citation survives"
         );
         let husband: Option<String> = conn
             .query_row(

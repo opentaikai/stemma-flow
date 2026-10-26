@@ -153,14 +153,31 @@ pub fn show(
                         }
                         CitationsEvent::Add {
                             source_id,
-                            event_type,
+                            target,
                             page,
                         } => InspectorAction::AddCitation {
                             source_id,
-                            event_type,
+                            target,
                             page,
                         },
+                        CitationsEvent::Attach {
+                            citation_id,
+                            target,
+                        } => InspectorAction::AttachCitation {
+                            citation_id,
+                            target,
+                        },
+                        CitationsEvent::Detach {
+                            citation_id,
+                            event_id,
+                        } => InspectorAction::DetachCitation {
+                            citation_id,
+                            event_id,
+                        },
                         CitationsEvent::Delete(id) => InspectorAction::DeleteCitation(id),
+                        CitationsEvent::LoadChoices(source_id) => {
+                            InspectorAction::LoadCitationChoices(source_id)
+                        }
                     });
                 }
             });

@@ -288,9 +288,11 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 
     let mut citations = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT source_id, page_or_reference, quality_certainty, notes,
-             media_type, data_date, data_text, event_id
-         FROM citations ORDER BY rowid",
+        "SELECT c.source_id, c.page_or_reference, c.quality_certainty, c.notes,
+             c.media_type, c.data_date, c.data_text, l.event_id
+         FROM citations c
+         JOIN citation_links l ON l.citation_id = c.id
+         ORDER BY c.rowid, l.event_id",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(CitationRow {

@@ -9,7 +9,9 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use crate::db;
-use crate::db::citations::{self as citation_store, CitationEdit, CitationRecord};
+use crate::db::citations::{
+    self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
+};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::sources::{self as source_store, SourceDraft, SourceRecord, SourceSummary};
 use crate::gedcom::{ImportReport, export_to_gedcom, import_gedcom};
@@ -296,19 +298,60 @@ impl StemmaApp {
         Ok(())
     }
 
-    /// Attaches a source to a person's event, creating the event if needed.
+    /// Lists the events the person inspector can attach citations to.
+    pub fn citation_targets(&self, person_id: &str) -> Result<Vec<CitationTarget>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        citation_store::list_citation_targets(&conn, person_id)
+    }
+
+    /// Lists a source's citations for reuse, with usage counts.
+    pub fn source_citations(&self, source_id: &str) -> Result<Vec<SourceCitation>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        citation_store::list_source_citations(&conn, source_id)
+    }
+
+    /// Attaches a source to a target event, creating the event if needed.
     pub fn add_citation(
         &mut self,
         source_id: &str,
         person_id: &str,
-        event_type: &str,
+        target: &str,
         page: Option<&str>,
     ) -> Result<String, String> {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        let id = citation_store::add_citation(&mut conn, source_id, person_id, event_type, page)?;
+        let id = citation_store::add_citation(&mut conn, source_id, person_id, target, page)?;
         self.set_status(UiStatus::Success("Citation added".to_string()));
         Ok(id)
+    }
+
+    /// Attaches an existing citation to another event.
+    pub fn attach_citation(
+        &mut self,
+        citation_id: &str,
+        person_id: &str,
+        target: &str,
+    ) -> Result<bool, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let added = citation_store::attach_citation(&mut conn, citation_id, person_id, target)?;
+        self.set_status(UiStatus::Success(if added {
+            "Citation attached".to_string()
+        } else {
+            "Citation already attached".to_string()
+        }));
+        Ok(added)
+    }
+
+    /// Removes one citation-to-event link.
+    pub fn detach_citation(&mut self, citation_id: &str, event_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        citation_store::detach_citation(&conn, citation_id, event_id)?;
+        self.set_status(UiStatus::Success("Citation detached".to_string()));
+        Ok(())
     }
 
     /// Deletes a citation without touching its source or event.
