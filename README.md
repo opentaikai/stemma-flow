@@ -21,16 +21,16 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
 - `db::init_db(&conn)` creates or upgrades the schema (19 tables, 32
-  indexes) and records its version in `PRAGMA user_version` (currently 4):
+  indexes) and records its version in `PRAGMA user_version` (currently 5):
   `people`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `events`, `citations`,
   `media`, `media_links`, `tasks`, `task_links`, `groups` and
   `group_members`. A v1 database is migrated in place: citation titles
   become `sources`, event places become `places`, and the new links are
-  backfilled. v2 databases gain the v3 source/citation metadata, and v4
-  adds the source template catalogue. Databases from a newer build are
-  rejected. The upgrade runs on every open (the `gui::window` loader
+  backfilled. v2 databases gain the v3 source/citation metadata, v4 the
+  source template catalogue and v5 the free-form citation outputs.
+  Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
   structs; ids are UUID strings. `Event` references a `place_id` and
@@ -38,7 +38,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 - `db::load_marriage_details(&conn)` maps each family id to its first
   `MARRIAGE` event's date and place name, for the inspector's spouse rows.
 - Sources and places are normalised: `sources` carry title, author,
-  publication, abbreviation, notes, data date/text and an optional
+  publication, abbreviation, notes, data date/text, free-form
+  `footnote`/`short_footnote`/`bibliography` and an optional
   `template_id`; `source_repositories` links a source to one or more
   repositories with a call number and media type; `source_fields` stores
   template values, `source_templates` and `source_template_fields` hold the
@@ -219,8 +220,10 @@ views (the app always launches on Graph View):
 - **Sources** — a searchable list of the tree's sources with citation
   counts, plus an editor beside it. A source is either free-form or uses one
   of five built-in Evidence Explained style templates (book, census,
-  certificate, website, cemetery memorial). Templated sources show a live
-  footnote, short-footnote and bibliography preview and cache their mapped
+  certificate, website, cemetery memorial). Free-form sources store their
+  own footnote, short footnote and bibliography; the per-citation page is
+  appended (or substituted for `{page}`) in the live preview. Templated
+  sources show the same three forms from their fields and cache their mapped
   fields into the GEDCOM-compatible source columns on save; required fields
   disable saving until filled. Attaching citations to events is the next
   roadmap item.

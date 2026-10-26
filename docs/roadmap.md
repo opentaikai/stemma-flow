@@ -48,7 +48,7 @@ Priority:
 | First-or-last-name requirement on manual saves | done | P0 | Drafts may exist until named |
 | Theme and font scaling settings | done | P2 | Persisted config |
 | Background import and export jobs | done | P1 | UI stays responsive |
-| Sources and citations | partial | P0 | Source editor in schema v4; citation attachment pending |
+| Sources and citations | partial | P0 | Source editor in schema v5; citation attachment pending |
 | Facts and events | partial | P0 | BIRT, DEAT and MARR only |
 | Places | partial | P0 | Place records in schema v2; no place page yet |
 | Names | partial | P0 | Given, middle, surname, nickname only |
@@ -80,7 +80,7 @@ places, facts, alternate names and notes as first-class records.
 | Schema v2/v3/v4: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 source templates |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; editor pending |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
-| Free-form sources with footnote, short footnote and bibliography | partial | P0 | Free-form editor present; formatted outputs pending |
+| Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
 | Citation quality fields (source, information, evidence) | partial | P1 | GEDCOM QUAY imported/exported; Evidence Explained editor pending |
 | Reusable citations across people, facts and families | planned | P1 | Copy or reference model |
 | Source list with edit, merge and template conversion | partial | P1 | List, edit and template selection; merge/conversion pending |
