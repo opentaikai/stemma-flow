@@ -20,16 +20,17 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (19 tables, 32
-  indexes) and records its version in `PRAGMA user_version` (currently 5):
+- `db::init_db(&conn)` creates or upgrades the schema (20 tables, 34
+  indexes) and records its version in `PRAGMA user_version` (currently 6):
   `people`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `events`, `citations`,
-  `media`, `media_links`, `tasks`, `task_links`, `groups` and
-  `group_members`. A v1 database is migrated in place: citation titles
+  `citation_links`, `media`, `media_links`, `tasks`, `task_links`, `groups`
+  and `group_members`. A v1 database is migrated in place: citation titles
   become `sources`, event places become `places`, and the new links are
   backfilled. v2 databases gain the v3 source/citation metadata, v4 the
-  source template catalogue and v5 the free-form citation outputs.
+  source template catalogue, v5 the free-form citation outputs and v6 the
+  reusable citation links (existing attachments are backfilled).
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -44,7 +45,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   repositories with a call number and media type; `source_fields` stores
   template values, `source_templates` and `source_template_fields` hold the
   built-in Evidence Explained style catalogue. Citations keep page, note,
-  certainty, media type and data date/text. `load_vital_dates` and
+  certainty, media type and data date/text; `citation_links` attaches one
+  canonical citation to any number of person or family events.
+  `load_vital_dates` and
   `load_marriage_details` join the place name for the existing inspector
   and watch-list views. Media and task links are typed, cascading rows;
   groups hold people.
@@ -113,9 +116,10 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
   identity (same-titled records are not merged), `AUTH`/`PUBL`/`ABBR`/
   `NOTE`/`DATA` and `REPO`/`CALN` links are stored, and level-0
   `0 @R@ REPO` records become repositories. Citations keep `PAGE`,
-  `QUAY`, `NOTE`, `MEDI` and `DATA` (`DATE`/`TEXT`); a citation data date
-  never overwrites the event date. Inline `2 SOUR text` sources are
-  deduplicated only within one import.
+  `QUAY`, `NOTE`, `MEDI` and `DATA` (`DATE`/`TEXT`), plus a link to its
+  event; a citation data date never overwrites the event date. Inline
+  `2 SOUR text` sources are deduplicated only within one import, while
+  repeated event citations stay separate records.
 - Warnings never block an import: the status bar appends the count
   (`…, N warnings`) to every finished import, and an import that logged
   any warnings also opens the **Import Report** window
@@ -124,7 +128,9 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
   WikiTree export produces.
 - `gedcom::export_to_gedcom(&conn)` serialises `people`, `families`,
   `family_children`, `events`, `sources` and `citations` back into a
-  deterministic GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, one
+  deterministic GEDCOM 5.5.1 document. Every citation is written for each
+  event it supports, including family marriages; the document starts with a
+  `LINEAGE-LINKED` `HEAD`, one
   `REPO` record per repository, one `SOUR` record per source with `AUTH`,
   `PUBL`, `ABBR`, `REPO`/`CALN`, `NOTE` and `DATA` (templated sources render
   those columns from their fields when saved), then `INDI` and `FAM`
@@ -225,8 +231,8 @@ views (the app always launches on Graph View):
   appended (or substituted for `{page}`) in the live preview. Templated
   sources show the same three forms from their fields and cache their mapped
   fields into the GEDCOM-compatible source columns on save; required fields
-  disable saving until filled. Citations are attached and rated from the
-  inspector's Citations card.
+  disable saving until filled. Citations are attached, reused and rated
+  from the inspector's Citations card.
 - **Person Inspector** — a right-side panel shown whenever a person is
   selected, with a pinned **×** button that closes it by clearing the
   selection. It is laid out as framed cards in a scrolling body with the
@@ -236,9 +242,12 @@ views (the app always launches on Graph View):
   nickname, gender) and **Vital Facts** (birth/death dates *and places*)
   editors — the date fields accept GEDCOM or ISO input, and an invalid
   date shows an inline message and disables saving — a **Citations** card
-  that attaches an existing source to the birth or death event and records
-  the page, the Evidence Explained source/information/evidence quality and
-  the GEDCOM certainty (each optionally "Don't know"), a
+  that attaches a source to the birth, death or a family marriage event and
+  records the page, the Evidence Explained source/information/evidence
+  quality and the GEDCOM certainty (each optionally "Don't know"). It can
+  reuse an existing citation of the source; shared citations show how many
+  facts use them, detach from one fact or delete everywhere after a
+  confirmation, and edits reach every use. A
   **Relationships** card listing parents, siblings, spouses and
   children —
   rows select that relative on the graph and re-centre the view, spouse
