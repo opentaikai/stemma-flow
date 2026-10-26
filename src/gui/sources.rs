@@ -14,6 +14,10 @@ pub enum SourcesEvent {
     Select(String),
     Save(Box<SourceDraft>),
     Delete(String),
+    Merge {
+        source_id: String,
+        target_id: String,
+    },
 }
 
 /// State owned by the window while the sources tab is open.
@@ -26,6 +30,8 @@ pub struct SourcesState {
     pub search: String,
     /// Citation-scoped fields used only for the live preview.
     pub preview: BTreeMap<String, String>,
+    pub merge_open: bool,
+    pub merge_target: Option<String>,
     pub loaded: bool,
     pub error: Option<String>,
 }
@@ -77,6 +83,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut SourcesState) -> Option<SourcesEvent>
 }
 
 fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<SourcesEvent>) {
+    merge_panel(ui, state, event);
     let current_key = state.draft.template_key.clone();
     let current_name = current_key
         .as_deref()
@@ -263,12 +270,119 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
         {
             *event = Some(SourcesEvent::Save(Box::new(state.draft.clone())));
         }
+        if state.selected.is_some() && state.list.len() > 1 && ui.button("Merge\u{2026}").clicked()
+        {
+            state.merge_open = true;
+            state.merge_target = None;
+        }
         if let Some(id) = state.selected.clone()
             && ui.button("Delete").clicked()
         {
             *event = Some(SourcesEvent::Delete(id));
         }
     });
+}
+
+fn merge_panel(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<SourcesEvent>) {
+    if !state.merge_open {
+        return;
+    }
+    let Some(source) = state
+        .selected
+        .as_deref()
+        .and_then(|id| state.list.iter().find(|source| source.id == id).cloned())
+    else {
+        state.merge_open = false;
+        state.merge_target = None;
+        return;
+    };
+    let choices: Vec<SourceSummary> = state
+        .list
+        .iter()
+        .filter(|candidate| candidate.id != source.id)
+        .cloned()
+        .collect();
+    let target = state
+        .merge_target
+        .as_deref()
+        .and_then(|id| choices.iter().find(|candidate| candidate.id == id).cloned())
+        .or_else(|| choices.first().cloned());
+    let Some(target) = target else {
+        state.merge_open = false;
+        state.merge_target = None;
+        return;
+    };
+    state.merge_target = Some(target.id.clone());
+
+    ui.group(|ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Merge source").strong());
+            if ui.small_button("Cancel").clicked() {
+                state.merge_open = false;
+                state.merge_target = None;
+            }
+        });
+        ui.label(format!("Merge \"{}\" into:", source.title));
+        egui::ComboBox::from_id_salt("source_merge_target")
+            .selected_text(&target.title)
+            .show_ui(ui, |ui| {
+                for candidate in &choices {
+                    if ui
+                        .selectable_label(candidate.id == target.id, &candidate.title)
+                        .clicked()
+                    {
+                        state.merge_target = Some(candidate.id.clone());
+                    }
+                }
+            });
+        ui.label(
+            egui::RichText::new(format!(
+                "{}: {} citations",
+                template_name(state, target.template_key.as_deref()),
+                target.citation_count
+            ))
+            .weak()
+            .small(),
+        );
+        ui.label(
+            egui::RichText::new(format!(
+                "{}: {} citations will move",
+                template_name(state, source.template_key.as_deref()),
+                source.citation_count
+            ))
+            .weak()
+            .small(),
+        );
+        if source.template_key != target.template_key {
+            ui.label(
+                egui::RichText::new(
+                    "The survivor's template and citation style will be kept.",
+                )
+                .color(ui.visuals().warn_fg_color)
+                .small(),
+            );
+        }
+        ui.label(
+            egui::RichText::new(
+                "Citations, repositories, fields and media/task links move; the absorbed source is deleted. Saved versions are merged.",
+            )
+            .weak()
+            .small(),
+        );
+        if ui.button("Merge").clicked() {
+            *event = Some(SourcesEvent::Merge {
+                source_id: source.id.clone(),
+                target_id: target.id.clone(),
+            });
+        }
+    });
+    ui.separator();
+}
+
+fn template_name(state: &SourcesState, key: Option<&str>) -> String {
+    key.and_then(|key| state.templates.iter().find(|template| template.key == key))
+        .map(|template| format!("{} - {}", template.category, template.name))
+        .unwrap_or_else(|| "Free-form".to_string())
 }
 
 fn field_label(ui: &mut egui::Ui, field: &TemplateField) {
@@ -380,6 +494,38 @@ mod tests {
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the free-form editor paints");
         assert!(state.draft.template_key.is_none());
+    }
+
+    #[test]
+    fn merge_panel_targets_another_source() {
+        let ctx = Context::default();
+        let mut state = SourcesState {
+            templates: builtin_templates(),
+            list: vec![
+                SourceSummary {
+                    id: "target".to_string(),
+                    title: "Target".to_string(),
+                    template_key: Some("book".to_string()),
+                    citation_count: 1,
+                },
+                SourceSummary {
+                    id: "source".to_string(),
+                    title: "Source".to_string(),
+                    template_key: None,
+                    citation_count: 2,
+                },
+            ],
+            selected: Some("source".to_string()),
+            merge_open: true,
+            ..SourcesState::default()
+        };
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            show(ui, &mut state);
+        });
+        output.textures_delta.clear();
+        assert!(!output.shapes.is_empty(), "the merge panel paints");
+        assert_eq!(state.merge_target.as_deref(), Some("target"));
+        assert!(state.merge_open);
     }
 
     #[test]

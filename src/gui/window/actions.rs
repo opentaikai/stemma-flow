@@ -101,28 +101,47 @@ impl TreeWindow {
             self.reload_sources();
         }
         if let Some(event) = sources::show(ui, &mut self.sources) {
-            match event {
-                SourcesEvent::New => self.new_source(),
-                SourcesEvent::Select(id) => self.load_source_draft(&id),
-                SourcesEvent::Save(draft) => match self.app.save_source(&draft) {
-                    Ok(id) => {
-                        self.sources.selected = Some(id);
-                        self.sources.error = None;
-                        self.citations.loaded = false;
-                        self.reload_sources();
-                    }
-                    Err(message) => self.sources.error = Some(message),
-                },
-                SourcesEvent::Delete(id) => match self.app.delete_source(&id) {
-                    Ok(()) => {
-                        self.sources.selected = None;
-                        self.sources.draft = SourceDraft::default();
-                        self.citations.loaded = false;
-                        self.reload_sources();
-                    }
-                    Err(message) => self.sources.error = Some(message),
-                },
-            }
+            self.apply_sources_event(event);
+        }
+    }
+
+    pub(super) fn apply_sources_event(&mut self, event: SourcesEvent) {
+        match event {
+            SourcesEvent::New => self.new_source(),
+            SourcesEvent::Select(id) => self.load_source_draft(&id),
+            SourcesEvent::Save(draft) => match self.app.save_source(&draft) {
+                Ok(id) => {
+                    self.sources.selected = Some(id);
+                    self.sources.error = None;
+                    self.citations.loaded = false;
+                    self.reload_sources();
+                }
+                Err(message) => self.sources.error = Some(message),
+            },
+            SourcesEvent::Delete(id) => match self.app.delete_source(&id) {
+                Ok(()) => {
+                    self.sources.selected = None;
+                    self.sources.draft = SourceDraft::default();
+                    self.sources.merge_open = false;
+                    self.sources.merge_target = None;
+                    self.citations.loaded = false;
+                    self.reload_sources();
+                }
+                Err(message) => self.sources.error = Some(message),
+            },
+            SourcesEvent::Merge {
+                source_id,
+                target_id,
+            } => match self.app.merge_sources(&source_id, &target_id) {
+                Ok(_) => {
+                    self.sources.selected = Some(target_id);
+                    self.sources.merge_open = false;
+                    self.sources.merge_target = None;
+                    self.citations.loaded = false;
+                    self.reload_sources();
+                }
+                Err(message) => self.sources.error = Some(message),
+            },
         }
     }
 
@@ -147,6 +166,8 @@ impl TreeWindow {
     }
 
     pub(super) fn load_source_draft(&mut self, id: &str) {
+        self.sources.merge_open = false;
+        self.sources.merge_target = None;
         match self.app.load_source(id) {
             Ok(Some(record)) => {
                 self.sources.selected = Some(id.to_string());
@@ -163,6 +184,8 @@ impl TreeWindow {
 
     pub(super) fn new_source(&mut self) {
         self.sources.selected = None;
+        self.sources.merge_open = false;
+        self.sources.merge_target = None;
         let template_key = self
             .sources
             .templates
