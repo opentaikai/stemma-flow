@@ -1323,22 +1323,28 @@ fn insert_citation(
     event_id: Option<&str>,
     report: &mut ImportReport,
 ) -> rusqlite::Result<()> {
+    let citation_id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO citations (id, source_id, page_or_reference, notes,
-             quality_certainty, media_type, data_date, data_text, event_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             quality_certainty, media_type, data_date, data_text)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            Uuid::new_v4().to_string(),
+            citation_id,
             source_id,
             page_or_reference,
             note,
             quality,
             media_type,
             data_date,
-            data_text,
-            event_id
+            data_text
         ],
     )?;
+    if let Some(event_id) = event_id {
+        conn.execute(
+            "INSERT INTO citation_links (citation_id, event_id) VALUES (?1, ?2)",
+            params![citation_id, event_id],
+        )?;
+    }
     report.citations += 1;
     Ok(())
 }

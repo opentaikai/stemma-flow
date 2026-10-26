@@ -494,8 +494,14 @@ fn citations_round_trip_through_sour_records() -> Result<(), GedcomError> {
     )
     .map_err(GedcomError::Db)?;
     conn.execute(
-        "INSERT INTO citations (id, source_id, page_or_reference, event_id)
-         VALUES ('cit-cited', 'src-cited', '12', ?1)",
+        "INSERT INTO citations (id, source_id, page_or_reference)
+         VALUES ('cit-cited', 'src-cited', '12')",
+        [],
+    )
+    .map_err(GedcomError::Db)?;
+    conn.execute(
+        "INSERT INTO citation_links (citation_id, event_id)
+         VALUES ('cit-cited', ?1)",
         params![birth_id],
     )
     .map_err(GedcomError::Db)?;
@@ -535,7 +541,8 @@ fn citations_round_trip_through_sour_records() -> Result<(), GedcomError> {
             "SELECT s.title, c.page_or_reference, s.notes
              FROM citations c
              JOIN sources s ON s.id = c.source_id
-             JOIN events e ON e.id = c.event_id
+             JOIN citation_links l ON l.citation_id = c.id
+             JOIN events e ON e.id = l.event_id
              WHERE e.event_type = 'BIRTH'",
             [],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -563,6 +570,65 @@ fn citations_round_trip_through_sour_records() -> Result<(), GedcomError> {
         exported,
         "import -> export must preserve the document byte for byte"
     );
+    Ok(())
+}
+
+#[test]
+fn shared_citations_export_to_every_event_and_import_separately() -> Result<(), GedcomError> {
+    let conn = setup_test_db().map_err(GedcomError::Db)?;
+    conn.execute_batch(
+        "INSERT INTO people (id, given_name, surname, gender) VALUES
+            ('p1', 'Ada', 'King', 'F'),
+            ('p2', 'Otto', 'King', 'M');
+         INSERT INTO families (id, husband_id, wife_id) VALUES ('f1', 'p2', 'p1');
+         INSERT INTO events (id, event_type, person_id, family_id) VALUES
+            ('e1', 'BIRTH', 'p1', NULL),
+            ('e2', 'DEATH', 'p1', NULL),
+            ('e3', 'MARRIAGE', NULL, 'f1');
+         INSERT INTO sources (id, title) VALUES ('s1', 'Parish Book');
+         INSERT INTO citations (id, source_id, page_or_reference)
+            VALUES ('c1', 's1', '12');
+         INSERT INTO citation_links (citation_id, event_id) VALUES
+            ('c1', 'e1'), ('c1', 'e2'), ('c1', 'e3');",
+    )
+    .map_err(GedcomError::Db)?;
+
+    let exported = export_to_gedcom(&conn)?;
+    assert_eq!(
+        exported.matches("2 SOUR @S1@").count(),
+        3,
+        "the shared citation appears under every linked event: {exported:?}"
+    );
+    assert_eq!(exported.matches("3 PAGE 12").count(), 3);
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert_eq!(report.citations, 3, "imports keep citations separate");
+    let citations: i64 = fresh
+        .query_row("SELECT COUNT(*) FROM citations", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(citations, 3);
+    let links: i64 = fresh
+        .query_row("SELECT COUNT(*) FROM citation_links", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(links, 3);
+    let event_types: i64 = fresh
+        .query_row(
+            "SELECT COUNT(DISTINCT e.event_type)
+             FROM citation_links l JOIN events e ON e.id = l.event_id",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(event_types, 3, "birth, death and marriage keep a citation");
+    let pages: i64 = fresh
+        .query_row(
+            "SELECT COUNT(*) FROM citations WHERE page_or_reference = '12'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(pages, 3);
     Ok(())
 }
 

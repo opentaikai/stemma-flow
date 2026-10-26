@@ -378,6 +378,7 @@ mod tests {
             quality_information: Some(InformationQuality::Primary),
             quality_evidence: Some(EvidenceQuality::Direct),
             quality_certainty: Some(Certainty::Primary),
+            usage: 1,
         }
     }
 
