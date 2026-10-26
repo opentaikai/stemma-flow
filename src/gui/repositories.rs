@@ -1,6 +1,7 @@
 //! Repositories tab: a sortable grid and repository editor.
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 
 use egui::{RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
@@ -8,6 +9,7 @@ use egui_extras::{Column, TableBuilder};
 use crate::db::repositories::{
     RepositoryDraft, RepositoryLinkDraft, RepositoryRecord, RepositorySummary,
 };
+use crate::db::sources::SourceSummary;
 
 /// What the user asked the shell to do from the repositories tab.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,10 +42,14 @@ impl SortColumn {
 #[derive(Debug, Default)]
 pub struct RepositoriesState {
     pub repositories: Vec<RepositorySummary>,
+    pub sources: Vec<SourceSummary>,
     pub selected: Option<String>,
     pub draft: RepositoryDraft,
     pub filter: String,
     pub sort: Option<(SortColumn, bool)>,
+    pub add_source: Option<String>,
+    pub add_call_number: String,
+    pub add_media_type: String,
     pub editing: bool,
     pub error: Option<String>,
     pub loaded: bool,
@@ -218,7 +224,14 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
     });
 
     ui.separator();
-    editor(ui, state, &mut event);
+    let editor_height = ui.available_height();
+    ui.allocate_ui(egui::vec2(ui.available_width(), editor_height), |ui| {
+        editor(ui, state, &mut event);
+    });
+    let remaining = ui.available_height();
+    if remaining > 0.0 {
+        ui.allocate_space(egui::vec2(ui.available_width(), remaining));
+    }
     event
 }
 
@@ -269,6 +282,102 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                     ui.end_row();
                 });
 
+            ui.separator();
+            ui.label(RichText::new("Linked sources").strong());
+            if state.draft.links.is_empty() {
+                ui.label(RichText::new("No sources linked.").weak().small());
+            }
+            let mut remove = None;
+            let titles: std::collections::BTreeMap<String, String> = state
+                .sources
+                .iter()
+                .map(|source| (source.id.clone(), source.title.clone()))
+                .collect();
+            for (index, link) in state.draft.links.iter_mut().enumerate() {
+                ui.push_id(("repository-link", &link.source_id), |ui| {
+                    ui.horizontal(|ui| {
+                        let title = titles
+                            .get(&link.source_id)
+                            .map(String::as_str)
+                            .unwrap_or("(missing source)");
+                        ui.label(title);
+                        ui.label("Call:");
+                        ui.text_edit_singleline(&mut link.call_number);
+                        ui.label("Media:");
+                        ui.text_edit_singleline(&mut link.media_type);
+                        if ui.small_button("Remove").clicked() {
+                            remove = Some(index);
+                        }
+                    });
+                });
+            }
+            if let Some(index) = remove {
+                state.draft.links.remove(index);
+            }
+
+            let linked: HashSet<&str> = state
+                .draft
+                .links
+                .iter()
+                .map(|link| link.source_id.as_str())
+                .collect();
+            if state.sources.is_empty() {
+                ui.label(
+                    RichText::new("Create a source in the Sources tab to link it here.")
+                        .weak()
+                        .small(),
+                );
+            } else {
+                if state
+                    .add_source
+                    .as_deref()
+                    .is_some_and(|id| linked.contains(id))
+                {
+                    state.add_source = None;
+                }
+                let choices: Vec<(String, String)> = state
+                    .sources
+                    .iter()
+                    .filter(|source| !linked.contains(source.id.as_str()))
+                    .map(|source| (source.id.clone(), source.title.clone()))
+                    .collect();
+                let current = state
+                    .add_source
+                    .as_deref()
+                    .and_then(|id| choices.iter().find(|(source_id, _)| source_id == id))
+                    .map(|(_, title)| title.clone())
+                    .unwrap_or_else(|| "Select a source".to_string());
+                ui.horizontal(|ui| {
+                    ui.label("Add source:");
+                    egui::ComboBox::from_id_salt("repository_add_source")
+                        .selected_text(current)
+                        .show_ui(ui, |ui| {
+                            for (source_id, title) in &choices {
+                                if ui
+                                    .selectable_label(
+                                        state.add_source.as_deref() == Some(source_id.as_str()),
+                                        title,
+                                    )
+                                    .clicked()
+                                {
+                                    state.add_source = Some(source_id.clone());
+                                }
+                            }
+                        });
+                    ui.label("Call:");
+                    ui.text_edit_singleline(&mut state.add_call_number);
+                    ui.label("Media:");
+                    ui.text_edit_singleline(&mut state.add_media_type);
+                    let enabled = state.add_source.is_some();
+                    if ui
+                        .add_enabled(enabled, egui::Button::new("Add link"))
+                        .clicked()
+                    {
+                        add_link(state);
+                    }
+                });
+            }
+
             if let Some(error) = &state.error {
                 ui.label(
                     RichText::new(error)
@@ -285,6 +394,26 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                 *event = Some(RepositoriesEvent::Save(Box::new(state.draft.clone())));
             }
         });
+}
+
+fn add_link(state: &mut RepositoriesState) {
+    let Some(source_id) = state.add_source.clone() else {
+        return;
+    };
+    if state
+        .draft
+        .links
+        .iter()
+        .any(|link| link.source_id == source_id)
+    {
+        return;
+    }
+    state.draft.links.push(RepositoryLinkDraft {
+        source_id,
+        call_number: std::mem::take(&mut state.add_call_number),
+        media_type: std::mem::take(&mut state.add_media_type),
+    });
+    state.add_source = None;
 }
 
 fn visible_indices(state: &RepositoriesState) -> Vec<usize> {
@@ -413,10 +542,61 @@ mod tests {
     }
 
     #[test]
+    fn adds_and_removes_source_links() {
+        let mut state = RepositoriesState {
+            sources: vec![SourceSummary {
+                id: "s1".to_string(),
+                title: "Parish Book".to_string(),
+                template_key: None,
+                citation_count: 0,
+            }],
+            ..RepositoriesState::default()
+        };
+        state.add_source = Some("s1".to_string());
+        state.add_call_number = "12/34".to_string();
+        state.add_media_type = "film".to_string();
+
+        add_link(&mut state);
+
+        assert_eq!(state.draft.links.len(), 1);
+        assert_eq!(state.draft.links[0].source_id, "s1");
+        assert_eq!(state.draft.links[0].call_number, "12/34");
+        assert_eq!(state.draft.links[0].media_type, "film");
+        assert!(state.add_source.is_none());
+        assert!(state.add_call_number.is_empty());
+
+        state.draft.links.clear();
+        assert!(state.draft.links.is_empty());
+    }
+
+    #[test]
+    fn repositories_tab_fills_the_available_height() {
+        let ctx = Context::default();
+        let mut state = RepositoriesState {
+            repositories: vec![summary("r1", "Uppsala Archive", Some("Main Street"), 0)],
+            ..RepositoriesState::default()
+        };
+        let mut fills = false;
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            let available = ui.available_height();
+            show(ui, &mut state);
+            fills = ui.min_rect().height() >= available - 1.0;
+        });
+        output.textures_delta.clear();
+        assert!(fills, "the repositories tab must fill the available height");
+    }
+
+    #[test]
     fn repositories_tab_renders_headless() {
         let ctx = Context::default();
         let mut state = RepositoriesState {
             repositories: vec![summary("r1", "Uppsala Archive", Some("Main Street"), 1)],
+            sources: vec![SourceSummary {
+                id: "s1".to_string(),
+                title: "Parish Book".to_string(),
+                template_key: None,
+                citation_count: 1,
+            }],
             selected: Some("r1".to_string()),
             draft: draft_from_record(&record()),
             editing: true,

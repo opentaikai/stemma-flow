@@ -163,6 +163,9 @@ impl TreeWindow {
             RepositoriesEvent::New => {
                 self.repositories.selected = None;
                 self.repositories.draft = crate::db::repositories::RepositoryDraft::default();
+                self.repositories.add_source = None;
+                self.repositories.add_call_number.clear();
+                self.repositories.add_media_type.clear();
                 self.repositories.editing = true;
                 self.repositories.error = None;
             }
@@ -170,6 +173,9 @@ impl TreeWindow {
             RepositoriesEvent::Save(draft) => match self.app.save_repository(&draft) {
                 Ok(id) => {
                     self.repositories.selected = Some(id);
+                    self.repositories.add_source = None;
+                    self.repositories.add_call_number.clear();
+                    self.repositories.add_media_type.clear();
                     self.repositories.editing = true;
                     self.repositories.error = None;
                     self.reload_repositories();
@@ -190,16 +196,17 @@ impl TreeWindow {
     }
 
     pub(super) fn reload_repositories(&mut self) {
-        match self.app.list_repositories() {
-            Ok(list) => {
+        match (self.app.list_repositories(), self.app.list_sources()) {
+            (Ok(list), Ok(sources)) => {
                 self.repositories.repositories = list;
+                self.repositories.sources = sources;
                 self.repositories.loaded = true;
                 self.repositories.error = None;
                 if let Some(id) = self.repositories.selected.clone() {
                     self.load_repository_draft(&id);
                 }
             }
-            Err(message) => {
+            (Err(message), _) | (_, Err(message)) => {
                 self.repositories.error = Some(message);
                 self.repositories.loaded = true;
             }
@@ -211,6 +218,9 @@ impl TreeWindow {
             Ok(Some(record)) => {
                 self.repositories.selected = Some(id.to_string());
                 self.repositories.draft = repositories::draft_from_record(&record);
+                self.repositories.add_source = None;
+                self.repositories.add_call_number.clear();
+                self.repositories.add_media_type.clear();
                 self.repositories.editing = true;
                 self.repositories.error = None;
             }

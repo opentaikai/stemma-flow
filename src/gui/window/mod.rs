@@ -794,6 +794,8 @@ mod tests {
 
         assert_eq!(window.repositories.repositories.len(), 1);
         assert_eq!(window.repositories.repositories[0].source_count, 1);
+        assert_eq!(window.repositories.sources.len(), 1);
+        assert_eq!(window.repositories.sources[0].title, "Parish Book");
         let id = window
             .repositories
             .selected
