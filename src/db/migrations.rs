@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::schema::{
     CORE_TABLES_SQL, FACT_SEED_SQL, INDEXES_SQL, LINK_TABLES_SQL, SCHEMA_VERSION, V3_COLUMNS,
-    V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, ensure_column, seed_source_templates,
+    V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS, ensure_column, seed_source_templates,
 };
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
@@ -46,6 +46,16 @@ pub(super) fn migrate_v3_to_v4(conn: &Connection) -> rusqlite::Result<()> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
     tx.execute_batch(V4_TABLES_SQL)?;
     seed_source_templates(&tx)?;
+    tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    tx.commit()
+}
+
+/// Adds the free-form citation output columns.
+pub(super) fn migrate_v4_to_v5(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    for (table, column, definition) in V5_COLUMNS {
+        ensure_column(&tx, table, column, definition)?;
+    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()
 }

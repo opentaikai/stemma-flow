@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -240,6 +240,13 @@ CREATE INDEX IF NOT EXISTS idx_source_repositories_source ON source_repositories
 CREATE INDEX IF NOT EXISTS idx_source_repositories_repository ON source_repositories(repository_id);
 "#;
 
+/// Free-form citation outputs added in schema v5.
+pub(super) const V5_COLUMNS: [(&str, &str, &str); 3] = [
+    ("sources", "footnote", "TEXT"),
+    ("sources", "short_footnote", "TEXT"),
+    ("sources", "bibliography", "TEXT"),
+];
+
 /// Source templates and their fields.
 pub(super) const V4_TABLES_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS source_templates (
@@ -328,7 +335,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     if version == 0 && !table_exists(conn, "people")? {
         create_v2(conn)?;
         super::migrations::migrate_v2_to_v3(conn)?;
-        return super::migrations::migrate_v3_to_v4(conn);
+        super::migrations::migrate_v3_to_v4(conn)?;
+        return super::migrations::migrate_v4_to_v5(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -341,9 +349,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 3 {
             super::migrations::migrate_v2_to_v3(conn)?;
         }
-        return super::migrations::migrate_v3_to_v4(conn);
+        if version < 4 {
+            super::migrations::migrate_v3_to_v4(conn)?;
+        }
+        return super::migrations::migrate_v4_to_v5(conn);
     }
-    ensure_v4(conn)
+    ensure_v5(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -357,7 +368,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v4(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v5(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
@@ -370,6 +381,9 @@ fn ensure_v4(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(V3_INDEXES_SQL)?;
     conn.execute_batch(V4_TABLES_SQL)?;
     seed_source_templates(conn)?;
+    for (table, column, definition) in V5_COLUMNS {
+        ensure_column(conn, table, column, definition)?;
+    }
     conn.execute_batch(FACT_SEED_SQL)?;
     Ok(())
 }
