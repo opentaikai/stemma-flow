@@ -1438,6 +1438,79 @@ fn citation_data_does_not_overwrite_the_event_date() -> Result<(), GedcomError> 
 }
 
 #[test]
+fn ui_created_repositories_round_trip() -> Result<(), GedcomError> {
+    use crate::db::repositories::{
+        RepositoryDraft, RepositoryLinkDraft, list_repositories, load_repository, save_repository,
+    };
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    conn.execute(
+        "INSERT INTO sources (id, title) VALUES ('s1', 'Parish Book')",
+        [],
+    )
+    .map_err(GedcomError::Db)?;
+    save_repository(
+        &mut conn,
+        &RepositoryDraft {
+            name: "Uppsala Archive".to_string(),
+            address: "Main Street\nUppsala".to_string(),
+            notes: "First line\nSecond line".to_string(),
+            links: vec![RepositoryLinkDraft {
+                source_id: "s1".to_string(),
+                call_number: "12/34".to_string(),
+                media_type: "film".to_string(),
+            }],
+            ..RepositoryDraft::default()
+        },
+    )
+    .expect("repository saves");
+
+    let exported = export_to_gedcom(&conn)?;
+    for expected in [
+        "0 @R1@ REPO",
+        "1 NAME Uppsala Archive",
+        "1 ADDR Main Street",
+        "2 CONT Uppsala",
+        "1 NOTE First line",
+        "2 CONT Second line",
+        "1 REPO @R1@",
+        "2 CALN 12/34",
+        "2 MEDI film",
+    ] {
+        assert!(
+            exported.contains(expected),
+            "export must contain {expected:?}: {exported:?}"
+        );
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert!(
+        report.warnings.is_empty(),
+        "repository export must re-import cleanly: {:?}",
+        report.warnings
+    );
+    let repositories = list_repositories(&fresh).expect("repositories list");
+    assert_eq!(repositories.len(), 1);
+    let loaded = load_repository(&fresh, &repositories[0].id)
+        .expect("load")
+        .expect("repository exists");
+    assert_eq!(loaded.name, "Uppsala Archive");
+    assert_eq!(loaded.address.as_deref(), Some("Main Street\nUppsala"));
+    assert_eq!(loaded.notes.as_deref(), Some("First line\nSecond line"));
+    assert_eq!(loaded.links.len(), 1);
+    assert_eq!(loaded.links[0].source_title, "Parish Book");
+    assert_eq!(loaded.links[0].call_number.as_deref(), Some("12/34"));
+    assert_eq!(loaded.links[0].media_type.as_deref(), Some("film"));
+    assert_eq!(
+        export_to_gedcom(&fresh)?,
+        exported,
+        "repository metadata must round-trip byte for byte"
+    );
+    Ok(())
+}
+
+#[test]
 fn import_warns_on_dangling_repository_pointer() -> Result<(), GedcomError> {
     let sample = "\
 0 @I1@ INDI

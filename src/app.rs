@@ -13,6 +13,9 @@ use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
 use crate::db::people::{self, ParentRole, PersonDetails};
+use crate::db::repositories::{
+    self as repository_store, RepositoryDraft, RepositoryRecord, RepositorySummary,
+};
 use crate::db::sources::{
     self as source_store, SourceDraft, SourceMergeReport, SourceRecord, SourceSummary,
 };
@@ -422,6 +425,38 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists repositories with their linked-source counts.
+    pub fn list_repositories(&self) -> Result<Vec<RepositorySummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        repository_store::list_repositories(&conn)
+    }
+
+    /// Loads one repository for editing.
+    pub fn load_repository(&self, id: &str) -> Result<Option<RepositoryRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        repository_store::load_repository(&conn, id)
+    }
+
+    /// Inserts or updates a repository and its source links.
+    pub fn save_repository(&mut self, draft: &RepositoryDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = repository_store::save_repository(&mut conn, draft)?;
+        self.set_status(UiStatus::Success("Repository saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes a repository and its source links.
+    pub fn delete_repository(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        repository_store::delete_repository(&mut conn, id)?;
+        self.set_status(UiStatus::Success("Repository deleted".to_string()));
         Ok(())
     }
 
