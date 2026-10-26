@@ -177,6 +177,7 @@ mod tests {
     use crate::gui::inspector;
     use crate::gui::inspector::InspectorAction;
     use crate::gui::inspector::RelationKind;
+    use crate::gui::sources::SourcesEvent;
     use crate::gui::welcome;
     use crate::model::quality::SourceQuality;
     use egui::{Pos2, Rect, vec2};
@@ -750,6 +751,62 @@ mod tests {
             window.citations.choices_source.as_deref(),
             Some(source_id.as_str())
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn merging_sources_moves_citations_and_refreshes_the_list() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.reload_sources();
+        let target_id = window
+            .app
+            .save_source(&SourceDraft {
+                title: "Target".to_string(),
+                ..SourceDraft::default()
+            })
+            .expect("target saves");
+        let source_id = window
+            .app
+            .save_source(&SourceDraft {
+                title: "Source".to_string(),
+                ..SourceDraft::default()
+            })
+            .expect("source saves");
+        let person_id = window.rows.first().expect("one person").id.clone();
+        window
+            .app
+            .add_citation(&source_id, &person_id, "BIRTH", Some("12"))
+            .expect("citation adds");
+        window.sources.selected = Some(source_id.clone());
+        window.reload_sources();
+        window.sources.merge_open = true;
+
+        window.apply_sources_event(SourcesEvent::Merge {
+            source_id,
+            target_id: target_id.clone(),
+        });
+
+        assert_eq!(window.sources.list.len(), 1);
+        assert_eq!(window.sources.selected.as_deref(), Some(target_id.as_str()));
+        assert_eq!(window.sources.draft.title, "Target");
+        assert!(!window.sources.merge_open);
+        assert!(!window.citations.loaded, "the inspector reloads citations");
+        assert!(matches!(window.app.status(), UiStatus::Success(_)));
+
+        window.app.set_selected_person(Some(person_id.clone()));
+        window.sync_citations();
+        assert_eq!(window.citations.citations.len(), 1);
+        assert_eq!(window.citations.citations[0].source_title, "Target");
+        assert_eq!(window.citations.citations[0].page, "12");
 
         let _ = std::fs::remove_file(&db_file);
     }
