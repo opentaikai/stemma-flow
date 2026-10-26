@@ -31,7 +31,7 @@ pub struct SourcesState {
 /// Draws the sources tab and returns the action the window should apply.
 pub fn show(ui: &mut egui::Ui, state: &mut SourcesState) -> Option<SourcesEvent> {
     let mut event = None;
-    ui.horizontal(|ui| {
+    ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(250.0);
             ui.label(egui::RichText::new("Sources").strong());
@@ -313,6 +313,24 @@ mod tests {
         set_template(&mut state, None);
         assert!(state.draft.template_key.is_none());
         assert!(state.draft.fields.is_empty());
+    }
+
+    #[test]
+    fn sources_tab_fills_the_available_height() {
+        let ctx = Context::default();
+        let mut state = SourcesState {
+            templates: builtin_templates(),
+            ..SourcesState::default()
+        };
+        set_template(&mut state, Some("book".to_string()));
+        let mut fills = false;
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            let available = ui.available_height();
+            show(ui, &mut state);
+            fills = ui.min_rect().height() >= available - 1.0;
+        });
+        output.textures_delta.clear();
+        assert!(fills, "the sources tab must fill the available height");
     }
 
     #[test]
