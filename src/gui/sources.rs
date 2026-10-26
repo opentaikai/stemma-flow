@@ -425,6 +425,29 @@ fn set_template(state: &mut SourcesState, key: Option<String>) {
         .cloned();
 
     if let Some(template) = target {
+        let title = if current.is_some() {
+            state
+                .draft
+                .fields
+                .get("title")
+                .filter(|value| !value.trim().is_empty())
+                .cloned()
+                .unwrap_or_else(|| state.draft.title.clone())
+        } else {
+            state.draft.title.clone()
+        };
+        let author = if current.is_some() {
+            state
+                .draft
+                .fields
+                .get("author")
+                .or_else(|| state.draft.fields.get("creator"))
+                .filter(|value| !value.trim().is_empty())
+                .cloned()
+                .unwrap_or_else(|| state.draft.author.clone())
+        } else {
+            state.draft.author.clone()
+        };
         let allowed: BTreeSet<String> = template
             .source_fields()
             .map(|field| field.key.clone())
@@ -433,8 +456,6 @@ fn set_template(state: &mut SourcesState, key: Option<String>) {
             .draft
             .fields
             .retain(|field, _| allowed.contains(field));
-        let title = state.draft.title.clone();
-        let author = state.draft.author.clone();
         if template.source_fields().any(|field| field.key == "title") {
             seed_field(&mut state.draft.fields, "title", &title);
         }
@@ -454,31 +475,31 @@ fn set_template(state: &mut SourcesState, key: Option<String>) {
         state.draft.short_footnote = rendered.short_footnote;
         state.draft.bibliography = rendered.bibliography;
         let columns = gedcom_columns(&template, &state.draft.fields);
-        fill_blank(
+        replace_if_present(
             &mut state.draft.title,
             columns.get("title").map(String::as_str),
         );
-        fill_blank(
+        replace_if_present(
             &mut state.draft.author,
             columns.get("author").map(String::as_str),
         );
-        fill_blank(
+        replace_if_present(
             &mut state.draft.publication,
             columns.get("publication").map(String::as_str),
         );
-        fill_blank(
+        replace_if_present(
             &mut state.draft.abbreviation,
             columns.get("abbreviation").map(String::as_str),
         );
-        fill_blank(
+        replace_if_present(
             &mut state.draft.notes,
             columns.get("notes").map(String::as_str),
         );
-        fill_blank(
+        replace_if_present(
             &mut state.draft.data_date,
             columns.get("data_date").map(String::as_str),
         );
-        fill_blank(
+        replace_if_present(
             &mut state.draft.data_text,
             columns.get("data_text").map(String::as_str),
         );
@@ -496,10 +517,8 @@ fn seed_field(fields: &mut BTreeMap<String, String>, key: &str, value: &str) {
     }
 }
 
-fn fill_blank(target: &mut String, source: Option<&str>) {
-    if target.trim().is_empty()
-        && let Some(value) = source.filter(|value| !value.trim().is_empty())
-    {
+fn replace_if_present(target: &mut String, source: Option<&str>) {
+    if let Some(value) = source.filter(|value| !value.trim().is_empty()) {
         *target = value.to_string();
     }
 }
