@@ -20,31 +20,33 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (17 tables, 31
-  indexes) and records its version in `PRAGMA user_version` (currently 3):
+- `db::init_db(&conn)` creates or upgrades the schema (19 tables, 32
+  indexes) and records its version in `PRAGMA user_version` (currently 4):
   `people`, `families`, `family_children`, `repositories`, `sources`,
-  `source_fields`, `places`, `fact_types`, `events`, `citations`, `media`,
-  `media_links`, `tasks`, `task_links`, `groups`, `group_members` and
-  `source_repositories`. A v1 database is migrated in place: citation
-  titles become `sources`, event places become `places`, and the new links
-  are backfilled. v2 databases are upgraded to v3, which adds source and
-  citation metadata columns and moves legacy repository links into
-  `source_repositories`. Databases from a newer build are rejected. The
-  upgrade runs on every open (the `gui::window` loader validates and
-  migrates before loading), so existing trees keep opening.
+  `source_fields`, `source_repositories`, `source_templates`,
+  `source_template_fields`, `places`, `fact_types`, `events`, `citations`,
+  `media`, `media_links`, `tasks`, `task_links`, `groups` and
+  `group_members`. A v1 database is migrated in place: citation titles
+  become `sources`, event places become `places`, and the new links are
+  backfilled. v2 databases gain the v3 source/citation metadata, and v4
+  adds the source template catalogue. Databases from a newer build are
+  rejected. The upgrade runs on every open (the `gui::window` loader
+  validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
   structs; ids are UUID strings. `Event` references a `place_id` and
   `Citation` references a `source_id`.
 - `db::load_marriage_details(&conn)` maps each family id to its first
   `MARRIAGE` event's date and place name, for the inspector's spouse rows.
 - Sources and places are normalised: `sources` carry title, author,
-  publication, abbreviation, notes, data date/text and optional template
-  fields; `source_repositories` links a source to one or more repositories
-  with a call number and media type; `source_fields` stores template
-  values. Citations keep page, note, certainty, media type and data
-  date/text. `load_vital_dates` and `load_marriage_details` join the place
-  name for the existing inspector and watch-list views. Media and task
-  links are typed, cascading rows; groups hold people.
+  publication, abbreviation, notes, data date/text and an optional
+  `template_id`; `source_repositories` links a source to one or more
+  repositories with a call number and media type; `source_fields` stores
+  template values, `source_templates` and `source_template_fields` hold the
+  built-in Evidence Explained style catalogue. Citations keep page, note,
+  certainty, media type and data date/text. `load_vital_dates` and
+  `load_marriage_details` join the place name for the existing inspector
+  and watch-list views. Media and task links are typed, cascading rows;
+  groups hold people.
 
 Relationships are modelled through events and the `family_children` junction
 table. Foreign keys cascade deletes from people/families down to events,
@@ -123,7 +125,8 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
   `family_children`, `events`, `sources` and `citations` back into a
   deterministic GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, one
   `REPO` record per repository, one `SOUR` record per source with `AUTH`,
-  `PUBL`, `ABBR`, `REPO`/`CALN`, `NOTE` and `DATA`, then `INDI` and `FAM`
+  `PUBL`, `ABBR`, `REPO`/`CALN`, `NOTE` and `DATA` (templated sources render
+  those columns from their fields when saved), then `INDI` and `FAM`
   records and finally `TRLR`. Events read their `2 PLAC` from the linked
   place record. Populated
   `people.notes` travel as `1 NOTE` + `2 CONT` lines after `1 SEX`, so
@@ -192,9 +195,9 @@ a tree becomes usable:
   **Active Tree: &lt;file&gt;** label on its right edge whenever a database
   is loaded.
 
-## Graph View, Watch List & inspector
+## Graph View, Watch List, Sources & inspector
 
-With a tree open the `eframe` window (1200x800) shows a tab bar with two
+With a tree open the `eframe` window (1200x800) shows a tab bar with three
 views (the app always launches on Graph View):
 
 - **Graph View** — the interactive canvas: opening (or reloading) a tree
@@ -213,6 +216,14 @@ views (the app always launches on Graph View):
   delete removes the person, their events, citations and child links.
   **+ Add Independent Person** inserts an unnamed draft and focuses it; a
   first or last name is required before it can be saved.
+- **Sources** — a searchable list of the tree's sources with citation
+  counts, plus an editor beside it. A source is either free-form or uses one
+  of five built-in Evidence Explained style templates (book, census,
+  certificate, website, cemetery memorial). Templated sources show a live
+  footnote, short-footnote and bibliography preview and cache their mapped
+  fields into the GEDCOM-compatible source columns on save; required fields
+  disable saving until filled. Attaching citations to events is the next
+  roadmap item.
 - **Person Inspector** — a right-side panel shown whenever a person is
   selected, with a pinned **×** button that closes it by clearing the
   selection. It is laid out as framed cards in a scrolling body with the
