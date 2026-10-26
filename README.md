@@ -238,6 +238,12 @@ views (the app always launches on Graph View):
   text with the template rendering; the live preview shows the result before
   saving. Citations are attached, reused and rated from the inspector's
   Citations card.
+- **Repositories** — a filterable, sortable grid of repositories with linked
+  source counts, plus an editor for name, multiline address and notes and the
+  linked sources (call number and media type). Links are added through a
+  source picker and removed from the editor; deleting a repository asks for
+  confirmation and removes its source links. Repository metadata and links
+  round-trip through GEDCOM.
 - **Person Inspector** — a right-side panel shown whenever a person is
   selected, with a pinned **×** button that closes it by clearing the
   selection. It is laid out as framed cards in a scrolling body with the
