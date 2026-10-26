@@ -1396,3 +1396,84 @@ fn import_warns_on_dangling_repository_pointer() -> Result<(), GedcomError> {
     );
     Ok(())
 }
+
+#[test]
+fn source_and_citation_metadata_round_trip() -> Result<(), GedcomError> {
+    let sample = "\
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 12 JAN 1850
+2 SOUR @S1@
+3 PAGE 12
+3 QUAY 3
+3 NOTE Citation note
+3 DATA
+4 DATE 1900
+4 TEXT Transcript
+0 @S1@ SOUR
+1 TITL Parish Book
+1 AUTH Ada Author
+1 PUBL Publisher
+1 ABBR PB
+1 REPO @R1@
+2 CALN 12/34
+1 NOTE Source note
+1 DATA
+2 TEXT Source data
+0 @R1@ REPO
+1 NAME Uppsala Archive
+1 ADDR Main Street
+2 CITY Uppsala
+1 NOTE Repo note
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut conn, Cursor::new(sample))?;
+    let exported = export_to_gedcom(&conn)?;
+
+    for expected in [
+        "0 @R1@ REPO",
+        "1 NAME Uppsala Archive",
+        "1 ADDR Main Street",
+        "2 CONT Uppsala",
+        "1 NOTE Repo note",
+        "0 @S1@ SOUR",
+        "1 TITL Parish Book",
+        "1 AUTH Ada Author",
+        "1 PUBL Publisher",
+        "1 ABBR PB",
+        "1 REPO @R1@",
+        "2 CALN 12/34",
+        "1 NOTE Source note",
+        "1 DATA",
+        "2 TEXT Source data",
+        "2 SOUR @S1@",
+        "3 PAGE 12",
+        "3 QUAY 3",
+        "3 NOTE Citation note",
+        "3 DATA",
+        "4 DATE 1900",
+        "4 TEXT Transcript",
+    ] {
+        assert!(
+            exported.contains(expected),
+            "export must contain {expected:?}: {exported:?}"
+        );
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert_eq!(report.citations, 1);
+    assert!(
+        report.warnings.is_empty(),
+        "metadata export must re-import cleanly: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        export_to_gedcom(&fresh)?,
+        exported,
+        "source and citation metadata must round-trip byte for byte"
+    );
+    Ok(())
+}

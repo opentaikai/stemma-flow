@@ -32,15 +32,39 @@ struct EventRow {
     family_id: Option<String>,
 }
 
+struct RepositoryRow {
+    id: String,
+    name: String,
+    address: Option<String>,
+    notes: Option<String>,
+}
+
 struct SourceRow {
     id: String,
     title: String,
+    author: Option<String>,
+    publication: Option<String>,
+    abbreviation: Option<String>,
     notes: Option<String>,
+    data_date: Option<String>,
+    data_text: Option<String>,
+}
+
+struct RepoLink {
+    source_id: String,
+    repository_id: String,
+    call_number: Option<String>,
+    media_type: Option<String>,
 }
 
 struct CitationRow {
     source_id: String,
     page_or_reference: Option<String>,
+    quality: Option<String>,
+    note: Option<String>,
+    media_type: Option<String>,
+    data_date: Option<String>,
+    data_text: Option<String>,
     event_id: Option<String>,
 }
 
@@ -70,6 +94,18 @@ fn date_payload(raw: &str) -> Option<String> {
     })
 }
 
+/// Writes a level/tag line, turning embedded newlines into CONT lines.
+fn push_text(out: &mut String, level: u8, tag: &str, text: &str) {
+    let mut lines = text.split('\n');
+    let Some(first) = lines.next() else {
+        return;
+    };
+    out.push_str(&format!("{level} {tag} {first}\n"));
+    for line in lines {
+        out.push_str(&format!("{} CONT {line}\n", level + 1));
+    }
+}
+
 fn push_event(
     out: &mut String,
     event: &EventRow,
@@ -95,12 +131,30 @@ fn push_event(
             if let Some(page) = &citation.page_or_reference {
                 out.push_str(&format!("3 PAGE {page}\n"));
             }
+            if let Some(quality) = &citation.quality {
+                out.push_str(&format!("3 QUAY {quality}\n"));
+            }
+            if let Some(note) = &citation.note {
+                push_text(out, 3, "NOTE", note);
+            }
+            if let Some(media) = &citation.media_type {
+                out.push_str(&format!("3 MEDI {media}\n"));
+            }
+            if citation.data_date.is_some() || citation.data_text.is_some() {
+                out.push_str("3 DATA\n");
+                if let Some(date) = &citation.data_date {
+                    out.push_str(&format!("4 DATE {date}\n"));
+                }
+                if let Some(text) = &citation.data_text {
+                    push_text(out, 4, "TEXT", text);
+                }
+            }
         }
     }
 }
 
-/// Serializes `people`, `families`, `family_children`, `events` and
-/// `citations` into a GEDCOM 5.5.1 document.
+/// Serializes people, families, sources, repositories, events and
+/// citations into a GEDCOM 5.5.1 document.
 ///
 /// Row order (`ORDER BY rowid`) makes the output deterministic: exporting the
 /// same database twice yields identical text.
@@ -179,29 +233,75 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         events.push(row?);
     }
 
+    let mut repositories = Vec::new();
+    let mut stmt =
+        conn.prepare("SELECT id, name, address, notes FROM repositories ORDER BY rowid")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(RepositoryRow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            address: row.get(2)?,
+            notes: row.get(3)?,
+        })
+    })?;
+    for row in rows {
+        repositories.push(row?);
+    }
+
     let mut sources = Vec::new();
-    let mut stmt = conn.prepare("SELECT id, title, notes FROM sources ORDER BY rowid")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, title, author, publication, abbreviation, notes, data_date, data_text
+         FROM sources ORDER BY rowid",
+    )?;
     let rows = stmt.query_map([], |row| {
         Ok(SourceRow {
             id: row.get(0)?,
             title: row.get(1)?,
-            notes: row.get(2)?,
+            author: row.get(2)?,
+            publication: row.get(3)?,
+            abbreviation: row.get(4)?,
+            notes: row.get(5)?,
+            data_date: row.get(6)?,
+            data_text: row.get(7)?,
         })
     })?;
     for row in rows {
         sources.push(row?);
     }
 
+    let mut repo_links = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT source_id, repository_id, call_number, media_type
+         FROM source_repositories ORDER BY rowid",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(RepoLink {
+            source_id: row.get(0)?,
+            repository_id: row.get(1)?,
+            call_number: row.get(2)?,
+            media_type: row.get(3)?,
+        })
+    })?;
+    for row in rows {
+        repo_links.push(row?);
+    }
+
     let mut citations = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT source_id, page_or_reference, event_id
+        "SELECT source_id, page_or_reference, quality_certainty, notes,
+             media_type, data_date, data_text, event_id
          FROM citations ORDER BY rowid",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(CitationRow {
             source_id: row.get(0)?,
             page_or_reference: row.get(1)?,
-            event_id: row.get(2)?,
+            quality: row.get(2)?,
+            note: row.get(3)?,
+            media_type: row.get(4)?,
+            data_date: row.get(5)?,
+            data_text: row.get(6)?,
+            event_id: row.get(7)?,
         })
     })?;
     for row in rows {
@@ -216,9 +316,21 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
     for (index, family) in families.iter().enumerate() {
         family_xref.insert(&family.id, format!("@F{}@", index + 1));
     }
+    let mut repository_xref: HashMap<&str, String> = HashMap::new();
+    for (index, repository) in repositories.iter().enumerate() {
+        repository_xref.insert(&repository.id, format!("@R{}@", index + 1));
+    }
     let mut source_xref: HashMap<&str, String> = HashMap::new();
     for (index, source) in sources.iter().enumerate() {
         source_xref.insert(&source.id, format!("@S{}@", index + 1));
+    }
+
+    let mut links_by_source: HashMap<&str, Vec<&RepoLink>> = HashMap::new();
+    for link in &repo_links {
+        links_by_source
+            .entry(link.source_id.as_str())
+            .or_default()
+            .push(link);
     }
 
     let mut famc_by_child: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -261,18 +373,55 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         }
     }
 
-    // Source records precede INDI/FAM so a streaming importer can resolve
-    // event pointers in a single forward pass.
+    // Repositories and sources precede INDI/FAM so a streaming importer can
+    // resolve event pointers in a single forward pass.
+    for (index, repository) in repositories.iter().enumerate() {
+        out.push_str(&format!("0 @R{}@ REPO\n", index + 1));
+        out.push_str(&format!("1 NAME {}\n", repository.name));
+        if let Some(address) = &repository.address {
+            push_text(&mut out, 1, "ADDR", address);
+        }
+        if let Some(note) = &repository.notes {
+            push_text(&mut out, 1, "NOTE", note);
+        }
+    }
+
     for (index, source) in sources.iter().enumerate() {
         out.push_str(&format!("0 @S{}@ SOUR\n", index + 1));
         out.push_str(&format!("1 TITL {}\n", source.title));
-        if let Some(note) = &source.notes {
-            let mut lines = note.split('\n');
-            if let Some(first) = lines.next() {
-                out.push_str(&format!("1 NOTE {first}\n"));
-                for line in lines {
-                    out.push_str(&format!("2 CONT {line}\n"));
+        if let Some(author) = &source.author {
+            out.push_str(&format!("1 AUTH {author}\n"));
+        }
+        if let Some(publication) = &source.publication {
+            out.push_str(&format!("1 PUBL {publication}\n"));
+        }
+        if let Some(abbreviation) = &source.abbreviation {
+            out.push_str(&format!("1 ABBR {abbreviation}\n"));
+        }
+        if let Some(links) = links_by_source.get(source.id.as_str()) {
+            for link in links {
+                let Some(xref) = repository_xref.get(link.repository_id.as_str()) else {
+                    continue;
+                };
+                out.push_str(&format!("1 REPO {xref}\n"));
+                if let Some(call_number) = &link.call_number {
+                    out.push_str(&format!("2 CALN {call_number}\n"));
                 }
+                if let Some(media_type) = &link.media_type {
+                    out.push_str(&format!("2 MEDI {media_type}\n"));
+                }
+            }
+        }
+        if let Some(note) = &source.notes {
+            push_text(&mut out, 1, "NOTE", note);
+        }
+        if source.data_date.is_some() || source.data_text.is_some() {
+            out.push_str("1 DATA\n");
+            if let Some(date) = &source.data_date {
+                out.push_str(&format!("2 DATE {date}\n"));
+            }
+            if let Some(text) = &source.data_text {
+                push_text(&mut out, 2, "TEXT", text);
             }
         }
     }
@@ -298,13 +447,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         }
         out.push_str(&format!("1 SEX {}\n", person.gender));
         if !person.notes.is_empty() {
-            let mut note_lines = person.notes.split('\n');
-            if let Some(first) = note_lines.next() {
-                out.push_str(&format!("1 NOTE {first}\n"));
-                for line in note_lines {
-                    out.push_str(&format!("2 CONT {line}\n"));
-                }
-            }
+            push_text(&mut out, 1, "NOTE", &person.notes);
         }
 
         if let Some(person_events) = events_by_person.get(person.id.as_str()) {
