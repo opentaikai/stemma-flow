@@ -204,6 +204,161 @@ pub fn builtin_templates() -> Vec<SourceTemplate> {
     ]
 }
 
+/// The three rendered forms of one citation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RenderedCitation {
+    pub footnote: String,
+    pub short_footnote: String,
+    pub bibliography: String,
+}
+
+/// Renders the three citation forms from source and citation field values.
+pub fn render_citation(
+    template: &SourceTemplate,
+    source_fields: &BTreeMap<String, String>,
+    citation_fields: &BTreeMap<String, String>,
+) -> RenderedCitation {
+    let mut values = source_fields.clone();
+    for (key, value) in citation_fields {
+        values.insert(key.clone(), value.clone());
+    }
+    RenderedCitation {
+        footnote: render_format(&template.footnote, &values),
+        short_footnote: render_format(&template.short_footnote, &values),
+        bibliography: render_format(&template.bibliography, &values),
+    }
+}
+
+/// Renders the GEDCOM-compatible source columns from the source fields.
+pub fn gedcom_columns(
+    template: &SourceTemplate,
+    source_fields: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    template
+        .gedcom
+        .iter()
+        .map(|(column, format)| (column.clone(), render_format(format, source_fields)))
+        .filter(|(_, value)| !value.is_empty())
+        .collect()
+}
+
+/// Substitutes `{field}` placeholders and cleans the punctuation left by
+/// empty optional fields.
+pub fn render_format(format: &str, values: &BTreeMap<String, String>) -> String {
+    let mut out = String::new();
+    let mut rest = format;
+    while let Some(start) = rest.find('{') {
+        out.push_str(&rest[..start]);
+        let Some(end_offset) = rest[start + 1..].find('}') else {
+            out.push_str(&rest[start..]);
+            return cleanup(&out);
+        };
+        let end = start + 1 + end_offset;
+        let key = &rest[start + 1..end];
+        if let Some(value) = values.get(key) {
+            out.push_str(value.trim());
+        }
+        rest = &rest[end + 1..];
+    }
+    out.push_str(rest);
+    cleanup(&out)
+}
+
+fn cleanup(text: &str) -> String {
+    let mut out = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    for _ in 0..8 {
+        let before = out.clone();
+        out = remove_empty_group(&out, '(', ')');
+        out = remove_empty_group(&out, '[', ']');
+        out = remove_empty_group(&out, '"', '"');
+        out = out
+            .replace(" ,", ",")
+            .replace(" .", ".")
+            .replace(" ;", ";")
+            .replace(" :", ":")
+            .replace("( ", "(")
+            .replace(" )", ")")
+            .replace("[ ", "[")
+            .replace(" ]", "]");
+        out = collapse_punctuation(&out);
+        out = out
+            .replace(", .", ".")
+            .replace("; .", ".")
+            .replace(": .", ".")
+            .replace(". .", ".")
+            .replace("..", ".");
+        out = out
+            .trim_start_matches(|character: char| {
+                character.is_whitespace() || matches!(character, ',' | ';' | ':' | '.')
+            })
+            .to_string();
+        out = out
+            .trim_end_matches(|character: char| {
+                character.is_whitespace() || matches!(character, ',' | ';' | ':')
+            })
+            .to_string();
+        out = out.split_whitespace().collect::<Vec<_>>().join(" ");
+        if out == before {
+            break;
+        }
+    }
+    out
+}
+
+fn remove_empty_group(text: &str, open: char, close: char) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut index = 0;
+    while index < chars.len() {
+        if chars.get(index) == Some(&open)
+            && let Some(offset) = chars[index + 1..].iter().position(|c| *c == close)
+        {
+            let inner: String = chars[index + 1..index + 1 + offset].iter().collect();
+            if !inner.chars().any(|character| character.is_alphanumeric()) {
+                index += offset + 2;
+                continue;
+            }
+        }
+        if let Some(character) = chars.get(index) {
+            out.push(*character);
+        }
+        index += 1;
+    }
+    out
+}
+
+fn collapse_punctuation(text: &str) -> String {
+    fn flush(run: &mut Vec<char>, out: &mut String) {
+        if run.is_empty() {
+            return;
+        }
+        let chosen = if run.contains(&'.') {
+            '.'
+        } else if run.contains(&';') {
+            ';'
+        } else if run.contains(&':') {
+            ':'
+        } else {
+            ','
+        };
+        out.push(chosen);
+        run.clear();
+    }
+
+    let mut out = String::with_capacity(text.len());
+    let mut run: Vec<char> = Vec::new();
+    for character in text.chars() {
+        if matches!(character, ',' | ';' | ':' | '.') {
+            run.push(character);
+        } else {
+            flush(&mut run, &mut out);
+            out.push(character);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,5 +394,86 @@ mod tests {
             );
         }
         assert_eq!(templates.len(), 5);
+    }
+    fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn book_renders_all_three_forms() {
+        let template = builtin_templates()
+            .into_iter()
+            .find(|template| template.key == "book")
+            .expect("book template");
+        let source = values(&[
+            ("author", "Ada King"),
+            ("title", "Family History"),
+            ("place", "London"),
+            ("publisher", "Archive Press"),
+            ("year", "1900"),
+        ]);
+        let citation = values(&[("page", "42")]);
+        let rendered = render_citation(&template, &source, &citation);
+        assert_eq!(
+            rendered.footnote,
+            "Ada King, Family History (London: Archive Press, 1900), 42."
+        );
+        assert_eq!(rendered.short_footnote, "Ada King, Family History, 42.");
+        assert_eq!(
+            rendered.bibliography,
+            "Ada King. Family History. London: Archive Press, 1900."
+        );
+    }
+
+    #[test]
+    fn missing_optional_fields_leave_no_dangling_punctuation() {
+        let template = builtin_templates()
+            .into_iter()
+            .find(|template| template.key == "book")
+            .expect("book template");
+        let source = values(&[("title", "Family History")]);
+        let rendered = render_citation(&template, &source, &values(&[]));
+        assert_eq!(rendered.footnote, "Family History.");
+        assert_eq!(rendered.short_footnote, "Family History.");
+        assert_eq!(rendered.bibliography, "Family History.");
+    }
+
+    #[test]
+    fn quoted_website_without_creator_stays_clean() {
+        let template = builtin_templates()
+            .into_iter()
+            .find(|template| template.key == "website")
+            .expect("website template");
+        let source = values(&[("title", "Census records")]);
+        let rendered = render_citation(&template, &source, &values(&[]));
+        assert_eq!(rendered.short_footnote, "\"Census records.\"");
+    }
+
+    #[test]
+    fn gedcom_columns_compose_publication() {
+        let template = builtin_templates()
+            .into_iter()
+            .find(|template| template.key == "book")
+            .expect("book template");
+        let source = values(&[
+            ("title", "Family History"),
+            ("author", "Ada King"),
+            ("place", "London"),
+            ("publisher", "Archive Press"),
+            ("year", "1900"),
+        ]);
+        let columns = gedcom_columns(&template, &source);
+        assert_eq!(
+            columns.get("title").map(String::as_str),
+            Some("Family History")
+        );
+        assert_eq!(columns.get("author").map(String::as_str), Some("Ada King"));
+        assert_eq!(
+            columns.get("publication").map(String::as_str),
+            Some("London: Archive Press, 1900")
+        );
     }
 }
