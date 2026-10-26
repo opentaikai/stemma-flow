@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::schema::{
     CORE_TABLES_SQL, FACT_SEED_SQL, INDEXES_SQL, LINK_TABLES_SQL, SCHEMA_VERSION, V3_COLUMNS,
-    V3_INDEXES_SQL, V3_TABLES_SQL, ensure_column,
+    V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, ensure_column, seed_source_templates,
 };
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
@@ -37,6 +37,15 @@ pub(super) fn migrate_v2_to_v3(conn: &Connection) -> rusqlite::Result<()> {
         "INSERT OR IGNORE INTO source_repositories (source_id, repository_id)
          SELECT id, repository_id FROM sources WHERE repository_id IS NOT NULL;",
     )?;
+    tx.pragma_update(None, "user_version", 3)?;
+    tx.commit()
+}
+
+/// Adds the source template catalogue and seeds the built-ins.
+pub(super) fn migrate_v3_to_v4(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch(V4_TABLES_SQL)?;
+    seed_source_templates(&tx)?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()
 }

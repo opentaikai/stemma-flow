@@ -54,6 +54,7 @@ impl TreeWindow {
     }
 
     pub(super) fn reload_data(&mut self) {
+        let switched = self.seen_db != self.app.active_db().map(Path::to_path_buf);
         let loaded = self
             .app
             .active_db()
@@ -74,6 +75,9 @@ impl TreeWindow {
         self.watch.mark_dirty();
         self.seen_db = self.app.active_db().map(Path::to_path_buf);
         self.seen_generation = self.app.import_generation();
+        if switched {
+            self.sources = crate::gui::sources::SourcesState::default();
+        }
     }
 
     /// Scales and centres the whole loaded scene inside `viewport_rect`

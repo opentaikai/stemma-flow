@@ -14,6 +14,7 @@ use super::inspector::InspectorForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
 use super::settings;
+use super::sources;
 use super::tabs;
 use super::watchlist;
 use super::watchlist::PersonRow;
@@ -47,6 +48,7 @@ pub struct TreeWindow {
     pub(super) drag_started_on_node: bool,
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
+    pub(super) sources: sources::SourcesState,
     pub(super) tree: FamilyTree,
     pub(super) dates: HashMap<String, VitalDates>,
     pub(super) marriages: HashMap<String, MarriageInfo>,
@@ -80,6 +82,7 @@ impl TreeWindow {
             drag_started_on_node: false,
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
+            sources: sources::SourcesState::default(),
             tree: FamilyTree::default(),
             dates: HashMap::new(),
             marriages: HashMap::new(),
@@ -135,6 +138,7 @@ impl App for TreeWindow {
             egui::CentralPanel::default().show(ui, |ui| match self.tab {
                 tabs::AppTab::Graph => self.canvas(ui),
                 tabs::AppTab::WatchList => self.watch_list(ui),
+                tabs::AppTab::Sources => self.sources_tab(ui),
             });
         } else {
             self.welcome(ui, frame);
@@ -166,6 +170,7 @@ mod tests {
     use crate::app::JobEvent;
     use crate::db;
     use crate::db::people::ParentRole;
+    use crate::db::sources::SourceDraft;
     use crate::gui::inspector;
     use crate::gui::inspector::InspectorAction;
     use crate::gui::inspector::RelationKind;
@@ -597,6 +602,43 @@ mod tests {
             .find(|person| person.id == person_id)
             .expect("the draft is still there");
         assert_eq!(person.given_name, "New");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn saving_a_source_refreshes_the_sources_list() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.reload_sources();
+        assert!(window.sources.loaded);
+        assert_eq!(window.sources.templates.len(), 5);
+        assert!(window.sources.list.is_empty());
+
+        let mut draft = SourceDraft {
+            template_key: Some("book".to_string()),
+            ..SourceDraft::default()
+        };
+        draft
+            .fields
+            .insert("title".to_string(), "Family History".to_string());
+        let id = window.app.save_source(&draft).expect("source saves");
+        window.sources.selected = Some(id);
+        window.reload_sources();
+
+        assert_eq!(window.sources.list.len(), 1);
+        assert_eq!(window.sources.list[0].title, "Family History");
+        assert_eq!(
+            window.sources.draft.fields.get("title").map(String::as_str),
+            Some("Family History")
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }

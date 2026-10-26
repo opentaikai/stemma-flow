@@ -10,8 +10,10 @@ use std::thread;
 
 use crate::db;
 use crate::db::people::{self, ParentRole, PersonDetails};
+use crate::db::sources::{self as source_store, SourceDraft, SourceRecord, SourceSummary};
 use crate::gedcom::{ImportReport, export_to_gedcom, import_gedcom};
 use crate::gui::dialogs;
+use crate::model::source_template::SourceTemplate;
 
 /// Outcome of a background import/export job.
 #[derive(Debug)]
@@ -274,6 +276,45 @@ impl StemmaApp {
     fn finish_link(&mut self) -> Result<(), String> {
         self.import_generation += 1;
         self.set_status(UiStatus::Success("Linked existing person".to_string()));
+        Ok(())
+    }
+
+    /// Loads the source template catalogue.
+    pub fn source_templates(&self) -> Result<Vec<SourceTemplate>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        source_store::load_templates(&conn)
+    }
+
+    /// Lists sources with their citation counts.
+    pub fn list_sources(&self) -> Result<Vec<SourceSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        source_store::list_sources(&conn)
+    }
+
+    /// Loads one source for editing.
+    pub fn load_source(&self, id: &str) -> Result<Option<SourceRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        source_store::load_source(&conn, id)
+    }
+
+    /// Inserts or updates a source.
+    pub fn save_source(&mut self, draft: &SourceDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = source_store::save_source(&mut conn, draft)?;
+        self.set_status(UiStatus::Success("Source saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes a source and its citations.
+    pub fn delete_source(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        source_store::delete_source(&mut conn, id)?;
+        self.set_status(UiStatus::Success("Source deleted".to_string()));
         Ok(())
     }
 

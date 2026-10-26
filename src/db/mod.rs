@@ -4,6 +4,7 @@ mod migrations;
 pub mod models;
 pub mod people;
 pub mod schema;
+pub mod sources;
 
 pub use models::{Citation, Event, Family, Person};
 pub use schema::init_db;
