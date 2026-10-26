@@ -677,7 +677,38 @@ mod tests {
         assert_eq!(window.citations.citations.len(), 1);
         assert_eq!(window.citations.citations[0].source_title, "Parish Book");
         assert_eq!(window.citations.citations[0].page, "12");
+        assert_eq!(window.citations.citations[0].usage, 1);
         assert_eq!(window.citations.sources.len(), 1);
+        assert_eq!(window.citations.targets.len(), 2);
+        assert_eq!(window.citations.targets[0].key, "BIRTH");
+
+        window.citations.add_source = Some(source_id.clone());
+        window.citations.loaded = false;
+        window.sync_citations();
+        assert_eq!(window.citations.choices.len(), 1);
+        assert_eq!(
+            window.citations.choices_source.as_deref(),
+            Some(source_id.as_str())
+        );
+
+        let citation_id = window.citations.citations[0].id.clone();
+        window.apply_inspector_action(
+            InspectorAction::AttachCitation {
+                citation_id: citation_id.clone(),
+                target: "DEATH".to_string(),
+            },
+            &person_id,
+        );
+        window.citations.loaded = false;
+        window.sync_citations();
+        assert_eq!(
+            window.citations.citations.len(),
+            1,
+            "the shared citation is grouped into one draft"
+        );
+        assert_eq!(window.citations.citations[0].uses.len(), 2);
+        assert_eq!(window.citations.citations[0].usage, 2);
+        assert_eq!(window.citations.choices[0].usage, 2);
 
         let mut edit = window.citations.citations[0].to_edit();
         edit.quality_source = Some(SourceQuality::Original);
@@ -690,6 +721,34 @@ mod tests {
         assert_eq!(
             window.citations.citations[0].quality_source,
             Some(SourceQuality::Original)
+        );
+
+        let death_event = window.citations.citations[0]
+            .uses
+            .iter()
+            .find(|use_| use_.event_type == "DEATH")
+            .expect("death use")
+            .event_id
+            .clone();
+        window.apply_inspector_action(
+            InspectorAction::DetachCitation {
+                citation_id,
+                event_id: death_event,
+            },
+            &person_id,
+        );
+        window.citations.loaded = false;
+        window.sync_citations();
+        assert_eq!(window.citations.citations[0].uses.len(), 1);
+        assert_eq!(window.citations.citations[0].usage, 1);
+
+        window.apply_inspector_action(
+            InspectorAction::LoadCitationChoices(source_id.clone()),
+            &person_id,
+        );
+        assert_eq!(
+            window.citations.choices_source.as_deref(),
+            Some(source_id.as_str())
         );
 
         let _ = std::fs::remove_file(&db_file);
