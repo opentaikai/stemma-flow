@@ -48,7 +48,7 @@ Priority:
 | First-or-last-name requirement on manual saves | done | P0 | Drafts may exist until named |
 | Theme and font scaling settings | done | P2 | Persisted config |
 | Background import and export jobs | done | P1 | UI stays responsive |
-| Sources and citations | partial | P0 | Source and citation editors with reusable citations |
+| Sources and citations | partial | P0 | Source and citation editors, reusable citations and source merge |
 | Facts and events | partial | P0 | BIRT, DEAT and MARR only |
 | Places | partial | P0 | Place records in schema v2; no place page yet |
 | Names | partial | P0 | Given, middle, surname, nickname only |
@@ -83,7 +83,7 @@ places, facts, alternate names and notes as first-class records.
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
 | Citation quality fields (source, information, evidence) | done | P1 | Inspector editor with source/information/evidence and editable QUAY |
 | Reusable citations across people, facts and families | done | P1 | Reference model; person and family-event reuse in the inspector |
-| Source list with edit, merge and template conversion | partial | P1 | List, edit and template selection; merge/conversion pending |
+| Source list with edit, merge and template conversion | done | P1 | Inline target-wins merge; template conversion carries values |
 | Repositories and repository list | partial | P1 | Schema and GEDCOM round-trip; grid pending |
 | Place authority: list, reverse ordering, notes, latitude and longitude | planned | P0 | Replaces free-text place duplication |
 | Place usage lists and editing people from a place | planned | P1 | See M4 for maps |

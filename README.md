@@ -231,8 +231,13 @@ views (the app always launches on Graph View):
   appended (or substituted for `{page}`) in the live preview. Templated
   sources show the same three forms from their fields and cache their mapped
   fields into the GEDCOM-compatible source columns on save; required fields
-  disable saving until filled. Citations are attached, reused and rated
-  from the inspector's Citations card.
+  disable saving until filled. Sources can be merged: the survivor keeps its
+  template and non-empty values, while citations, repositories, fields and
+  media/task links move from the absorbed source. Switching templates carries
+  matching values, seeds title and author, and replaces free-form citation
+  text with the template rendering; the live preview shows the result before
+  saving. Citations are attached, reused and rated from the inspector's
+  Citations card.
 - **Person Inspector** — a right-side panel shown whenever a person is
   selected, with a pinned **×** button that closes it by clearing the
   selection. It is laid out as framed cards in a scrolling body with the
