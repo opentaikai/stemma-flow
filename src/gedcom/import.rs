@@ -32,6 +32,13 @@ pub(crate) struct SourceRef {
     /// Inline citation text for unlinked `2 SOUR Text` payloads.
     pub text: Option<String>,
     pub page: Option<String>,
+    /// GEDCOM certainty (`QUAY`).
+    pub quality: Option<String>,
+    /// Citation-level note (`3 NOTE`).
+    pub note: Option<String>,
+    pub media_type: Option<String>,
+    pub data_date: Option<String>,
+    pub data_text: Option<String>,
 }
 
 /// An event recovered from a `BIRT`/`DEAT`/`MARR` sub-block.
@@ -73,12 +80,62 @@ pub(crate) struct FamRecord {
     pub events: Vec<ParsedEvent>,
 }
 
+/// One `1 REPO @R@` link on a source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RepositoryRef {
+    pub xref: String,
+    pub call_number: Option<String>,
+    pub media_type: Option<String>,
+}
+
 /// A parsed `0 @S1@ SOUR` record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SourRecord {
     pub xref: String,
     pub title: String,
+    pub author: Option<String>,
+    pub publication: Option<String>,
+    pub abbreviation: Option<String>,
+    pub repositories: Vec<RepositoryRef>,
     pub note: Option<String>,
+    pub data_date: Option<String>,
+    pub data_text: Option<String>,
+}
+
+impl SourRecord {
+    fn new(xref: &str) -> Self {
+        Self {
+            xref: xref.to_string(),
+            title: String::new(),
+            author: None,
+            publication: None,
+            abbreviation: None,
+            repositories: Vec::new(),
+            note: None,
+            data_date: None,
+            data_text: None,
+        }
+    }
+}
+
+/// A parsed `0 @R1@ REPO` record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RepositoryRecord {
+    pub xref: String,
+    pub name: String,
+    pub address: Option<String>,
+    pub note: Option<String>,
+}
+
+impl RepositoryRecord {
+    fn new(xref: &str) -> Self {
+        Self {
+            xref: xref.to_string(),
+            name: String::new(),
+            address: None,
+            note: None,
+        }
+    }
 }
 
 /// A completed level-0 record.
@@ -87,6 +144,7 @@ pub(crate) enum Record {
     Indi(IndiRecord),
     Fam(FamRecord),
     Sour(SourRecord),
+    Repo(RepositoryRecord),
 }
 
 impl IndiRecord {
@@ -179,6 +237,10 @@ fn optional_payload(payload: &str) -> Option<String> {
     }
 }
 
+fn is_pointer(payload: &str) -> bool {
+    payload.len() >= 3 && payload.starts_with('@') && payload.ends_with('@')
+}
+
 /// Appends a `2 CONT` (new line) or `2 CONC` (same line) segment to the
 /// person's first note; an empty note starts with the segment itself.
 fn append_note_continuation(rec: &mut IndiRecord, payload: &str, new_line: bool) {
@@ -232,8 +294,19 @@ enum Current {
         rec: Box<FamRecord>,
         event_slot: Option<usize>,
     },
-    Sour(SourRecord),
+    Sour {
+        rec: SourRecord,
+        section: SourSection,
+    },
+    Repo(RepositoryRecord),
     Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourSection {
+    None,
+    Data,
+    Repository,
 }
 
 /// Level, tag and payload offset of a physical line, parsed straight from
@@ -559,14 +632,24 @@ impl<R: BufRead> RecordReader<R> {
             }
             "SOUR" => {
                 self.current = match line.xref {
-                    Some(xref) => Some(Current::Sour(SourRecord {
-                        xref: xref.to_string(),
-                        title: String::new(),
-                        note: None,
-                    })),
+                    Some(xref) => Some(Current::Sour {
+                        rec: SourRecord::new(xref),
+                        section: SourSection::None,
+                    }),
                     None => {
                         let message =
                             format!("line {}: SOUR record without @XREF@ skipped", self.line_no);
+                        self.warnings.push(message);
+                        Some(Current::Skipped)
+                    }
+                };
+            }
+            "REPO" => {
+                self.current = match line.xref {
+                    Some(xref) => Some(Current::Repo(RepositoryRecord::new(xref))),
+                    None => {
+                        let message =
+                            format!("line {}: REPO record without @XREF@ skipped", self.line_no);
                         self.warnings.push(message);
                         Some(Current::Skipped)
                     }
@@ -595,17 +678,91 @@ impl<R: BufRead> RecordReader<R> {
         let mut warning: Option<String> = None;
         match &mut self.current {
             None | Some(Current::Skipped) => {}
-            Some(Current::Sour(sour)) => {
+            Some(Current::Sour { rec, section }) => {
                 if line.level == 1 {
                     match line.tag {
-                        "TITL" => sour.title = line.payload.to_string(),
-                        "NOTE" => sour.note = Some(line.payload.to_string()),
+                        "TITL" => rec.title = line.payload.to_string(),
+                        "AUTH" => rec.author = optional_payload(line.payload),
+                        "PUBL" => rec.publication = optional_payload(line.payload),
+                        "ABBR" => rec.abbreviation = optional_payload(line.payload),
+                        "NOTE" => rec.note = Some(line.payload.to_string()),
+                        "DATA" => *section = SourSection::Data,
+                        "REPO" => {
+                            if is_pointer(line.payload) {
+                                rec.repositories.push(RepositoryRef {
+                                    xref: line.payload.to_string(),
+                                    call_number: None,
+                                    media_type: None,
+                                });
+                                *section = SourSection::Repository;
+                            } else {
+                                *section = SourSection::None;
+                                warning =
+                                    Some(format!("line {line_no}: REPO without pointer ignored"));
+                            }
+                        }
                         "CONT" => {
                             let continuation = line.payload.to_string();
-                            sour.note = match sour.note.take() {
+                            rec.note = match rec.note.take() {
                                 Some(existing) => Some(format!("{existing}\n{continuation}")),
                                 None => Some(continuation),
                             };
+                        }
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                    }
+                    if line.tag != "DATA" && line.tag != "REPO" {
+                        *section = SourSection::None;
+                    }
+                } else if line.level == 2 {
+                    match *section {
+                        SourSection::Data => match line.tag {
+                            "DATE" => rec.data_date = optional_payload(line.payload),
+                            "TEXT" => rec.data_text = optional_payload(line.payload),
+                            _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                        },
+                        SourSection::Repository => match rec.repositories.last_mut() {
+                            Some(repository) => match line.tag {
+                                "CALN" => repository.call_number = optional_payload(line.payload),
+                                "MEDI" => repository.media_type = optional_payload(line.payload),
+                                _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                            },
+                            None => warning = Some(unknown_tag_warning(line_no, &line)),
+                        },
+                        SourSection::None => warning = Some(unknown_tag_warning(line_no, &line)),
+                    }
+                } else {
+                    warning = Some(unknown_tag_warning(line_no, &line));
+                }
+            }
+            Some(Current::Repo(repo)) => {
+                if line.level == 1 {
+                    match line.tag {
+                        "NAME" => repo.name = line.payload.to_string(),
+                        "ADDR" => repo.address = optional_payload(line.payload),
+                        "NOTE" => repo.note = Some(line.payload.to_string()),
+                        "CONT" => {
+                            let continuation = line.payload.to_string();
+                            repo.note = match repo.note.take() {
+                                Some(existing) => Some(format!("{existing}\n{continuation}")),
+                                None => Some(continuation),
+                            };
+                        }
+                        "PHON" | "EMAIL" | "FAX" | "WWW" => {}
+                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                    }
+                } else if line.level == 2 {
+                    match line.tag {
+                        "ADR1" | "ADR2" | "CITY" | "STAE" | "POST" | "CTRY" => {
+                            let text = line.payload.trim();
+                            if !text.is_empty() {
+                                match &mut repo.address {
+                                    Some(address) => {
+                                        address.push('\n');
+                                        address.push_str(text);
+                                    }
+                                    None => repo.address = Some(text.to_string()),
+                                }
+                            }
                         }
                         _ => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
@@ -710,7 +867,8 @@ impl<R: BufRead> RecordReader<R> {
         match self.current.take() {
             Some(Current::Indi { rec, .. }) => Some(Record::Indi(*rec)),
             Some(Current::Fam { rec, .. }) => Some(Record::Fam(*rec)),
-            Some(Current::Sour(sour)) => Some(Record::Sour(sour)),
+            Some(Current::Sour { rec, .. }) => Some(Record::Sour(rec)),
+            Some(Current::Repo(repo)) => Some(Record::Repo(repo)),
             Some(Current::Skipped) | None => None,
         }
     }
@@ -766,35 +924,75 @@ fn fill_event(
     line_no: usize,
     warning: &mut Option<String>,
 ) {
-    if let Some(event) = events.get_mut(slot) {
-        match line.tag {
+    let Some(event) = events.get_mut(slot) else {
+        return;
+    };
+    match line.level {
+        2 => match line.tag {
             "DATE" => event.date = optional_payload(line.payload),
             "PLAC" => event.place = optional_payload(line.payload),
             "SOUR" => {
-                let is_pointer = line.payload.len() >= 3
-                    && line.payload.starts_with('@')
-                    && line.payload.ends_with('@');
-                if is_pointer {
-                    event.source_refs.push(SourceRef {
-                        xref: Some(line.payload.to_string()),
-                        text: None,
-                        page: None,
-                    });
+                let mut source = SourceRef {
+                    xref: None,
+                    text: None,
+                    page: None,
+                    quality: None,
+                    note: None,
+                    media_type: None,
+                    data_date: None,
+                    data_text: None,
+                };
+                if is_pointer(line.payload) {
+                    source.xref = Some(line.payload.to_string());
                 } else if !line.payload.is_empty() {
-                    event.source_refs.push(SourceRef {
-                        xref: None,
-                        text: Some(line.payload.to_string()),
-                        page: None,
-                    });
+                    source.text = Some(line.payload.to_string());
+                } else {
+                    *warning = Some(format!(
+                        "line {line_no}: SOUR without pointer or text ignored"
+                    ));
+                    return;
                 }
+                event.source_refs.push(source);
             }
-            "PAGE" => {
-                if let Some(last) = event.source_refs.last_mut() {
-                    last.page = optional_payload(line.payload);
+            _ => *warning = Some(unknown_tag_warning(line_no, &line)),
+        },
+        3 => match line.tag {
+            "DATA" => {}
+            "PAGE" | "QUAY" | "NOTE" | "MEDI" => {
+                if let Some(source) = event.source_refs.last_mut() {
+                    match line.tag {
+                        "PAGE" => source.page = optional_payload(line.payload),
+                        "QUAY" => source.quality = optional_payload(line.payload),
+                        "NOTE" => source.note = optional_payload(line.payload),
+                        _ => source.media_type = optional_payload(line.payload),
+                    }
+                } else {
+                    *warning = Some(format!(
+                        "line {line_no}: {} without a preceding SOUR ignored",
+                        line.tag
+                    ));
                 }
             }
             _ => *warning = Some(unknown_tag_warning(line_no, &line)),
-        }
+        },
+        4 => match line.tag {
+            "DATE" | "TEXT" => {
+                if let Some(source) = event.source_refs.last_mut() {
+                    if line.tag == "DATE" {
+                        source.data_date = optional_payload(line.payload);
+                    } else {
+                        source.data_text = optional_payload(line.payload);
+                    }
+                } else {
+                    *warning = Some(format!(
+                        "line {line_no}: {} without a preceding SOUR ignored",
+                        line.tag
+                    ));
+                }
+            }
+            _ => *warning = Some(unknown_tag_warning(line_no, &line)),
+        },
+        _ => *warning = Some(unknown_tag_warning(line_no, &line)),
     }
 }
 
@@ -821,6 +1019,11 @@ struct PendingCitation {
     event_id: String,
     xref: String,
     page: Option<String>,
+    quality: Option<String>,
+    note: Option<String>,
+    media_type: Option<String>,
+    data_date: Option<String>,
+    data_text: Option<String>,
 }
 
 /// Streams a GEDCOM 5.5.1 document from `reader` into `conn`.
@@ -838,10 +1041,11 @@ pub fn import_gedcom<R: BufRead>(
     let mut id_map: HashMap<String, String> = HashMap::new();
     let mut person_links: Vec<PersonLinks> = Vec::new();
     let mut family_links: Vec<FamilyLinks> = Vec::new();
-    let mut sour_meta: HashMap<String, (String, Option<String>)> = HashMap::new();
+    let mut sour_meta: HashMap<String, SourRecord> = HashMap::new();
     let mut sour_order: Vec<String> = Vec::new();
+    let mut repo_ids: HashMap<String, String> = HashMap::new();
+    let mut inline_sources: HashMap<String, String> = HashMap::new();
     let mut pending_citations: Vec<PendingCitation> = Vec::new();
-    let mut source_cache: HashMap<(String, Option<String>), String> = HashMap::new();
     let mut place_cache: HashMap<String, String> = HashMap::new();
 
     // Pass 1: stream records into the tables, recording xref -> UUID mappings.
@@ -877,7 +1081,7 @@ pub fn import_gedcom<R: BufRead>(
                         &event_id,
                         &mut report,
                         &mut pending_citations,
-                        &mut source_cache,
+                        &mut inline_sources,
                     )?;
                 }
                 id_map.insert(indi.xref.clone(), id.clone());
@@ -907,7 +1111,7 @@ pub fn import_gedcom<R: BufRead>(
                         &event_id,
                         &mut report,
                         &mut pending_citations,
-                        &mut source_cache,
+                        &mut inline_sources,
                     )?;
                 }
                 id_map.insert(fam.xref.clone(), id.clone());
@@ -925,8 +1129,23 @@ pub fn import_gedcom<R: BufRead>(
                     report.warnings.push(message);
                     continue;
                 }
-                sour_meta.insert(sour.xref.clone(), (sour.title, sour.note));
-                sour_order.push(sour.xref);
+                let xref = sour.xref.clone();
+                sour_meta.insert(xref.clone(), sour);
+                sour_order.push(xref);
+            }
+            Record::Repo(repo) => {
+                if repo_ids.contains_key(&repo.xref) {
+                    let message = format!("duplicate REPO {} skipped", repo.xref);
+                    report.warnings.push(message);
+                    continue;
+                }
+                let id = Uuid::new_v4().to_string();
+                tx.execute(
+                    "INSERT INTO repositories (id, name, address, notes)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![id, repo.name, repo.address, repo.note],
+                )?;
+                repo_ids.insert(repo.xref, id);
             }
         }
     }
@@ -1020,10 +1239,10 @@ pub fn import_gedcom<R: BufRead>(
     // Insertion follows document order so repeated exports stay deterministic.
     let mut source_ids: HashMap<&str, String> = HashMap::with_capacity(sour_order.len());
     for xref in &sour_order {
-        let Some((title, note)) = sour_meta.get(xref.as_str()) else {
+        let Some(source) = sour_meta.get(xref.as_str()) else {
             continue;
         };
-        let source_id = resolve_source(&tx, &mut source_cache, title, note.as_deref())?;
+        let source_id = insert_source(&tx, source, &repo_ids, &mut report)?;
         source_ids.insert(xref.as_str(), source_id);
     }
     for citation in &pending_citations {
@@ -1032,6 +1251,11 @@ pub fn import_gedcom<R: BufRead>(
                 &tx,
                 source_id,
                 citation.page.as_deref(),
+                citation.quality.as_deref(),
+                citation.note.as_deref(),
+                citation.media_type.as_deref(),
+                citation.data_date.as_deref(),
+                citation.data_text.as_deref(),
                 Some(&citation.event_id),
                 &mut report,
             )?,
@@ -1053,7 +1277,7 @@ fn collect_source_refs(
     event_id: &str,
     report: &mut ImportReport,
     pending: &mut Vec<PendingCitation>,
-    sources: &mut HashMap<(String, Option<String>), String>,
+    inline_sources: &mut HashMap<String, String>,
 ) -> rusqlite::Result<()> {
     for source in &event.source_refs {
         if let Some(xref) = &source.xref {
@@ -1061,13 +1285,23 @@ fn collect_source_refs(
                 event_id: event_id.to_string(),
                 xref: xref.clone(),
                 page: source.page.clone(),
+                quality: source.quality.clone(),
+                note: source.note.clone(),
+                media_type: source.media_type.clone(),
+                data_date: source.data_date.clone(),
+                data_text: source.data_text.clone(),
             });
         } else if let Some(title) = &source.text {
-            let source_id = resolve_source(conn, sources, title, None)?;
+            let source_id = insert_inline_source(conn, inline_sources, title)?;
             insert_citation(
                 conn,
                 &source_id,
                 source.page.as_deref(),
+                source.quality.as_deref(),
+                source.note.as_deref(),
+                source.media_type.as_deref(),
+                source.data_date.as_deref(),
+                source.data_text.as_deref(),
                 Some(event_id),
                 report,
             )?;
@@ -1076,25 +1310,99 @@ fn collect_source_refs(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn insert_citation(
     conn: &Connection,
     source_id: &str,
     page_or_reference: Option<&str>,
+    quality: Option<&str>,
+    note: Option<&str>,
+    media_type: Option<&str>,
+    data_date: Option<&str>,
+    data_text: Option<&str>,
     event_id: Option<&str>,
     report: &mut ImportReport,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO citations (id, source_id, page_or_reference, notes, event_id)
-         VALUES (?1, ?2, ?3, NULL, ?4)",
+        "INSERT INTO citations (id, source_id, page_or_reference, notes,
+             quality_certainty, media_type, data_date, data_text, event_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             Uuid::new_v4().to_string(),
             source_id,
             page_or_reference,
+            note,
+            quality,
+            media_type,
+            data_date,
+            data_text,
             event_id
         ],
     )?;
     report.citations += 1;
     Ok(())
+}
+
+fn insert_source(
+    conn: &Connection,
+    source: &SourRecord,
+    repositories: &HashMap<String, String>,
+    report: &mut ImportReport,
+) -> rusqlite::Result<String> {
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO sources (id, title, author, publication, abbreviation, notes,
+             data_date, data_text)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            id,
+            source.title,
+            source.author,
+            source.publication,
+            source.abbreviation,
+            source.note,
+            source.data_date,
+            source.data_text
+        ],
+    )?;
+    for repository in &source.repositories {
+        match repositories.get(&repository.xref) {
+            Some(repository_id) => {
+                conn.execute(
+                    "INSERT OR IGNORE INTO source_repositories
+                     (source_id, repository_id, call_number, media_type)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        id,
+                        repository_id,
+                        repository.call_number,
+                        repository.media_type
+                    ],
+                )?;
+            }
+            None => report
+                .warnings
+                .push(format!("dangling REPO pointer {}", repository.xref)),
+        }
+    }
+    Ok(id)
+}
+
+fn insert_inline_source(
+    conn: &Connection,
+    cache: &mut HashMap<String, String>,
+    title: &str,
+) -> rusqlite::Result<String> {
+    if let Some(id) = cache.get(title) {
+        return Ok(id.clone());
+    }
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO sources (id, title) VALUES (?1, ?2)",
+        params![id, title],
+    )?;
+    cache.insert(title.to_string(), id.clone());
+    Ok(id)
 }
 
 fn insert_event(
@@ -1120,38 +1428,6 @@ fn insert_event(
         ],
     )?;
     report.events += 1;
-    Ok(id)
-}
-
-/// Finds or creates a source for `(title, notes)`.
-fn resolve_source(
-    conn: &Connection,
-    cache: &mut HashMap<(String, Option<String>), String>,
-    title: &str,
-    notes: Option<&str>,
-) -> rusqlite::Result<String> {
-    let key = (title.to_string(), notes.map(str::to_string));
-    if let Some(id) = cache.get(&key) {
-        return Ok(id.clone());
-    }
-    if let Some(id) = conn
-        .query_row(
-            "SELECT id FROM sources WHERE title = ?1 AND notes IS ?2
-             ORDER BY rowid LIMIT 1",
-            params![title, notes],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-    {
-        cache.insert(key, id.clone());
-        return Ok(id);
-    }
-    let id = Uuid::new_v4().to_string();
-    conn.execute(
-        "INSERT INTO sources (id, title, notes) VALUES (?1, ?2, ?3)",
-        params![id, title, notes],
-    )?;
-    cache.insert(key, id.clone());
     Ok(id)
 }
 

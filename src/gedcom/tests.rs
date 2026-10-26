@@ -1173,3 +1173,307 @@ fn import_reuses_one_source_for_repeated_pointers() -> Result<(), GedcomError> {
     assert_eq!(pages, 2);
     Ok(())
 }
+
+#[test]
+fn distinct_sources_with_the_same_title_stay_separate() -> Result<(), GedcomError> {
+    let sample = "\
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 1850
+2 SOUR @S1@
+0 @I2@ INDI
+1 NAME Bo /King/
+1 BIRT
+2 DATE 1851
+2 SOUR @S2@
+0 @S1@ SOUR
+1 TITL Census
+1 AUTH One
+0 @S2@ SOUR
+1 TITL Census
+1 AUTH Two
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    assert_eq!(report.citations, 2);
+    let sources: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sources", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(sources, 2, "same-titled sources keep their identity");
+    let distinct: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT source_id) FROM citations",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(distinct, 2, "each citation points at its own source");
+    let authors: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT author FROM sources ORDER BY rowid")
+            .map_err(GedcomError::Db)?;
+        let rows = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(GedcomError::Db)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(GedcomError::Db)?
+    };
+    assert_eq!(authors, vec!["One".to_string(), "Two".to_string()]);
+    Ok(())
+}
+
+#[test]
+fn import_does_not_merge_into_existing_sources() -> Result<(), GedcomError> {
+    let sample = "\
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 1850
+2 SOUR @S1@
+0 @S1@ SOUR
+1 TITL Census
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut conn, Cursor::new(sample))?;
+    import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let sources: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sources", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(sources, 2, "each import creates its own source rows");
+    let citations: i64 = conn
+        .query_row("SELECT COUNT(*) FROM citations", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(citations, 2);
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::type_complexity)]
+fn citation_data_does_not_overwrite_the_event_date() -> Result<(), GedcomError> {
+    let sample = "\
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 12 JAN 1850
+2 SOUR @S1@
+3 PAGE 12
+3 QUAY 3
+3 NOTE Citation note
+3 DATA
+4 DATE 1900
+4 TEXT Transcript
+0 @S1@ SOUR
+1 TITL Parish Book
+1 AUTH Ada Author
+1 PUBL Publisher
+1 ABBR PB
+1 REPO @R1@
+2 CALN 12/34
+1 NOTE Source note
+1 DATA
+2 TEXT Source data
+0 @R1@ REPO
+1 NAME Uppsala Archive
+1 ADDR Main Street
+2 CITY Uppsala
+1 NOTE Repo note
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(
+        report.warnings.is_empty(),
+        "supported source tags must not warn: {:?}",
+        report.warnings
+    );
+
+    let event_date: String = conn
+        .query_row(
+            "SELECT date FROM events WHERE event_type = 'BIRTH'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(event_date, "12 JAN 1850", "citation DATA must not touch it");
+
+    let citation: (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = conn
+        .query_row(
+            "SELECT page_or_reference, quality_certainty, notes, data_date, data_text
+             FROM citations",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(citation.0.as_deref(), Some("12"));
+    assert_eq!(citation.1.as_deref(), Some("3"));
+    assert_eq!(citation.2.as_deref(), Some("Citation note"));
+    assert_eq!(citation.3.as_deref(), Some("1900"));
+    assert_eq!(citation.4.as_deref(), Some("Transcript"));
+
+    let source: (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = conn
+        .query_row(
+            "SELECT title, author, publication, abbreviation, data_text FROM sources",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(source.0, "Parish Book");
+    assert_eq!(source.1.as_deref(), Some("Ada Author"));
+    assert_eq!(source.2.as_deref(), Some("Publisher"));
+    assert_eq!(source.3.as_deref(), Some("PB"));
+    assert_eq!(source.4.as_deref(), Some("Source data"));
+
+    let repository: (String, Option<String>, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT r.name, r.address, r.notes, sr.call_number
+             FROM repositories r JOIN source_repositories sr ON sr.repository_id = r.id",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(repository.0, "Uppsala Archive");
+    assert_eq!(repository.1.as_deref(), Some("Main Street\nUppsala"));
+    assert_eq!(repository.2.as_deref(), Some("Repo note"));
+    assert_eq!(repository.3.as_deref(), Some("12/34"));
+    Ok(())
+}
+
+#[test]
+fn import_warns_on_dangling_repository_pointer() -> Result<(), GedcomError> {
+    let sample = "\
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 1850
+2 SOUR @S1@
+0 @S1@ SOUR
+1 TITL Book
+1 REPO @R9@
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("dangling REPO pointer @R9@")),
+        "missing repository must warn: {:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn source_and_citation_metadata_round_trip() -> Result<(), GedcomError> {
+    let sample = "\
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 12 JAN 1850
+2 SOUR @S1@
+3 PAGE 12
+3 QUAY 3
+3 NOTE Citation note
+3 DATA
+4 DATE 1900
+4 TEXT Transcript
+0 @S1@ SOUR
+1 TITL Parish Book
+1 AUTH Ada Author
+1 PUBL Publisher
+1 ABBR PB
+1 REPO @R1@
+2 CALN 12/34
+1 NOTE Source note
+1 DATA
+2 TEXT Source data
+0 @R1@ REPO
+1 NAME Uppsala Archive
+1 ADDR Main Street
+2 CITY Uppsala
+1 NOTE Repo note
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut conn, Cursor::new(sample))?;
+    let exported = export_to_gedcom(&conn)?;
+
+    for expected in [
+        "0 @R1@ REPO",
+        "1 NAME Uppsala Archive",
+        "1 ADDR Main Street",
+        "2 CONT Uppsala",
+        "1 NOTE Repo note",
+        "0 @S1@ SOUR",
+        "1 TITL Parish Book",
+        "1 AUTH Ada Author",
+        "1 PUBL Publisher",
+        "1 ABBR PB",
+        "1 REPO @R1@",
+        "2 CALN 12/34",
+        "1 NOTE Source note",
+        "1 DATA",
+        "2 TEXT Source data",
+        "2 SOUR @S1@",
+        "3 PAGE 12",
+        "3 QUAY 3",
+        "3 NOTE Citation note",
+        "3 DATA",
+        "4 DATE 1900",
+        "4 TEXT Transcript",
+    ] {
+        assert!(
+            exported.contains(expected),
+            "export must contain {expected:?}: {exported:?}"
+        );
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert_eq!(report.citations, 1);
+    assert!(
+        report.warnings.is_empty(),
+        "metadata export must re-import cleanly: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        export_to_gedcom(&fresh)?,
+        exported,
+        "source and citation metadata must round-trip byte for byte"
+    );
+    Ok(())
+}

@@ -20,25 +20,29 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (16 tables, 29
-  indexes) and records its version in `PRAGMA user_version` (currently 2):
+- `db::init_db(&conn)` creates or upgrades the schema (17 tables, 31
+  indexes) and records its version in `PRAGMA user_version` (currently 3):
   `people`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `places`, `fact_types`, `events`, `citations`, `media`,
-  `media_links`, `tasks`, `task_links`, `groups` and `group_members`.
-  A v1 database is migrated in place inside one transaction: citation
+  `media_links`, `tasks`, `task_links`, `groups`, `group_members` and
+  `source_repositories`. A v1 database is migrated in place: citation
   titles become `sources`, event places become `places`, and the new links
-  are backfilled. Databases from a newer build are rejected. The upgrade
-  runs on every open (the `gui::window` loader validates and migrates
-  before loading), so existing trees keep opening.
+  are backfilled. v2 databases are upgraded to v3, which adds source and
+  citation metadata columns and moves legacy repository links into
+  `source_repositories`. Databases from a newer build are rejected. The
+  upgrade runs on every open (the `gui::window` loader validates and
+  migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
   structs; ids are UUID strings. `Event` references a `place_id` and
   `Citation` references a `source_id`.
 - `db::load_marriage_details(&conn)` maps each family id to its first
   `MARRIAGE` event's date and place name, for the inspector's spouse rows.
 - Sources and places are normalised: `sources` carry title, author,
-  publication, repository, notes and optional template fields;
-  `source_fields` stores template values; citations keep page and quality
-  fields. `load_vital_dates` and `load_marriage_details` join the place
+  publication, abbreviation, notes, data date/text and optional template
+  fields; `source_repositories` links a source to one or more repositories
+  with a call number and media type; `source_fields` stores template
+  values. Citations keep page, note, certainty, media type and data
+  date/text. `load_vital_dates` and `load_marriage_details` join the place
   name for the existing inspector and watch-list views. Media and task
   links are typed, cascading rows; groups hold people.
 
@@ -102,6 +106,13 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
   `NOTE`, unknown level-0 records — is logged as a
   non-fatal `Line N: Tag recognized/unsupported or ignored [TAG value]`
   warning (payload truncated to 100 characters) and the import continues.
+- Source records are first class: every `0 @S@ SOUR` keeps its own
+  identity (same-titled records are not merged), `AUTH`/`PUBL`/`ABBR`/
+  `NOTE`/`DATA` and `REPO`/`CALN` links are stored, and level-0
+  `0 @R@ REPO` records become repositories. Citations keep `PAGE`,
+  `QUAY`, `NOTE`, `MEDI` and `DATA` (`DATE`/`TEXT`); a citation data date
+  never overwrites the event date. Inline `2 SOUR text` sources are
+  deduplicated only within one import.
 - Warnings never block an import: the status bar appends the count
   (`…, N warnings`) to every finished import, and an import that logged
   any warnings also opens the **Import Report** window
@@ -111,8 +122,10 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
 - `gedcom::export_to_gedcom(&conn)` serialises `people`, `families`,
   `family_children`, `events`, `sources` and `citations` back into a
   deterministic GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, one
-  `SOUR` record per source, `INDI` and `FAM` records, then `TRLR`. Events
-  read their `2 PLAC` from the linked place record. Populated
+  `REPO` record per repository, one `SOUR` record per source with `AUTH`,
+  `PUBL`, `ABBR`, `REPO`/`CALN`, `NOTE` and `DATA`, then `INDI` and `FAM`
+  records and finally `TRLR`. Events read their `2 PLAC` from the linked
+  place record. Populated
   `people.notes` travel as `1 NOTE` + `2 CONT` lines after `1 SEX`, so
   notes round-trip losslessly. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
@@ -121,9 +134,10 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
 - Family links are recovered from `HUSB`/`WIFE`/`CHIL`, backfilled from
   `FAMC`, and `FAMS` fills empty spouse slots when `SEX` makes it unambiguous.
 - `SOUR` records become `sources`; repeated `2 SOUR @S@` pointers share one
-  source row, and every citation keeps its own page. Unreferenced sources
-  are still exported. Re-import restores them losslessly, warnings cover
-  dangling source pointers and duplicate IDs.
+  source row, and every citation keeps its own `PAGE`, `QUAY`, `NOTE`,
+  `MEDI` and `DATA`. Unreferenced sources are still exported. Re-import
+  restores them losslessly, warnings cover dangling source and repository
+  pointers and duplicate IDs.
 
 ## Native file dialogs & background jobs
 
