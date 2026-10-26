@@ -298,11 +298,14 @@ fn test_cascading_deletes() -> rusqlite::Result<()> {
             "INSERT INTO sources (id, title) VALUES ('source-1', 'Parish register, Ornskoldsvik')",
             [],
         )?;
-        let mut citation = Citation::new("source-1");
-        citation.event_id = Some(birth.id.clone());
+        let citation = Citation::new("source-1");
         conn.execute(
-            "INSERT INTO citations (id, source_id, event_id) VALUES (?1, ?2, ?3)",
-            params![citation.id, citation.source_id, citation.event_id],
+            "INSERT INTO citations (id, source_id) VALUES (?1, ?2)",
+            params![citation.id, citation.source_id],
+        )?;
+        conn.execute(
+            "INSERT INTO citation_links (citation_id, event_id) VALUES (?1, ?2)",
+            params![citation.id, birth.id],
         )?;
 
         conn.execute("DELETE FROM people WHERE id = ?1", [&tree.child.id])?;
@@ -313,9 +316,14 @@ fn test_cascading_deletes() -> rusqlite::Result<()> {
             "person delete must cascade to their events"
         );
         assert_eq!(
-            scalar_count(&conn, "SELECT COUNT(*) FROM citations")?,
+            scalar_count(&conn, "SELECT COUNT(*) FROM citation_links")?,
             0,
-            "event delete must cascade to citations"
+            "event delete must release citation links"
+        );
+        assert_eq!(
+            scalar_count(&conn, "SELECT COUNT(*) FROM citations")?,
+            1,
+            "the reusable citation survives its last event"
         );
         assert_eq!(
             count_matching(
@@ -931,6 +939,14 @@ fn init_db_migrates_citation_attachments_to_v6() -> rusqlite::Result<()> {
     assert!(
         has_column(&conn, "citations", "event_id")?,
         "the legacy column is retained for compatibility"
+    );
+    assert_eq!(
+        scalar_count(
+            &conn,
+            "SELECT COUNT(*) FROM citations WHERE event_id IS NOT NULL"
+        )?,
+        0,
+        "the legacy attachment is cleared after backfilling"
     );
     init_db(&conn)?;
     assert_eq!(

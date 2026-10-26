@@ -68,7 +68,8 @@ pub(super) fn migrate_v5_to_v6(conn: &Connection) -> rusqlite::Result<()> {
     tx.execute_batch(CITATION_LINKS_INDEXES_SQL)?;
     tx.execute_batch(
         "INSERT OR IGNORE INTO citation_links (citation_id, event_id)
-         SELECT id, event_id FROM citations WHERE event_id IS NOT NULL;",
+         SELECT id, event_id FROM citations WHERE event_id IS NOT NULL;
+         UPDATE citations SET event_id = NULL WHERE event_id IS NOT NULL;",
     )?;
     tx.pragma_update(None, "user_version", 6)?;
     tx.commit()

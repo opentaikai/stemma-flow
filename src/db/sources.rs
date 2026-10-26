@@ -576,10 +576,15 @@ mod tests {
         )
         .expect("event insert");
         conn.execute(
-            "INSERT INTO citations (id, source_id, event_id) VALUES ('c1', ?1, 'e1')",
+            "INSERT INTO citations (id, source_id) VALUES ('c1', ?1)",
             params![id],
         )
         .expect("citation insert");
+        conn.execute(
+            "INSERT INTO citation_links (citation_id, event_id) VALUES ('c1', 'e1')",
+            [],
+        )
+        .expect("citation link insert");
 
         delete_source(&mut conn, &id).expect("source deletes");
         let citations: i64 = conn

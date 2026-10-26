@@ -407,7 +407,8 @@ fn ensure_v6(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(CITATION_LINKS_INDEXES_SQL)?;
     conn.execute_batch(
         "INSERT OR IGNORE INTO citation_links (citation_id, event_id)
-         SELECT id, event_id FROM citations WHERE event_id IS NOT NULL;",
+         SELECT id, event_id FROM citations WHERE event_id IS NOT NULL;
+         UPDATE citations SET event_id = NULL WHERE event_id IS NOT NULL;",
     )?;
     conn.execute_batch(FACT_SEED_SQL)?;
     Ok(())
