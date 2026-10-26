@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -240,6 +240,36 @@ CREATE INDEX IF NOT EXISTS idx_source_repositories_source ON source_repositories
 CREATE INDEX IF NOT EXISTS idx_source_repositories_repository ON source_repositories(repository_id);
 "#;
 
+/// Source templates and their fields.
+pub(super) const V4_TABLES_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS source_templates (
+    key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT,
+    footnote TEXT NOT NULL,
+    short_footnote TEXT NOT NULL,
+    bibliography TEXT NOT NULL,
+    gedcom TEXT NOT NULL,
+    is_builtin INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS source_template_fields (
+    template_key TEXT NOT NULL REFERENCES source_templates(key) ON DELETE CASCADE,
+    field_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('source', 'citation')),
+    required INTEGER NOT NULL DEFAULT 0,
+    hint TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (template_key, field_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_template_fields_template
+    ON source_template_fields(template_key);
+"#;
+
 /// The v1 tables, used only to fill gaps in partially created databases
 /// before migrating them.
 const V1_SCHEMA_SQL: &str = r#"
@@ -297,7 +327,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     }
     if version == 0 && !table_exists(conn, "people")? {
         create_v2(conn)?;
-        return super::migrations::migrate_v2_to_v3(conn);
+        super::migrations::migrate_v2_to_v3(conn)?;
+        return super::migrations::migrate_v3_to_v4(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -307,9 +338,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             ensure_v1_columns(conn)?;
             super::migrations::migrate_v1_to_v2(conn)?;
         }
-        return super::migrations::migrate_v2_to_v3(conn);
+        if version < 3 {
+            super::migrations::migrate_v2_to_v3(conn)?;
+        }
+        return super::migrations::migrate_v3_to_v4(conn);
     }
-    ensure_v3(conn)
+    ensure_v4(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -323,7 +357,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v3(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v4(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
@@ -334,7 +368,53 @@ fn ensure_v3(conn: &Connection) -> rusqlite::Result<()> {
     }
     conn.execute_batch(V3_TABLES_SQL)?;
     conn.execute_batch(V3_INDEXES_SQL)?;
+    conn.execute_batch(V4_TABLES_SQL)?;
+    seed_source_templates(conn)?;
     conn.execute_batch(FACT_SEED_SQL)?;
+    Ok(())
+}
+
+/// Inserts the built-in templates into a database that lacks them.
+pub(super) fn seed_source_templates(conn: &Connection) -> rusqlite::Result<()> {
+    use rusqlite::params;
+
+    for template in crate::model::source_template::builtin_templates() {
+        let gedcom = toml::to_string(&template.gedcom)
+            .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
+        conn.execute(
+            "INSERT OR IGNORE INTO source_templates
+             (key, name, category, footnote, short_footnote, bibliography, gedcom, is_builtin)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)",
+            params![
+                template.key,
+                template.name,
+                template.category,
+                template.footnote,
+                template.short_footnote,
+                template.bibliography,
+                gedcom
+            ],
+        )?;
+        for (index, field) in template.fields.iter().enumerate() {
+            conn.execute(
+                "INSERT OR IGNORE INTO source_template_fields
+                 (template_key, field_key, label, scope, required, hint, sort_order)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    template.key,
+                    field.key,
+                    field.label,
+                    match field.scope {
+                        crate::model::source_template::FieldScope::Source => "source",
+                        crate::model::source_template::FieldScope::Citation => "citation",
+                    },
+                    field.required as i64,
+                    field.hint,
+                    index as i64
+                ],
+            )?;
+        }
+    }
     Ok(())
 }
 
