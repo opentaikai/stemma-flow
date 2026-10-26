@@ -77,14 +77,14 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | Versioned migration from v1 |
-| Citations linked to sources instead of embedded source titles | done | P0 | Preserve imported citations |
+| Schema v2/v3: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 adds source/citation metadata and repository links |
+| Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; editor pending |
 | Source templates (Evidence Explained style, start with a small set) | planned | P0 | Extensible template definitions |
 | Free-form sources with footnote, short footnote and bibliography | planned | P0 | Fallback when no template fits |
-| Citation quality fields (source, information, evidence) | partial | P1 | Columns exist; editor pending |
+| Citation quality fields (source, information, evidence) | partial | P1 | GEDCOM QUAY imported/exported; Evidence Explained editor pending |
 | Reusable citations across people, facts and families | planned | P1 | Copy or reference model |
 | Source list with edit, merge and template conversion | planned | P1 | One place to manage documentation |
-| Repositories and repository list | partial | P1 | Schema only; grid pending |
+| Repositories and repository list | partial | P1 | Schema and GEDCOM round-trip; grid pending |
 | Place authority: list, reverse ordering, notes, latitude and longitude | planned | P0 | Replaces free-text place duplication |
 | Place usage lists and editing people from a place | planned | P1 | See M4 for maps |
 | Fact catalogue: 60+ predefined fact types | planned | P0 | Birth, death, marriage first |
