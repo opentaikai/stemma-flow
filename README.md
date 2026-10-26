@@ -20,17 +20,27 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates the schema (5 tables, 7 indexes) in a single
-  batch transaction: `people`, `families`, `family_children`, `events`,
-  `citations`. Databases from older builds are upgraded in place —
-  `init_db` adds the `people.middle_name`/`people.nickname`/`people.notes`
-  columns (PRAGMA + ALTER) when they are missing. The upgrade also runs
-  on every open (the `gui::window` loader validates and migrates before
-  loading), so existing trees keep opening.
+- `db::init_db(&conn)` creates or upgrades the schema (16 tables, 29
+  indexes) and records its version in `PRAGMA user_version` (currently 2):
+  `people`, `families`, `family_children`, `repositories`, `sources`,
+  `source_fields`, `places`, `fact_types`, `events`, `citations`, `media`,
+  `media_links`, `tasks`, `task_links`, `groups` and `group_members`.
+  A v1 database is migrated in place inside one transaction: citation
+  titles become `sources`, event places become `places`, and the new links
+  are backfilled. Databases from a newer build are rejected. The upgrade
+  runs on every open (the `gui::window` loader validates and migrates
+  before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
-  structs; ids are UUID strings.
+  structs; ids are UUID strings. `Event` references a `place_id` and
+  `Citation` references a `source_id`.
 - `db::load_marriage_details(&conn)` maps each family id to its first
-  `MARRIAGE` event's date and place, for the inspector's spouse rows.
+  `MARRIAGE` event's date and place name, for the inspector's spouse rows.
+- Sources and places are normalised: `sources` carry title, author,
+  publication, repository, notes and optional template fields;
+  `source_fields` stores template values; citations keep page and quality
+  fields. `load_vital_dates` and `load_marriage_details` join the place
+  name for the existing inspector and watch-list views. Media and task
+  links are typed, cascading rows; groups hold people.
 
 Relationships are modelled through events and the `family_children` junction
 table. Foreign keys cascade deletes from people/families down to events,
@@ -99,18 +109,21 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
   full text on hover, sized for the thousands of warnings a large
   WikiTree export produces.
 - `gedcom::export_to_gedcom(&conn)` serialises `people`, `families`,
-  `family_children`, `events` and `citations` back into a deterministic
-  GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, `SOUR` records, `INDI`
-  and `FAM` records, then `TRLR`. Populated `people.notes` travel as
-  `1 NOTE` + `2 CONT` lines after `1 SEX`, so notes round-trip losslessly.
-  Dates are canonicalised on the way out (`12 jan 1850` → `12 JAN 1850`),
-  and stored text that does not parse is written as a single-line
-  `(date phrase)` instead, so a dirty date can never corrupt a record.
+  `family_children`, `events`, `sources` and `citations` back into a
+  deterministic GEDCOM 5.5.1 document: a `LINEAGE-LINKED` `HEAD`, one
+  `SOUR` record per source, `INDI` and `FAM` records, then `TRLR`. Events
+  read their `2 PLAC` from the linked place record. Populated
+  `people.notes` travel as `1 NOTE` + `2 CONT` lines after `1 SEX`, so
+  notes round-trip losslessly. Dates are canonicalised on the way out
+  (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
+  written as a single-line `(date phrase)` instead, so a dirty date can
+  never corrupt a record.
 - Family links are recovered from `HUSB`/`WIFE`/`CHIL`, backfilled from
   `FAMC`, and `FAMS` fills empty spouse slots when `SEX` makes it unambiguous.
-- Citations serialise as `0 @S@ SOUR` records (`1 TITL`, `1 NOTE`) that
-  citing events reference with `2 SOUR @S@` + `3 PAGE`; re-import restores
-  them losslessly, warnings cover dangling source pointers.
+- `SOUR` records become `sources`; repeated `2 SOUR @S@` pointers share one
+  source row, and every citation keeps its own page. Unreferenced sources
+  are still exported. Re-import restores them losslessly, warnings cover
+  dangling source pointers and duplicate IDs.
 
 ## Native file dialogs & background jobs
 
