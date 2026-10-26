@@ -12,6 +12,7 @@ pub use relation::{RelationForm, RelationKind, RelationOutcome, relation_window}
 
 use egui::Color32;
 
+use crate::db::citations::CitationEdit;
 use crate::db::people::PersonDetails;
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
@@ -27,6 +28,16 @@ pub enum InspectorAction {
     Focus(String),
     /// Close the inspector by clearing the selection.
     Close,
+    /// Save buffered citation edits.
+    SaveCitations(Box<Vec<CitationEdit>>),
+    /// Attach an existing source to a person's event.
+    AddCitation {
+        source_id: String,
+        event_type: String,
+        page: Option<String>,
+    },
+    /// Remove a citation.
+    DeleteCitation(String),
 }
 
 #[cfg(test)]
@@ -34,6 +45,7 @@ mod tests {
     use super::*;
     use crate::db::people::{ParentRole, VitalDates};
     use crate::db::{FamilyTree, MarriageInfo, Person};
+    use crate::gui::citations::CitationsState;
     use egui::{Context, RawInput};
     use std::collections::HashMap;
 
@@ -222,7 +234,13 @@ mod tests {
         let mut form = InspectorForm::from_person(&person, &dates);
         let mut captured = Some(InspectorAction::AddParent);
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            captured = show(ui, Some(&person), &mut form, Connections::default());
+            captured = show(
+                ui,
+                Some(&person),
+                &mut form,
+                Connections::default(),
+                &mut CitationsState::default(),
+            );
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the panel paints");

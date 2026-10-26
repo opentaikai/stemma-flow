@@ -9,6 +9,7 @@ mod panels;
 use loading::{empty_scene, loadable};
 
 use super::canvas::ViewportState;
+use super::citations;
 use super::import_report;
 use super::inspector::InspectorForm;
 use super::inspector::RelationForm;
@@ -49,6 +50,7 @@ pub struct TreeWindow {
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
     pub(super) sources: sources::SourcesState,
+    pub(super) citations: citations::CitationsState,
     pub(super) tree: FamilyTree,
     pub(super) dates: HashMap<String, VitalDates>,
     pub(super) marriages: HashMap<String, MarriageInfo>,
@@ -83,6 +85,7 @@ impl TreeWindow {
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
             sources: sources::SourcesState::default(),
+            citations: citations::CitationsState::default(),
             tree: FamilyTree::default(),
             dates: HashMap::new(),
             marriages: HashMap::new(),
@@ -175,6 +178,7 @@ mod tests {
     use crate::gui::inspector::InspectorAction;
     use crate::gui::inspector::RelationKind;
     use crate::gui::welcome;
+    use crate::model::quality::SourceQuality;
     use egui::{Pos2, Rect, vec2};
     use std::collections::HashMap;
     use std::path::Path;
@@ -638,6 +642,54 @@ mod tests {
         assert_eq!(
             window.sources.draft.fields.get("title").map(String::as_str),
             Some("Family History")
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn citations_load_and_save_for_the_selected_person() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+        window.app.set_selected_person(Some(person_id.clone()));
+
+        let source_id = window
+            .app
+            .save_source(&SourceDraft {
+                title: "Parish Book".to_string(),
+                ..SourceDraft::default()
+            })
+            .expect("source saves");
+        window
+            .app
+            .add_citation(&source_id, &person_id, "BIRTH", Some("12"))
+            .expect("citation adds");
+
+        window.sync_citations();
+        assert_eq!(window.citations.citations.len(), 1);
+        assert_eq!(window.citations.citations[0].source_title, "Parish Book");
+        assert_eq!(window.citations.citations[0].page, "12");
+        assert_eq!(window.citations.sources.len(), 1);
+
+        let mut edit = window.citations.citations[0].to_edit();
+        edit.quality_source = Some(SourceQuality::Original);
+        window.apply_inspector_action(
+            InspectorAction::SaveCitations(Box::new(vec![edit])),
+            &person_id,
+        );
+        window.citations.loaded = false;
+        window.sync_citations();
+        assert_eq!(
+            window.citations.citations[0].quality_source,
+            Some(SourceQuality::Original)
         );
 
         let _ = std::fs::remove_file(&db_file);

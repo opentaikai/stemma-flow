@@ -4,6 +4,7 @@ use crate::app;
 use crate::app::UiStatus;
 use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
+use crate::gui::citations::CitationDraft;
 use crate::gui::dialogs;
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
@@ -107,6 +108,7 @@ impl TreeWindow {
                     Ok(id) => {
                         self.sources.selected = Some(id);
                         self.sources.error = None;
+                        self.citations.loaded = false;
                         self.reload_sources();
                     }
                     Err(message) => self.sources.error = Some(message),
@@ -115,6 +117,7 @@ impl TreeWindow {
                     Ok(()) => {
                         self.sources.selected = None;
                         self.sources.draft = SourceDraft::default();
+                        self.citations.loaded = false;
                         self.reload_sources();
                     }
                     Err(message) => self.sources.error = Some(message),
@@ -194,6 +197,7 @@ impl TreeWindow {
     /// Renders the inspector side panel for the selected person.
     pub(super) fn person_inspector(&mut self, ui: &mut Ui) {
         self.sync_inspector_form();
+        self.sync_citations();
         let Some(person_id) = self.app.selected_person_id().map(str::to_string) else {
             return;
         };
@@ -203,7 +207,13 @@ impl TreeWindow {
             .iter()
             .find(|person| person.id == person_id);
         let connections = inspector::connections(&self.tree, &person_id, &self.marriages);
-        if let Some(action) = inspector::show(ui, person, &mut self.inspector, connections) {
+        if let Some(action) = inspector::show(
+            ui,
+            person,
+            &mut self.inspector,
+            connections,
+            &mut self.citations,
+        ) {
             self.apply_inspector_action(action, &person_id);
         }
     }
@@ -217,6 +227,69 @@ impl TreeWindow {
             InspectorAction::AddChild => self.open_relation(person_id, RelationKind::Child),
             InspectorAction::Focus(target) => self.focus_person(&target),
             InspectorAction::Close => self.app.set_selected_person(None),
+            InspectorAction::SaveCitations(edits) => {
+                let mut failure = None;
+                for edit in edits.iter() {
+                    if let Err(message) = self.app.save_citation(edit) {
+                        failure = Some(message);
+                        break;
+                    }
+                }
+                if let Some(message) = failure {
+                    self.citations.error = Some(message);
+                } else {
+                    self.citations.dirty = false;
+                    self.citations.loaded = false;
+                }
+            }
+            InspectorAction::AddCitation {
+                source_id,
+                event_type,
+                page,
+            } => match self
+                .app
+                .add_citation(&source_id, person_id, &event_type, page.as_deref())
+            {
+                Ok(_) => {
+                    self.citations.add_page.clear();
+                    self.citations.loaded = false;
+                }
+                Err(message) => self.citations.error = Some(message),
+            },
+            InspectorAction::DeleteCitation(id) => match self.app.delete_citation(&id) {
+                Ok(()) => self.citations.loaded = false,
+                Err(message) => self.citations.error = Some(message),
+            },
+        }
+    }
+
+    /// Loads citations and sources for the selected person.
+    pub(super) fn sync_citations(&mut self) {
+        let current = self.app.selected_person_id().map(str::to_string);
+        if self.citations.loaded && self.citations.person_id == current {
+            return;
+        }
+        self.citations.person_id = current.clone();
+        self.citations.loaded = true;
+        self.citations.error = None;
+        self.citations.dirty = false;
+        let Some(person_id) = current else {
+            self.citations.citations.clear();
+            self.citations.sources.clear();
+            return;
+        };
+        match (
+            self.app.list_person_citations(&person_id),
+            self.app.list_sources(),
+        ) {
+            (Ok(citations), Ok(sources)) => {
+                self.citations.citations =
+                    citations.iter().map(CitationDraft::from_record).collect();
+                self.citations.sources = sources;
+            }
+            (Err(message), _) | (_, Err(message)) => {
+                self.citations.error = Some(message);
+            }
         }
     }
 
