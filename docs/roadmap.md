@@ -84,7 +84,7 @@ places, facts, alternate names and notes as first-class records.
 | Citation quality fields (source, information, evidence) | done | P1 | Inspector editor with source/information/evidence and editable QUAY |
 | Reusable citations across people, facts and families | done | P1 | Reference model; person and family-event reuse in the inspector |
 | Source list with edit, merge and template conversion | done | P1 | Inline target-wins merge; template conversion carries values |
-| Repositories and repository list | partial | P1 | Schema and GEDCOM round-trip; grid pending |
+| Repositories and repository list | done | P1 | Grid, editor, source links and deletion |
 | Place authority: list, reverse ordering, notes, latitude and longitude | planned | P0 | Replaces free-text place duplication |
 | Place usage lists and editing people from a place | planned | P1 | See M4 for maps |
 | Fact catalogue: 60+ predefined fact types | planned | P0 | Birth, death, marriage first |

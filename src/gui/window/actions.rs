@@ -12,6 +12,7 @@ use crate::gui::inspector::InspectorForm;
 use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
+use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::sources::{self, SourcesEvent};
 use crate::gui::tabs;
 use crate::gui::watchlist;
@@ -114,6 +115,7 @@ impl TreeWindow {
                     self.sources.selected = Some(id);
                     self.sources.error = None;
                     self.citations.loaded = false;
+                    self.repositories.loaded = false;
                     self.reload_sources();
                 }
                 Err(message) => self.sources.error = Some(message),
@@ -125,6 +127,7 @@ impl TreeWindow {
                     self.sources.merge_open = false;
                     self.sources.merge_target = None;
                     self.citations.loaded = false;
+                    self.repositories.loaded = false;
                     self.reload_sources();
                 }
                 Err(message) => self.sources.error = Some(message),
@@ -138,10 +141,95 @@ impl TreeWindow {
                     self.sources.merge_open = false;
                     self.sources.merge_target = None;
                     self.citations.loaded = false;
+                    self.repositories.loaded = false;
                     self.reload_sources();
                 }
                 Err(message) => self.sources.error = Some(message),
             },
+        }
+    }
+
+    pub(super) fn repositories_tab(&mut self, ui: &mut Ui) {
+        if !self.repositories.loaded {
+            self.reload_repositories();
+        }
+        if let Some(event) = repositories::show(ui, &mut self.repositories) {
+            self.apply_repositories_event(event);
+        }
+    }
+
+    pub(super) fn apply_repositories_event(&mut self, event: RepositoriesEvent) {
+        match event {
+            RepositoriesEvent::New => {
+                self.repositories.selected = None;
+                self.repositories.draft = crate::db::repositories::RepositoryDraft::default();
+                self.repositories.add_source = None;
+                self.repositories.add_call_number.clear();
+                self.repositories.add_media_type.clear();
+                self.repositories.editing = true;
+                self.repositories.error = None;
+            }
+            RepositoriesEvent::Select(id) => self.load_repository_draft(&id),
+            RepositoriesEvent::Save(draft) => match self.app.save_repository(&draft) {
+                Ok(id) => {
+                    self.repositories.selected = Some(id);
+                    self.repositories.add_source = None;
+                    self.repositories.add_call_number.clear();
+                    self.repositories.add_media_type.clear();
+                    self.repositories.editing = true;
+                    self.repositories.error = None;
+                    self.reload_repositories();
+                }
+                Err(message) => self.repositories.error = Some(message),
+            },
+            RepositoriesEvent::Delete(id) => match self.app.delete_repository(&id) {
+                Ok(()) => {
+                    self.repositories.selected = None;
+                    self.repositories.draft = crate::db::repositories::RepositoryDraft::default();
+                    self.repositories.editing = false;
+                    self.repositories.error = None;
+                    self.reload_repositories();
+                }
+                Err(message) => self.repositories.error = Some(message),
+            },
+        }
+    }
+
+    pub(super) fn reload_repositories(&mut self) {
+        match (self.app.list_repositories(), self.app.list_sources()) {
+            (Ok(list), Ok(sources)) => {
+                self.repositories.repositories = list;
+                self.repositories.sources = sources;
+                self.repositories.loaded = true;
+                self.repositories.error = None;
+                if let Some(id) = self.repositories.selected.clone() {
+                    self.load_repository_draft(&id);
+                }
+            }
+            (Err(message), _) | (_, Err(message)) => {
+                self.repositories.error = Some(message);
+                self.repositories.loaded = true;
+            }
+        }
+    }
+
+    pub(super) fn load_repository_draft(&mut self, id: &str) {
+        match self.app.load_repository(id) {
+            Ok(Some(record)) => {
+                self.repositories.selected = Some(id.to_string());
+                self.repositories.draft = repositories::draft_from_record(&record);
+                self.repositories.add_source = None;
+                self.repositories.add_call_number.clear();
+                self.repositories.add_media_type.clear();
+                self.repositories.editing = true;
+                self.repositories.error = None;
+            }
+            Ok(None) => {
+                self.repositories.selected = None;
+                self.repositories.draft = crate::db::repositories::RepositoryDraft::default();
+                self.repositories.editing = false;
+            }
+            Err(message) => self.repositories.error = Some(message),
         }
     }
 

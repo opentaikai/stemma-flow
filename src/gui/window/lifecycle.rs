@@ -74,10 +74,15 @@ impl TreeWindow {
         self.marriages = marriages;
         self.watch.mark_dirty();
         self.seen_db = self.app.active_db().map(Path::to_path_buf);
-        self.seen_generation = self.app.import_generation();
+        let generation = self.app.import_generation();
+        let generation_changed = self.seen_generation != generation;
+        self.seen_generation = generation;
         if switched {
             self.sources = crate::gui::sources::SourcesState::default();
             self.citations = crate::gui::citations::CitationsState::default();
+            self.repositories = crate::gui::repositories::RepositoriesState::default();
+        } else if generation_changed {
+            self.repositories.loaded = false;
         }
     }
 
