@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::sources::{SourceDraft, SourceSummary};
 use crate::model::source_template::{
-    FieldScope, SourceTemplate, TemplateField, render_citation, render_free_form,
+    FieldScope, SourceTemplate, TemplateField, gedcom_columns, render_citation, render_free_form,
 };
 
 /// Action requested by the sources tab.
@@ -120,6 +120,13 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
                 }
             });
     });
+    ui.label(
+        egui::RichText::new(
+            "Switching templates carries matching values; free-form citation text is replaced by the template rendering.",
+        )
+        .weak()
+        .small(),
+    );
 
     let template = state
         .draft
@@ -402,30 +409,99 @@ fn preview_line(ui: &mut egui::Ui, title: &str, text: &str) {
     }
 }
 
-/// Switches the draft to another template, keeping fields that still exist.
+/// Switches the draft to another template, carrying the values it can.
 fn set_template(state: &mut SourcesState, key: Option<String>) {
-    let Some(key) = key else {
-        state.draft.template_key = None;
-        state.draft.fields.clear();
+    let current_key = state.draft.template_key.clone();
+    if current_key == key {
         return;
-    };
-    let Some(template) = state
-        .templates
-        .iter()
-        .find(|template| template.key == key)
-        .cloned()
-    else {
+    }
+    let current = current_key
+        .as_deref()
+        .and_then(|key| state.templates.iter().find(|template| template.key == key))
+        .cloned();
+    let target = key
+        .as_deref()
+        .and_then(|key| state.templates.iter().find(|template| template.key == key))
+        .cloned();
+
+    if let Some(template) = target {
+        let allowed: BTreeSet<String> = template
+            .source_fields()
+            .map(|field| field.key.clone())
+            .collect();
+        state
+            .draft
+            .fields
+            .retain(|field, _| allowed.contains(field));
+        let title = state.draft.title.clone();
+        let author = state.draft.author.clone();
+        if template.source_fields().any(|field| field.key == "title") {
+            seed_field(&mut state.draft.fields, "title", &title);
+        }
+        if template.source_fields().any(|field| field.key == "author") {
+            seed_field(&mut state.draft.fields, "author", &author);
+        }
+        if template.source_fields().any(|field| field.key == "creator") {
+            seed_field(&mut state.draft.fields, "creator", &author);
+        }
+        state.draft.template_key = Some(template.key.clone());
         return;
-    };
-    let allowed: BTreeSet<String> = template
-        .source_fields()
-        .map(|field| field.key.clone())
-        .collect();
-    state
-        .draft
-        .fields
-        .retain(|field, _| allowed.contains(field));
-    state.draft.template_key = Some(key);
+    }
+
+    if let Some(template) = current {
+        let rendered = render_citation(&template, &state.draft.fields, &BTreeMap::new());
+        state.draft.footnote = rendered.footnote;
+        state.draft.short_footnote = rendered.short_footnote;
+        state.draft.bibliography = rendered.bibliography;
+        let columns = gedcom_columns(&template, &state.draft.fields);
+        fill_blank(
+            &mut state.draft.title,
+            columns.get("title").map(String::as_str),
+        );
+        fill_blank(
+            &mut state.draft.author,
+            columns.get("author").map(String::as_str),
+        );
+        fill_blank(
+            &mut state.draft.publication,
+            columns.get("publication").map(String::as_str),
+        );
+        fill_blank(
+            &mut state.draft.abbreviation,
+            columns.get("abbreviation").map(String::as_str),
+        );
+        fill_blank(
+            &mut state.draft.notes,
+            columns.get("notes").map(String::as_str),
+        );
+        fill_blank(
+            &mut state.draft.data_date,
+            columns.get("data_date").map(String::as_str),
+        );
+        fill_blank(
+            &mut state.draft.data_text,
+            columns.get("data_text").map(String::as_str),
+        );
+    }
+    state.draft.template_key = None;
+}
+
+fn seed_field(fields: &mut BTreeMap<String, String>, key: &str, value: &str) {
+    if value.trim().is_empty() {
+        return;
+    }
+    let slot = fields.entry(key.to_string()).or_default();
+    if slot.trim().is_empty() {
+        *slot = value.trim().to_string();
+    }
+}
+
+fn fill_blank(target: &mut String, source: Option<&str>) {
+    if target.trim().is_empty()
+        && let Some(value) = source.filter(|value| !value.trim().is_empty())
+    {
+        *target = value.to_string();
+    }
 }
 
 #[cfg(test)]
@@ -457,7 +533,114 @@ mod tests {
 
         set_template(&mut state, None);
         assert!(state.draft.template_key.is_none());
-        assert!(state.draft.fields.is_empty());
+        assert!(
+            state.draft.fields.contains_key("title"),
+            "template values stay hidden so switching back does not lose them"
+        );
+        assert!(state.draft.footnote.contains("Family History"));
+        assert_eq!(state.draft.title, "Family History");
+    }
+
+    #[test]
+    fn converting_free_form_to_a_template_seeds_values() {
+        let mut state = SourcesState {
+            templates: builtin_templates(),
+            ..SourcesState::default()
+        };
+        state.draft.title = "Family History".to_string();
+        state.draft.author = "Ada King".to_string();
+        state.draft.footnote = "Old footnote.".to_string();
+
+        set_template(&mut state, Some("book".to_string()));
+
+        assert_eq!(state.draft.template_key.as_deref(), Some("book"));
+        assert_eq!(
+            state.draft.fields.get("title").map(String::as_str),
+            Some("Family History")
+        );
+        assert_eq!(
+            state.draft.fields.get("author").map(String::as_str),
+            Some("Ada King")
+        );
+        assert_eq!(
+            state.draft.footnote, "Old footnote.",
+            "free-form text stays in the draft until the converted source is saved"
+        );
+    }
+
+    #[test]
+    fn converting_a_template_to_free_form_renders_its_text() {
+        let mut state = SourcesState {
+            templates: builtin_templates(),
+            ..SourcesState::default()
+        };
+        state.draft.template_key = Some("book".to_string());
+        for (key, value) in [
+            ("title", "Family History"),
+            ("author", "Ada King"),
+            ("place", "London"),
+            ("publisher", "Archive Press"),
+            ("year", "1900"),
+        ] {
+            state
+                .draft
+                .fields
+                .insert(key.to_string(), value.to_string());
+        }
+
+        set_template(&mut state, None);
+
+        assert!(state.draft.template_key.is_none());
+        assert!(state.draft.footnote.contains("Ada King"));
+        assert!(state.draft.footnote.contains("Family History"));
+        assert!(!state.draft.footnote.contains("{page}"));
+        assert!(state.draft.short_footnote.contains("Family History"));
+        assert!(state.draft.bibliography.contains("Archive Press"));
+        assert_eq!(state.draft.title, "Family History");
+        assert_eq!(state.draft.author, "Ada King");
+        assert_eq!(
+            state.draft.publication, "London: Archive Press, 1900",
+            "cached GEDCOM columns become free-form fields"
+        );
+        assert!(
+            state.draft.fields.contains_key("title"),
+            "the template values stay available for switching back"
+        );
+    }
+
+    #[test]
+    fn converting_between_templates_keeps_matching_values() {
+        let mut state = SourcesState {
+            templates: builtin_templates(),
+            ..SourcesState::default()
+        };
+        state.draft.template_key = Some("book".to_string());
+        state.draft.author = "Ada King".to_string();
+        for (key, value) in [
+            ("title", "Family History"),
+            ("author", "Ada King"),
+            ("place", "London"),
+        ] {
+            state
+                .draft
+                .fields
+                .insert(key.to_string(), value.to_string());
+        }
+
+        set_template(&mut state, Some("website".to_string()));
+
+        assert_eq!(state.draft.template_key.as_deref(), Some("website"));
+        assert_eq!(
+            state.draft.fields.get("title").map(String::as_str),
+            Some("Family History")
+        );
+        assert_eq!(
+            state.draft.fields.get("creator").map(String::as_str),
+            Some("Ada King"),
+            "the author seeds the website creator"
+        );
+        assert!(!state.draft.fields.contains_key("author"));
+        assert!(!state.draft.fields.contains_key("place"));
     }
 
     #[test]
@@ -526,6 +709,68 @@ mod tests {
         assert!(!output.shapes.is_empty(), "the merge panel paints");
         assert_eq!(state.merge_target.as_deref(), Some("target"));
         assert!(state.merge_open);
+    }
+
+    #[test]
+    fn converted_sources_round_trip_through_the_database() {
+        use crate::db;
+        use crate::db::sources::{load_source, save_source};
+
+        let mut conn = rusqlite::Connection::open_in_memory().expect("database opens");
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
+            .expect("pragma applies");
+        db::init_db(&conn).expect("schema initialises");
+        let id = save_source(
+            &mut conn,
+            &SourceDraft {
+                title: "Family History".to_string(),
+                author: "Ada King".to_string(),
+                footnote: "Old footnote.".to_string(),
+                ..SourceDraft::default()
+            },
+        )
+        .expect("free-form source saves");
+        let record = load_source(&conn, &id)
+            .expect("load")
+            .expect("source exists");
+        let mut state = SourcesState {
+            templates: builtin_templates(),
+            draft: SourceDraft::from_record(&record),
+            ..SourcesState::default()
+        };
+
+        set_template(&mut state, Some("book".to_string()));
+        save_source(&mut conn, &state.draft).expect("templated source saves");
+        let saved = load_source(&conn, &id)
+            .expect("load")
+            .expect("source exists");
+        assert_eq!(saved.template_key.as_deref(), Some("book"));
+        assert_eq!(
+            saved.fields.get("title").map(String::as_str),
+            Some("Family History")
+        );
+        assert_eq!(
+            saved.fields.get("author").map(String::as_str),
+            Some("Ada King")
+        );
+        assert_eq!(saved.footnote, None);
+
+        state.draft = SourceDraft::from_record(&saved);
+        set_template(&mut state, None);
+        save_source(&mut conn, &state.draft).expect("free-form source saves");
+        let free = load_source(&conn, &id)
+            .expect("load")
+            .expect("source exists");
+        assert_eq!(free.template_key, None);
+        assert!(
+            free.footnote
+                .as_deref()
+                .is_some_and(|text| text.contains("Family History"))
+        );
+        assert!(
+            free.fields.is_empty(),
+            "free-form saves drop template fields"
+        );
     }
 
     #[test]
