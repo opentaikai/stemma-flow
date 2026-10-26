@@ -423,6 +423,9 @@ fn set_template(state: &mut SourcesState, key: Option<String>) {
         .as_deref()
         .and_then(|key| state.templates.iter().find(|template| template.key == key))
         .cloned();
+    if key.is_some() && target.is_none() {
+        return;
+    }
 
     if let Some(template) = target {
         let title = if current.is_some() {
@@ -558,6 +561,24 @@ mod tests {
         );
         assert!(state.draft.footnote.contains("Family History"));
         assert_eq!(state.draft.title, "Family History");
+    }
+
+    #[test]
+    fn unknown_template_keys_are_ignored() {
+        let mut state = SourcesState {
+            templates: builtin_templates(),
+            ..SourcesState::default()
+        };
+        state.draft.template_key = Some("book".to_string());
+        state
+            .draft
+            .fields
+            .insert("title".to_string(), "Family History".to_string());
+
+        set_template(&mut state, Some("missing".to_string()));
+
+        assert_eq!(state.draft.template_key.as_deref(), Some("book"));
+        assert!(state.draft.fields.contains_key("title"));
     }
 
     #[test]
