@@ -242,6 +242,49 @@ pub fn gedcom_columns(
         .collect()
 }
 
+/// Renders a free-form citation, appending the per-citation page when the
+/// text does not already contain a `{page}` placeholder.
+pub fn render_free_form(
+    footnote: &str,
+    short_footnote: &str,
+    bibliography: &str,
+    page: &str,
+) -> RenderedCitation {
+    RenderedCitation {
+        footnote: append_page(footnote, page),
+        short_footnote: append_page(short_footnote, page),
+        bibliography: bibliography.trim().to_string(),
+    }
+}
+
+fn append_page(text: &str, page: &str) -> String {
+    let text = text.trim();
+    let page = page.trim();
+    if text.contains("{page}") {
+        return cleanup(&text.replace("{page}", page));
+    }
+    if page.is_empty() {
+        return text.to_string();
+    }
+    if text.is_empty() {
+        return page.to_string();
+    }
+    let (body, ending) = if let Some(body) = text.strip_suffix('.') {
+        (body, ".")
+    } else if let Some(body) = text.strip_suffix('!') {
+        (body, "!")
+    } else if let Some(body) = text.strip_suffix('?') {
+        (body, "?")
+    } else {
+        (text, "")
+    };
+    if ending.is_empty() {
+        cleanup(&format!("{body}, {page}."))
+    } else {
+        cleanup(&format!("{body}, {page}{ending}"))
+    }
+}
+
 /// Substitutes `{field}` placeholders and cleans the punctuation left by
 /// empty optional fields.
 pub fn render_format(format: &str, values: &BTreeMap<String, String>) -> String {
@@ -474,6 +517,53 @@ mod tests {
         assert_eq!(
             columns.get("publication").map(String::as_str),
             Some("London: Archive Press, 1900")
+        );
+    }
+    #[test]
+    fn free_form_appends_the_page_before_final_punctuation() {
+        let rendered = render_free_form(
+            "Ada King, Family History (London: Archive Press, 1900).",
+            "King, Family History.",
+            "King, Ada. Family History. London: Archive Press, 1900.",
+            "42",
+        );
+        assert_eq!(
+            rendered.footnote,
+            "Ada King, Family History (London: Archive Press, 1900), 42."
+        );
+        assert_eq!(rendered.short_footnote, "King, Family History, 42.");
+        assert_eq!(
+            rendered.bibliography, "King, Ada. Family History. London: Archive Press, 1900.",
+            "a bibliography never carries the page"
+        );
+    }
+
+    #[test]
+    fn free_form_supports_the_page_placeholder() {
+        let rendered = render_free_form("Book, p. {page}.", "Book, {page}.", "Book.", "12");
+        assert_eq!(rendered.footnote, "Book, p. 12.");
+        assert_eq!(rendered.short_footnote, "Book, 12.");
+        assert_eq!(rendered.bibliography, "Book.");
+    }
+
+    #[test]
+    fn free_form_handles_missing_pages_and_punctuation() {
+        assert_eq!(
+            render_free_form("Book.", "Book.", "Book.", "").footnote,
+            "Book."
+        );
+        assert_eq!(
+            render_free_form("Book", "Book", "Book", "7").footnote,
+            "Book, 7."
+        );
+        assert_eq!(
+            render_free_form("Book?", "Book!", "Book", "7").short_footnote,
+            "Book, 7!"
+        );
+        assert_eq!(
+            render_free_form("", "", "", "7").footnote,
+            "7",
+            "an empty citation falls back to the page"
         );
     }
 }

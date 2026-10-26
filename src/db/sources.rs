@@ -28,6 +28,9 @@ pub struct SourceRecord {
     pub notes: Option<String>,
     pub data_date: Option<String>,
     pub data_text: Option<String>,
+    pub footnote: Option<String>,
+    pub short_footnote: Option<String>,
+    pub bibliography: Option<String>,
     pub fields: BTreeMap<String, String>,
 }
 
@@ -43,6 +46,9 @@ pub struct SourceDraft {
     pub notes: String,
     pub data_date: String,
     pub data_text: String,
+    pub footnote: String,
+    pub short_footnote: String,
+    pub bibliography: String,
     /// Template field values; empty for free-form sources.
     pub fields: BTreeMap<String, String>,
 }
@@ -59,6 +65,9 @@ impl SourceDraft {
             notes: record.notes.clone().unwrap_or_default(),
             data_date: record.data_date.clone().unwrap_or_default(),
             data_text: record.data_text.clone().unwrap_or_default(),
+            footnote: record.footnote.clone().unwrap_or_default(),
+            short_footnote: record.short_footnote.clone().unwrap_or_default(),
+            bibliography: record.bibliography.clone().unwrap_or_default(),
             fields: record.fields.clone(),
         }
     }
@@ -184,7 +193,7 @@ pub fn load_source(conn: &Connection, id: &str) -> Result<Option<SourceRecord>, 
     let record = conn
         .query_row(
             "SELECT id, template_id, title, author, publication, abbreviation,
-                    notes, data_date, data_text
+                    notes, data_date, data_text, footnote, short_footnote, bibliography
              FROM sources WHERE id = ?1",
             params![id],
             |row| {
@@ -198,6 +207,9 @@ pub fn load_source(conn: &Connection, id: &str) -> Result<Option<SourceRecord>, 
                     notes: row.get(6)?,
                     data_date: row.get(7)?,
                     data_text: row.get(8)?,
+                    footnote: row.get(9)?,
+                    short_footnote: row.get(10)?,
+                    bibliography: row.get(11)?,
                     fields: BTreeMap::new(),
                 })
             },
@@ -235,63 +247,81 @@ pub fn save_source(conn: &mut Connection, draft: &SourceDraft) -> Result<String,
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    let (template_key, title, author, publication, abbreviation, notes, data_date, data_text) =
-        if let Some(key) = draft.template_key.as_deref() {
-            let templates = load_templates(&tx)?;
-            let template = templates
-                .iter()
-                .find(|template| template.key == key)
-                .ok_or_else(|| format!("unknown source template {key}"))?;
-            for field in template.fields.iter() {
-                if field.scope == FieldScope::Source
-                    && field.required
-                    && draft
-                        .fields
-                        .get(&field.key)
-                        .map(|value| value.trim().is_empty())
-                        .unwrap_or(true)
-                {
-                    return Err(format!("{} is required", field.label));
-                }
+    let (
+        template_key,
+        title,
+        author,
+        publication,
+        abbreviation,
+        notes,
+        data_date,
+        data_text,
+        footnote,
+        short_footnote,
+        bibliography,
+    ) = if let Some(key) = draft.template_key.as_deref() {
+        let templates = load_templates(&tx)?;
+        let template = templates
+            .iter()
+            .find(|template| template.key == key)
+            .ok_or_else(|| format!("unknown source template {key}"))?;
+        for field in template.fields.iter() {
+            if field.scope == FieldScope::Source
+                && field.required
+                && draft
+                    .fields
+                    .get(&field.key)
+                    .map(|value| value.trim().is_empty())
+                    .unwrap_or(true)
+            {
+                return Err(format!("{} is required", field.label));
             }
-            let columns = gedcom_columns(template, &draft.fields);
-            let title = clean(columns.get("title").map(String::as_str).unwrap_or(""))
-                .unwrap_or_else(|| template.name.clone());
-            (
-                Some(key.to_string()),
-                title,
-                clean(columns.get("author").map(String::as_str).unwrap_or("")),
-                clean(columns.get("publication").map(String::as_str).unwrap_or("")),
-                clean(
-                    columns
-                        .get("abbreviation")
-                        .map(String::as_str)
-                        .unwrap_or(""),
-                ),
-                clean(columns.get("notes").map(String::as_str).unwrap_or("")),
-                clean(columns.get("data_date").map(String::as_str).unwrap_or("")),
-                clean(columns.get("data_text").map(String::as_str).unwrap_or("")),
-            )
-        } else {
-            let title = clean(&draft.title).ok_or_else(|| "Title is required".to_string())?;
-            (
-                None,
-                title,
-                clean(&draft.author),
-                clean(&draft.publication),
-                clean(&draft.abbreviation),
-                clean(&draft.notes),
-                clean(&draft.data_date),
-                clean(&draft.data_text),
-            )
-        };
+        }
+        let columns = gedcom_columns(template, &draft.fields);
+        let title = clean(columns.get("title").map(String::as_str).unwrap_or(""))
+            .unwrap_or_else(|| template.name.clone());
+        (
+            Some(key.to_string()),
+            title,
+            clean(columns.get("author").map(String::as_str).unwrap_or("")),
+            clean(columns.get("publication").map(String::as_str).unwrap_or("")),
+            clean(
+                columns
+                    .get("abbreviation")
+                    .map(String::as_str)
+                    .unwrap_or(""),
+            ),
+            clean(columns.get("notes").map(String::as_str).unwrap_or("")),
+            clean(columns.get("data_date").map(String::as_str).unwrap_or("")),
+            clean(columns.get("data_text").map(String::as_str).unwrap_or("")),
+            None,
+            None,
+            None,
+        )
+    } else {
+        let title = clean(&draft.title).ok_or_else(|| "Title is required".to_string())?;
+        (
+            None,
+            title,
+            clean(&draft.author),
+            clean(&draft.publication),
+            clean(&draft.abbreviation),
+            clean(&draft.notes),
+            clean(&draft.data_date),
+            clean(&draft.data_text),
+            clean(&draft.footnote),
+            clean(&draft.short_footnote),
+            clean(&draft.bibliography),
+        )
+    };
 
     let changed = tx
         .execute(
             "UPDATE sources SET template_id = ?1, title = ?2, author = ?3,
                 publication = ?4, abbreviation = ?5, notes = ?6, data_date = ?7,
-                data_text = ?8, updated_at = datetime('now')
-             WHERE id = ?9",
+                data_text = ?8, footnote = ?9, short_footnote = ?10, bibliography = ?11,
+                updated_at = datetime('now')
+             WHERE id = ?12",
             params![
                 template_key,
                 title,
@@ -301,6 +331,9 @@ pub fn save_source(conn: &mut Connection, draft: &SourceDraft) -> Result<String,
                 notes,
                 data_date,
                 data_text,
+                footnote,
+                short_footnote,
+                bibliography,
                 id
             ],
         )
@@ -308,8 +341,9 @@ pub fn save_source(conn: &mut Connection, draft: &SourceDraft) -> Result<String,
     if changed == 0 {
         tx.execute(
             "INSERT INTO sources (id, template_id, title, author, publication,
-                abbreviation, notes, data_date, data_text)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                abbreviation, notes, data_date, data_text, footnote, short_footnote,
+                bibliography)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 id,
                 template_key,
@@ -319,7 +353,10 @@ pub fn save_source(conn: &mut Connection, draft: &SourceDraft) -> Result<String,
                 abbreviation,
                 notes,
                 data_date,
-                data_text
+                data_text,
+                footnote,
+                short_footnote,
+                bibliography
             ],
         )
         .map_err(|error| error.to_string())?;
@@ -442,6 +479,9 @@ mod tests {
             title: "Parish register".to_string(),
             author: "Ada King".to_string(),
             notes: "Transcript".to_string(),
+            footnote: "Parish register, Ada King.".to_string(),
+            short_footnote: "Parish register.".to_string(),
+            bibliography: "King, Ada. Parish register.".to_string(),
             ..SourceDraft::default()
         };
         let id = save_source(&mut conn, &draft).expect("source saves");
@@ -454,6 +494,46 @@ mod tests {
         assert_eq!(sources[0].title, "Parish register, volume 2");
         assert_eq!(sources[0].template_key, None);
         assert_eq!(sources[0].citation_count, 0);
+
+        let source = load_source(&conn, &id)
+            .expect("source loads")
+            .expect("source exists");
+        assert_eq!(
+            source.footnote.as_deref(),
+            Some("Parish register, Ada King.")
+        );
+        assert_eq!(source.short_footnote.as_deref(), Some("Parish register."));
+        assert_eq!(
+            source.bibliography.as_deref(),
+            Some("King, Ada. Parish register.")
+        );
+    }
+
+    #[test]
+    fn templated_save_clears_free_form_outputs() {
+        let mut conn = connection();
+        let mut draft = SourceDraft {
+            title: "Parish register".to_string(),
+            footnote: "Footnote.".to_string(),
+            short_footnote: "Short.".to_string(),
+            bibliography: "Bibliography.".to_string(),
+            ..SourceDraft::default()
+        };
+        let id = save_source(&mut conn, &draft).expect("free-form saves");
+        draft.id = Some(id.clone());
+        draft.template_key = Some("book".to_string());
+        draft
+            .fields
+            .insert("title".to_string(), "Family History".to_string());
+        save_source(&mut conn, &draft).expect("templated save");
+
+        let source = load_source(&conn, &id)
+            .expect("source loads")
+            .expect("source exists");
+        assert_eq!(source.title, "Family History");
+        assert_eq!(source.footnote, None);
+        assert_eq!(source.short_footnote, None);
+        assert_eq!(source.bibliography, None);
     }
 
     #[test]

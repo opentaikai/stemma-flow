@@ -3,7 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::sources::{SourceDraft, SourceSummary};
-use crate::model::source_template::{FieldScope, SourceTemplate, TemplateField, render_citation};
+use crate::model::source_template::{
+    FieldScope, SourceTemplate, TemplateField, render_citation, render_free_form,
+};
 
 /// Action requested by the sources tab.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,14 +154,37 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
             }
         }
         None => {
+            ui.label(egui::RichText::new("Source name *").strong());
+            ui.text_edit_singleline(&mut state.draft.title);
+            ui.label("Footnote:");
+            ui.add(
+                egui::TextEdit::multiline(&mut state.draft.footnote)
+                    .desired_rows(3)
+                    .desired_width(f32::INFINITY),
+            );
+            ui.label("Short footnote:");
+            ui.add(
+                egui::TextEdit::multiline(&mut state.draft.short_footnote)
+                    .desired_rows(2)
+                    .desired_width(f32::INFINITY),
+            );
+            ui.label("Bibliography:");
+            ui.add(
+                egui::TextEdit::multiline(&mut state.draft.bibliography)
+                    .desired_rows(3)
+                    .desired_width(f32::INFINITY),
+            );
+            ui.horizontal(|ui| {
+                ui.label("Specific item (page):");
+                ui.text_edit_singleline(state.preview.entry("page".to_string()).or_default());
+            });
+
+            ui.separator();
+            ui.label(egui::RichText::new("GEDCOM fields").strong());
             egui::Grid::new("source_free_fields")
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new("Title *").strong());
-                    ui.text_edit_singleline(&mut state.draft.title);
-                    ui.end_row();
-
                     ui.label("Author:");
                     ui.text_edit_singleline(&mut state.draft.author);
                     ui.end_row();
@@ -183,20 +208,26 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
             ui.label("Notes:");
             ui.add(
                 egui::TextEdit::multiline(&mut state.draft.notes)
-                    .desired_rows(5)
+                    .desired_rows(3)
                     .desired_width(f32::INFINITY),
             );
         }
     }
 
-    if let Some(template) = &template {
-        let rendered = render_citation(template, &state.draft.fields, &state.preview);
-        ui.separator();
-        ui.label(egui::RichText::new("Preview").strong());
-        preview_line(ui, "Footnote", &rendered.footnote);
-        preview_line(ui, "Short footnote", &rendered.short_footnote);
-        preview_line(ui, "Bibliography", &rendered.bibliography);
-    }
+    let rendered = match &template {
+        Some(template) => render_citation(template, &state.draft.fields, &state.preview),
+        None => render_free_form(
+            &state.draft.footnote,
+            &state.draft.short_footnote,
+            &state.draft.bibliography,
+            state.preview.get("page").map(String::as_str).unwrap_or(""),
+        ),
+    };
+    ui.separator();
+    ui.label(egui::RichText::new("Preview").strong());
+    preview_line(ui, "Footnote", &rendered.footnote);
+    preview_line(ui, "Short footnote", &rendered.short_footnote);
+    preview_line(ui, "Bibliography", &rendered.bibliography);
 
     if let Some(error) = &state.error {
         ui.label(
@@ -331,6 +362,24 @@ mod tests {
         });
         output.textures_delta.clear();
         assert!(fills, "the sources tab must fill the available height");
+    }
+
+    #[test]
+    fn free_form_editor_renders_and_previews() {
+        let ctx = Context::default();
+        let mut state = SourcesState {
+            templates: builtin_templates(),
+            ..SourcesState::default()
+        };
+        state.draft.title = "Parish register".to_string();
+        state.draft.footnote = "Parish register.".to_string();
+        state.preview.insert("page".to_string(), "42".to_string());
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            show(ui, &mut state);
+        });
+        output.textures_delta.clear();
+        assert!(!output.shapes.is_empty(), "the free-form editor paints");
+        assert!(state.draft.template_key.is_none());
     }
 
     #[test]
