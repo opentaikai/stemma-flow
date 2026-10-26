@@ -14,6 +14,7 @@ use super::import_report;
 use super::inspector::InspectorForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
+use super::repositories;
 use super::settings;
 use super::sources;
 use super::tabs;
@@ -51,6 +52,7 @@ pub struct TreeWindow {
     pub(super) watch: watchlist::WatchState,
     pub(super) sources: sources::SourcesState,
     pub(super) citations: citations::CitationsState,
+    pub(super) repositories: repositories::RepositoriesState,
     pub(super) tree: FamilyTree,
     pub(super) dates: HashMap<String, VitalDates>,
     pub(super) marriages: HashMap<String, MarriageInfo>,
@@ -86,6 +88,7 @@ impl TreeWindow {
             watch: watchlist::WatchState::default(),
             sources: sources::SourcesState::default(),
             citations: citations::CitationsState::default(),
+            repositories: repositories::RepositoriesState::default(),
             tree: FamilyTree::default(),
             dates: HashMap::new(),
             marriages: HashMap::new(),
@@ -142,6 +145,7 @@ impl App for TreeWindow {
                 tabs::AppTab::Graph => self.canvas(ui),
                 tabs::AppTab::WatchList => self.watch_list(ui),
                 tabs::AppTab::Sources => self.sources_tab(ui),
+                tabs::AppTab::Repositories => self.repositories_tab(ui),
             });
         } else {
             self.welcome(ui, frame);
@@ -177,6 +181,7 @@ mod tests {
     use crate::gui::inspector;
     use crate::gui::inspector::InspectorAction;
     use crate::gui::inspector::RelationKind;
+    use crate::gui::repositories::RepositoriesEvent;
     use crate::gui::sources::SourcesEvent;
     use crate::gui::welcome;
     use crate::model::quality::SourceQuality;
@@ -751,6 +756,65 @@ mod tests {
             window.citations.choices_source.as_deref(),
             Some(source_id.as_str())
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn repository_events_refresh_the_grid_and_editor() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.reload_repositories();
+        assert!(window.repositories.loaded);
+        let source_id = window
+            .app
+            .save_source(&SourceDraft {
+                title: "Parish Book".to_string(),
+                ..SourceDraft::default()
+            })
+            .expect("source saves");
+
+        window.apply_repositories_event(RepositoriesEvent::New);
+        window.repositories.draft.name = "Uppsala Archive".to_string();
+        window.repositories.draft.address = "Main Street".to_string();
+        window.repositories.draft.links = vec![crate::db::repositories::RepositoryLinkDraft {
+            source_id: source_id.clone(),
+            call_number: "12/34".to_string(),
+            media_type: "film".to_string(),
+        }];
+        let draft = window.repositories.draft.clone();
+        window.apply_repositories_event(RepositoriesEvent::Save(Box::new(draft)));
+
+        assert_eq!(window.repositories.repositories.len(), 1);
+        assert_eq!(window.repositories.repositories[0].source_count, 1);
+        let id = window
+            .repositories
+            .selected
+            .clone()
+            .expect("the saved repository is selected");
+        window.repositories.draft.name = "Renamed Archive".to_string();
+        let draft = window.repositories.draft.clone();
+        window.apply_repositories_event(RepositoriesEvent::Save(Box::new(draft)));
+        assert_eq!(window.repositories.repositories[0].source_count, 1);
+        let record = window
+            .app
+            .load_repository(&id)
+            .expect("load")
+            .expect("repository exists");
+        assert_eq!(record.name, "Renamed Archive");
+        assert_eq!(record.links.len(), 1, "metadata saves keep links");
+
+        window.apply_repositories_event(RepositoriesEvent::Delete(id));
+        assert!(window.repositories.repositories.is_empty());
+        assert!(!window.repositories.editing);
+        assert!(matches!(window.app.status(), UiStatus::Success(_)));
 
         let _ = std::fs::remove_file(&db_file);
     }
