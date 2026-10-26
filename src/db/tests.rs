@@ -9,7 +9,7 @@ use rusqlite::{Connection, params};
 
 use super::{Citation, Event, Family, Person, init_db, open_connection};
 
-const TABLES: [&str; 19] = [
+const TABLES: [&str; 20] = [
     "people",
     "families",
     "family_children",
@@ -29,8 +29,9 @@ const TABLES: [&str; 19] = [
     "source_repositories",
     "source_templates",
     "source_template_fields",
+    "citation_links",
 ];
-const INDEXES: [&str; 32] = [
+const INDEXES: [&str; 34] = [
     "idx_families_husband",
     "idx_families_wife",
     "idx_family_children_child",
@@ -63,6 +64,8 @@ const INDEXES: [&str; 32] = [
     "idx_source_repositories_source",
     "idx_source_repositories_repository",
     "idx_source_template_fields_template",
+    "idx_citation_links_citation",
+    "idx_citation_links_event",
 ];
 
 struct Tree {
@@ -718,10 +721,10 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<
 }
 
 #[test]
-fn new_database_is_schema_v5() -> rusqlite::Result<()> {
+fn new_database_is_schema_v6() -> rusqlite::Result<()> {
     let conn = setup_test_db()?;
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
     assert!(has_column(&conn, "citations", "source_id")?);
     assert!(!has_column(&conn, "citations", "source_title")?);
     assert!(has_column(&conn, "citations", "quality_certainty")?);
@@ -750,6 +753,11 @@ fn new_database_is_schema_v5() -> rusqlite::Result<()> {
     assert!(has_column(&conn, "sources", "footnote")?);
     assert!(has_column(&conn, "sources", "short_footnote")?);
     assert!(has_column(&conn, "sources", "bibliography")?);
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM citation_links")?,
+        0,
+        "the reuse link table starts empty"
+    );
     Ok(())
 }
 
@@ -774,7 +782,7 @@ fn init_db_migrates_a_v2_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
     assert!(has_column(&conn, "sources", "abbreviation")?);
     assert!(has_column(&conn, "sources", "footnote")?);
     assert!(has_column(&conn, "citations", "quality_certainty")?);
@@ -812,7 +820,7 @@ fn init_db_migrates_a_v1_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
     assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM people")?, 2);
     assert_eq!(
         scalar_count(&conn, "SELECT COUNT(*) FROM source_templates")?,
@@ -880,12 +888,56 @@ fn init_db_migrates_a_v3_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
     assert_eq!(
         scalar_count(&conn, "SELECT COUNT(*) FROM source_templates")?,
         5
     );
     assert!(scalar_count(&conn, "SELECT COUNT(*) FROM source_template_fields")? > 20);
+    Ok(())
+}
+
+#[test]
+fn init_db_migrates_citation_attachments_to_v6() -> rusqlite::Result<()> {
+    let conn = Connection::open_in_memory()?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    conn.execute_batch(V1_SCHEMA)?;
+    super::migrations::migrate_v1_to_v2(&conn)?;
+    super::migrations::migrate_v2_to_v3(&conn)?;
+    super::migrations::migrate_v3_to_v4(&conn)?;
+    super::migrations::migrate_v4_to_v5(&conn)?;
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 5);
+    conn.execute_batch(
+        "INSERT INTO sources (id, title) VALUES ('src-1', 'Parish Book');
+         INSERT INTO people (id, given_name, surname, gender) VALUES ('p1', 'Ada', 'King', 'F');
+         INSERT INTO events (id, event_type, person_id) VALUES ('e1', 'BIRTH', 'p1');
+         INSERT INTO citations (id, source_id, event_id) VALUES ('c1', 'src-1', 'e1');",
+    )?;
+
+    init_db(&conn)?;
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 6);
+    assert_eq!(
+        scalar_count(
+            &conn,
+            "SELECT COUNT(*) FROM citation_links
+             WHERE citation_id = 'c1' AND event_id = 'e1'",
+        )?,
+        1,
+        "the legacy attachment becomes a link"
+    );
+    assert!(
+        has_column(&conn, "citations", "event_id")?,
+        "the legacy column is retained for compatibility"
+    );
+    init_db(&conn)?;
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM citation_links")?,
+        1,
+        "re-running the migration must not duplicate links"
+    );
     Ok(())
 }
 
@@ -920,7 +972,7 @@ fn migrates_the_local_family_tree_db_when_present() -> rusqlite::Result<()> {
         assert!(before > 0, "the fixture must contain people");
         init_db(&conn)?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
         let after: i64 = conn.query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))?;
         assert_eq!(after, before, "migration preserves every person");
     }
