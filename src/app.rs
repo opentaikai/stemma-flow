@@ -13,7 +13,9 @@ use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
 use crate::db::people::{self, ParentRole, PersonDetails};
-use crate::db::sources::{self as source_store, SourceDraft, SourceRecord, SourceSummary};
+use crate::db::sources::{
+    self as source_store, SourceDraft, SourceMergeReport, SourceRecord, SourceSummary,
+};
 use crate::gedcom::{ImportReport, export_to_gedcom, import_gedcom};
 use crate::gui::dialogs;
 use crate::model::source_template::SourceTemplate;
@@ -391,6 +393,27 @@ impl StemmaApp {
         let id = source_store::save_source(&mut conn, draft)?;
         self.set_status(UiStatus::Success("Source saved".to_string()));
         Ok(id)
+    }
+
+    /// Merges one source into another, moving citations and links.
+    pub fn merge_sources(
+        &mut self,
+        source_id: &str,
+        target_id: &str,
+    ) -> Result<SourceMergeReport, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let report = source_store::merge_sources(&mut conn, source_id, target_id)?;
+        let noun = if report.citations == 1 {
+            "citation"
+        } else {
+            "citations"
+        };
+        self.set_status(UiStatus::Success(format!(
+            "Merged {} {noun}",
+            report.citations
+        )));
+        Ok(report)
     }
 
     /// Deletes a source and its citations.
