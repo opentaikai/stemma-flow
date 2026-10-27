@@ -408,7 +408,7 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
 
 fn usage_row(ui: &mut Ui, usage: &PlaceUsage, event: &mut Option<PlacesEvent>) {
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(event_label(&usage.event_type)).strong());
+        ui.label(RichText::new(&usage.event_label).strong());
         if let Some(date) = usage
             .date
             .as_deref()
@@ -450,15 +450,6 @@ fn usage_row(ui: &mut Ui, usage: &PlaceUsage, event: &mut Option<PlacesEvent>) {
             ui.label(RichText::new("Unnamed couple").weak().small());
         }
     });
-}
-
-fn event_label(event_type: &str) -> &str {
-    match event_type {
-        "BIRTH" => "Birth",
-        "DEATH" => "Death",
-        "MARRIAGE" => "Marriage",
-        other => other,
-    }
 }
 
 fn coordinate_cell(ui: &mut Ui, value: Option<f64>, id: &str, event: &mut Option<PlacesEvent>) {
@@ -659,6 +650,7 @@ mod tests {
                 PlaceUsage {
                     event_id: "e1".to_string(),
                     event_type: "BIRTH".to_string(),
+                    event_label: "Birth".to_string(),
                     date: Some("1850".to_string()),
                     person_id: Some("s1".to_string()),
                     person_name: Some("Ada King".to_string()),
@@ -671,6 +663,7 @@ mod tests {
                 PlaceUsage {
                     event_id: "e2".to_string(),
                     event_type: "MARRIAGE".to_string(),
+                    event_label: "Marriage".to_string(),
                     date: Some("1875".to_string()),
                     person_id: None,
                     person_name: None,

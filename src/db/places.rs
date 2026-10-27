@@ -29,6 +29,7 @@ pub struct PlaceRecord {
 pub struct PlaceUsage {
     pub event_id: String,
     pub event_type: String,
+    pub event_label: String,
     pub date: Option<String>,
     pub person_id: Option<String>,
     pub person_name: Option<String>,
@@ -108,12 +109,13 @@ pub fn load_place(conn: &Connection, id: &str) -> Result<Option<PlaceRecord>, St
 pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUsage>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT e.id, e.event_type, e.date,
+            "SELECT e.id, e.event_type, COALESCE(ft.label, e.event_type), e.date,
                     e.person_id, p.given_name, p.middle_name, p.surname,
                     e.family_id,
                     f.husband_id, h.given_name, h.middle_name, h.surname,
                     f.wife_id, w.given_name, w.middle_name, w.surname
              FROM events e
+             LEFT JOIN fact_types ft ON ft.key = e.event_type
              LEFT JOIN people p ON p.id = e.person_id
              LEFT JOIN families f ON f.id = e.family_id
              LEFT JOIN people h ON h.id = f.husband_id
@@ -127,14 +129,15 @@ pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUs
             Ok(PlaceUsage {
                 event_id: row.get(0)?,
                 event_type: row.get(1)?,
-                date: row.get(2)?,
-                person_id: row.get(3)?,
-                person_name: display_name(row.get(4)?, row.get(5)?, row.get(6)?),
-                family_id: row.get(7)?,
-                husband_id: row.get(8)?,
-                husband_name: display_name(row.get(9)?, row.get(10)?, row.get(11)?),
-                wife_id: row.get(12)?,
-                wife_name: display_name(row.get(13)?, row.get(14)?, row.get(15)?),
+                event_label: row.get(2)?,
+                date: row.get(3)?,
+                person_id: row.get(4)?,
+                person_name: display_name(row.get(5)?, row.get(6)?, row.get(7)?),
+                family_id: row.get(8)?,
+                husband_id: row.get(9)?,
+                husband_name: display_name(row.get(10)?, row.get(11)?, row.get(12)?),
+                wife_id: row.get(13)?,
+                wife_name: display_name(row.get(14)?, row.get(15)?, row.get(16)?),
             })
         })
         .map_err(|error| error.to_string())?
@@ -459,10 +462,13 @@ mod tests {
         let usage = list_place_usage(&conn, &place).expect("usage list");
         assert_eq!(usage.len(), 4);
         assert_eq!(usage[0].event_type, "BIRTH");
+        assert_eq!(usage[0].event_label, "Birth");
         assert_eq!(usage[0].person_name.as_deref(), Some("Ada King"));
         assert_eq!(usage[1].event_type, "CENSUS");
+        assert_eq!(usage[1].event_label, "Census");
         assert_eq!(usage[2].event_type, "DEATH");
         assert_eq!(usage[3].event_type, "MARRIAGE");
+        assert_eq!(usage[3].event_label, "Marriage");
         assert_eq!(usage[3].husband_name.as_deref(), Some("Otto King"));
         assert_eq!(usage[3].wife_name.as_deref(), Some("Bo Lynn King"));
         assert_eq!(usage[3].husband_id.as_deref(), Some("p2"));
