@@ -229,9 +229,11 @@ views (the app always launches on Graph View):
   records with event counts, notes, latitude and longitude. The editor
   changes the canonical name, notes and decimal-degree coordinates; renaming
   a place updates every event that references it. Deleting a place asks for
-  confirmation and clears the place from its events. Read-only place
-  displays can show comma components in reverse order; the stored name and
-  GEDCOM output keep the canonical order. Coordinates round-trip through
+  confirmation and clears the place from its events. The editor also lists
+  every event that uses the place; clicking a person or either marriage
+  spouse opens their inspector without leaving the Places tab. Read-only
+  place displays can show comma components in reverse order; the stored
+  name and GEDCOM output keep the canonical order. Coordinates round-trip through
   `MAP`/`LATI`/`LONG`; place notes remain local to the tree.
 - **Sources** — a searchable list of the tree's sources with citation
   counts, plus an editor beside it. A source is either free-form or uses one
