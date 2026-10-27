@@ -683,6 +683,37 @@ fn privacy_options_filter_people_and_facts() -> Result<(), GedcomError> {
 }
 
 #[test]
+fn privacy_filtering_keeps_visible_family_links() -> Result<(), GedcomError> {
+    let conn = setup_test_db().map_err(GedcomError::Db)?;
+    conn.execute_batch(
+        "INSERT INTO people (id, given_name, surname, gender, private) VALUES
+            ('p1', 'Hidden', 'Person', 'M', 1),
+            ('p2', 'Visible', 'Person', 'F', 0),
+            ('p3', 'Child', 'Person', 'U', 0);
+         INSERT INTO families (id, husband_id, wife_id) VALUES ('f1', 'p1', 'p2');
+         INSERT INTO family_children (family_id, child_id) VALUES ('f1', 'p3');
+         INSERT INTO events (id, event_type, date, person_id) VALUES
+            ('e1', 'BIRTH', '1900', 'p2'),
+            ('e2', 'BIRTH', '1900', 'p3');",
+    )
+    .map_err(GedcomError::Db)?;
+    let options = ExportOptions {
+        include_living: false,
+        include_private: false,
+        living_age: 110,
+        current_year: 2026,
+        write_markers: true,
+    };
+    let exported = export_to_gedcom_with_options(&conn, &options)?;
+    assert!(!exported.contains("Hidden /Person/"), "{exported}");
+    assert!(exported.contains("0 @F1@ FAM"), "{exported}");
+    assert!(!exported.contains("1 HUSB"), "{exported}");
+    assert!(exported.contains("1 WIFE"), "{exported}");
+    assert!(exported.contains("1 CHIL"), "{exported}");
+    Ok(())
+}
+
+#[test]
 fn privacy_flags_round_trip_with_markers() -> Result<(), GedcomError> {
     let sample = "\
 0 HEAD
