@@ -49,7 +49,7 @@ Priority:
 | Theme and font scaling settings | done | P2 | Persisted config |
 | Background import and export jobs | done | P1 | UI stays responsive |
 | Sources and citations | partial | P0 | Source and citation editors, reusable citations and source merge |
-| Facts and events | partial | P0 | BIRT, DEAT and MARR only |
+| Facts and events | partial | P0 | Read-only built-in facts; generic fact editor pending |
 | Places | partial | P0 | Place records in schema v2; no place page yet |
 | Names | partial | P0 | Given, middle, surname, nickname only |
 | Notes | partial | P1 | Person level only, no rich text or spell check |
@@ -87,7 +87,7 @@ places, facts, alternate names and notes as first-class records.
 | Repositories and repository list | done | P1 | Grid, editor, source links and deletion |
 | Place authority: list, reverse ordering, notes, latitude and longitude | done | P0 | Grid, editor, event counts and coordinate round-trip |
 | Place usage lists and editing people from a place | done | P1 | Per-event usage and inspector selection |
-| Fact catalogue: 60+ predefined fact types | planned | P0 | Birth, death, marriage first |
+| Fact catalogue: 60+ predefined fact types | done | P0 | 61 built-ins, GEDCOM round-trip and read-only facts |
 | Custom fact types and user-defined roles | planned | P1 | Roles feed shared events |
 | Shared events and witnesses | planned | P2 | Associations between participants |
 | Age at event | planned | P1 | Derived from dates |
