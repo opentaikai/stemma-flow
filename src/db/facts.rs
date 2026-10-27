@@ -228,15 +228,18 @@ fn slug(value: &str) -> String {
     out.trim_matches('_').to_string()
 }
 
+/// A stable key suggestion for a new custom fact type.
+pub fn suggested_key(label: &str) -> String {
+    let slug = slug(label);
+    if slug.is_empty() {
+        "CUSTOM".to_string()
+    } else {
+        slug
+    }
+}
+
 fn unique_key(conn: &Connection, label: &str) -> Result<String, String> {
-    let base = {
-        let slug = slug(label);
-        if slug.is_empty() {
-            "CUSTOM".to_string()
-        } else {
-            slug
-        }
-    };
+    let base = suggested_key(label);
     let mut candidate = base.clone();
     let mut suffix = 2;
     loop {
