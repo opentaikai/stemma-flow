@@ -132,6 +132,23 @@ fn by_label(mut relatives: Vec<Relative>) -> Vec<Relative> {
     relatives
 }
 
+/// Reverses marriage place names for read-only inspector displays.
+pub fn reverse_marriage_places(connections: &mut Connections) {
+    for relative in connections
+        .parents
+        .iter_mut()
+        .chain(connections.siblings.iter_mut())
+        .chain(connections.spouses.iter_mut())
+        .chain(connections.children.iter_mut())
+    {
+        if let Some(marriage) = &mut relative.marriage
+            && let Some(place) = marriage.place.as_deref()
+        {
+            marriage.place = Some(crate::db::places::reverse_name(place));
+        }
+    }
+}
+
 /// Display label for a stored person; blank names fall back gracefully.
 pub fn person_label(person: &Person) -> String {
     let combined = [

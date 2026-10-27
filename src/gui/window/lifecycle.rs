@@ -78,10 +78,12 @@ impl TreeWindow {
         let generation_changed = self.seen_generation != generation;
         self.seen_generation = generation;
         if switched {
+            self.places = crate::gui::places::PlacesState::default();
             self.sources = crate::gui::sources::SourcesState::default();
             self.citations = crate::gui::citations::CitationsState::default();
             self.repositories = crate::gui::repositories::RepositoriesState::default();
         } else if generation_changed {
+            self.places.loaded = false;
             self.repositories.loaded = false;
         }
     }

@@ -28,6 +28,8 @@ struct EventRow {
     event_type: String,
     date: Option<String>,
     place: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
     person_id: Option<String>,
     family_id: Option<String>,
 }
@@ -106,6 +108,19 @@ fn push_text(out: &mut String, level: u8, tag: &str, text: &str) {
     }
 }
 
+fn format_latitude(value: f64) -> String {
+    format_hemisphere(value, 'N', 'S')
+}
+
+fn format_longitude(value: f64) -> String {
+    format_hemisphere(value, 'E', 'W')
+}
+
+fn format_hemisphere(value: f64, positive: char, negative: char) -> String {
+    let hemisphere = if value < 0.0 { negative } else { positive };
+    format!("{hemisphere}{}", value.abs())
+}
+
 fn push_event(
     out: &mut String,
     event: &EventRow,
@@ -121,6 +136,15 @@ fn push_event(
     }
     if let Some(place) = &event.place {
         out.push_str(&format!("2 PLAC {place}\n"));
+        if event.latitude.is_some() || event.longitude.is_some() {
+            out.push_str("3 MAP\n");
+            if let Some(latitude) = event.latitude {
+                out.push_str(&format!("4 LATI {}\n", format_latitude(latitude)));
+            }
+            if let Some(longitude) = event.longitude {
+                out.push_str(&format!("4 LONG {}\n", format_longitude(longitude)));
+            }
+        }
     }
     if let Some(cited) = citations.get(event.id.as_str()) {
         for citation in cited {
@@ -214,7 +238,8 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 
     let mut events = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT e.id, e.event_type, e.date, p.name, e.person_id, e.family_id
+        "SELECT e.id, e.event_type, e.date, p.name, p.latitude, p.longitude,
+                e.person_id, e.family_id
          FROM events e
          LEFT JOIN places p ON p.id = e.place_id
          ORDER BY e.rowid",
@@ -225,8 +250,10 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
             event_type: row.get(1)?,
             date: row.get(2)?,
             place: row.get(3)?,
-            person_id: row.get(4)?,
-            family_id: row.get(5)?,
+            latitude: row.get(4)?,
+            longitude: row.get(5)?,
+            person_id: row.get(6)?,
+            family_id: row.get(7)?,
         })
     })?;
     for row in rows {

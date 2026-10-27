@@ -42,17 +42,19 @@ pub(crate) struct SourceRef {
 }
 
 /// An event recovered from a `BIRT`/`DEAT`/`MARR` sub-block.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ParsedEvent {
     /// Database event type: `BIRTH`, `DEATH` or `MARRIAGE`.
     pub event_type: String,
     pub date: Option<String>,
     pub place: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     pub source_refs: Vec<SourceRef>,
 }
 
 /// A parsed `0 @I1@ INDI` record.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct IndiRecord {
     pub xref: String,
     pub given_name: String,
@@ -71,7 +73,7 @@ pub(crate) struct IndiRecord {
 }
 
 /// A parsed `0 @F1@ FAM` record.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FamRecord {
     pub xref: String,
     pub husband: Option<String>,
@@ -139,7 +141,7 @@ impl RepositoryRecord {
 }
 
 /// A completed level-0 record.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Record {
     Indi(IndiRecord),
     Fam(FamRecord),
@@ -791,6 +793,8 @@ impl<R: BufRead> RecordReader<R> {
                                 event_type: event_type.to_string(),
                                 date: None,
                                 place: None,
+                                latitude: None,
+                                longitude: None,
                                 source_refs: Vec::new(),
                             });
                             *event_slot = Some(rec.events.len() - 1);
@@ -844,6 +848,8 @@ impl<R: BufRead> RecordReader<R> {
                                 event_type: "MARRIAGE".to_string(),
                                 date: None,
                                 place: None,
+                                latitude: None,
+                                longitude: None,
                                 source_refs: Vec::new(),
                             });
                             *event_slot = Some(rec.events.len() - 1);
@@ -958,6 +964,7 @@ fn fill_event(
         },
         3 => match line.tag {
             "DATA" => {}
+            "MAP" => {}
             "PAGE" | "QUAY" | "NOTE" | "MEDI" => {
                 if let Some(source) = event.source_refs.last_mut() {
                     match line.tag {
@@ -990,6 +997,21 @@ fn fill_event(
                     ));
                 }
             }
+            "LATI" => match parse_latitude(line.payload) {
+                Some(value) => event.latitude = Some(value),
+                None => {
+                    *warning = Some(format!("line {line_no}: invalid latitude {}", line.payload));
+                }
+            },
+            "LONG" => match parse_longitude(line.payload) {
+                Some(value) => event.longitude = Some(value),
+                None => {
+                    *warning = Some(format!(
+                        "line {line_no}: invalid longitude {}",
+                        line.payload
+                    ));
+                }
+            },
             _ => *warning = Some(unknown_tag_warning(line_no, &line)),
         },
         _ => *warning = Some(unknown_tag_warning(line_no, &line)),
@@ -1420,7 +1442,13 @@ fn insert_event(
     places: &mut HashMap<String, String>,
 ) -> rusqlite::Result<String> {
     let id = Uuid::new_v4().to_string();
-    let place_id = resolve_place(conn, places, event.place.as_deref())?;
+    let place_id = resolve_place(
+        conn,
+        places,
+        event.place.as_deref(),
+        event.latitude,
+        event.longitude,
+    )?;
     conn.execute(
         "INSERT INTO events (id, event_type, date, place_id, person_id, family_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -1442,31 +1470,70 @@ fn resolve_place(
     conn: &Connection,
     cache: &mut HashMap<String, String>,
     name: Option<&str>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
 ) -> rusqlite::Result<Option<String>> {
     let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
         return Ok(None);
     };
-    if let Some(id) = cache.get(name) {
-        return Ok(Some(id.clone()));
-    }
-    let id: String = match conn
-        .query_row(
-            "SELECT id FROM places WHERE name = ?1",
-            params![name],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-    {
-        Some(id) => id,
-        None => {
-            let id = Uuid::new_v4().to_string();
-            conn.execute(
-                "INSERT INTO places (id, name) VALUES (?1, ?2)",
-                params![id, name],
-            )?;
-            id
-        }
+    let id = if let Some(id) = cache.get(name) {
+        id.clone()
+    } else {
+        let id: String = match conn
+            .query_row(
+                "SELECT id FROM places WHERE name = ?1",
+                params![name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        {
+            Some(id) => id,
+            None => {
+                let id = Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT INTO places (id, name, latitude, longitude)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![id, name, latitude, longitude],
+                )?;
+                cache.insert(name.to_string(), id.clone());
+                return Ok(Some(id));
+            }
+        };
+        cache.insert(name.to_string(), id.clone());
+        id
     };
-    cache.insert(name.to_string(), id.clone());
+    if latitude.is_some() || longitude.is_some() {
+        conn.execute(
+            "UPDATE places
+             SET latitude = COALESCE(latitude, ?1), longitude = COALESCE(longitude, ?2)
+             WHERE id = ?3",
+            params![latitude, longitude, id],
+        )?;
+    }
     Ok(Some(id))
+}
+
+fn parse_latitude(text: &str) -> Option<f64> {
+    parse_hemisphere(text, 'N', 'S', 90.0)
+}
+
+fn parse_longitude(text: &str) -> Option<f64> {
+    parse_hemisphere(text, 'E', 'W', 180.0)
+}
+
+fn parse_hemisphere(text: &str, positive: char, negative: char, limit: f64) -> Option<f64> {
+    let mut chars = text.trim().chars();
+    let prefix = chars.next()?;
+    let sign = if prefix.to_ascii_uppercase() == positive {
+        1.0
+    } else if prefix.to_ascii_uppercase() == negative {
+        -1.0
+    } else {
+        return None;
+    };
+    let value = chars.as_str().trim().parse::<f64>().ok()?;
+    if !value.is_finite() || !(0.0..=limit).contains(&value) {
+        return None;
+    }
+    Some(sign * value)
 }

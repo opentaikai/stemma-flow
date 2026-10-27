@@ -12,6 +12,7 @@ use crate::gui::inspector::InspectorForm;
 use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
+use crate::gui::places::{self, PlacesEvent};
 use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::sources::{self, SourcesEvent};
 use crate::gui::tabs;
@@ -146,6 +147,84 @@ impl TreeWindow {
                 }
                 Err(message) => self.sources.error = Some(message),
             },
+        }
+    }
+
+    pub(super) fn places_tab(&mut self, ui: &mut Ui) {
+        if !self.places.loaded {
+            self.reload_places();
+        }
+        if let Some(event) = places::show(ui, &mut self.places, self.config.reverse_place_names) {
+            self.apply_places_event(event);
+        }
+    }
+
+    pub(super) fn apply_places_event(&mut self, event: PlacesEvent) {
+        match event {
+            PlacesEvent::New => {
+                self.places.selected = None;
+                self.places.draft = places::PlaceEdit::default();
+                self.places.editing = true;
+                self.places.error = None;
+            }
+            PlacesEvent::Select(id) => self.load_place_draft(&id),
+            PlacesEvent::Save(draft) => match self.app.save_place(&draft) {
+                Ok(id) => {
+                    self.places.selected = Some(id);
+                    self.places.editing = true;
+                    self.places.error = None;
+                    self.reload_places();
+                    self.reload_scene_quiet();
+                    self.inspected = None;
+                }
+                Err(message) => self.places.error = Some(message),
+            },
+            PlacesEvent::Delete(id) => match self.app.delete_place(&id) {
+                Ok(()) => {
+                    self.places.selected = None;
+                    self.places.draft = places::PlaceEdit::default();
+                    self.places.editing = false;
+                    self.places.error = None;
+                    self.reload_places();
+                    self.reload_scene_quiet();
+                    self.inspected = None;
+                }
+                Err(message) => self.places.error = Some(message),
+            },
+        }
+    }
+
+    pub(super) fn reload_places(&mut self) {
+        match self.app.list_places() {
+            Ok(list) => {
+                self.places.places = list;
+                self.places.loaded = true;
+                self.places.error = None;
+                if let Some(id) = self.places.selected.clone() {
+                    self.load_place_draft(&id);
+                }
+            }
+            Err(message) => {
+                self.places.error = Some(message);
+                self.places.loaded = true;
+            }
+        }
+    }
+
+    pub(super) fn load_place_draft(&mut self, id: &str) {
+        match self.app.load_place(id) {
+            Ok(Some(record)) => {
+                self.places.selected = Some(id.to_string());
+                self.places.draft = places::draft_from_record(&record);
+                self.places.editing = true;
+                self.places.error = None;
+            }
+            Ok(None) => {
+                self.places.selected = None;
+                self.places.draft = places::PlaceEdit::default();
+                self.places.editing = false;
+            }
+            Err(message) => self.places.error = Some(message),
         }
     }
 
@@ -300,7 +379,10 @@ impl TreeWindow {
 
     pub(super) fn delete_person(&mut self, person_id: &str) {
         match self.app.delete_person(person_id) {
-            Ok(()) => self.reload_scene(),
+            Ok(()) => {
+                self.places.loaded = false;
+                self.reload_scene();
+            }
             Err(message) => self.app.set_status(UiStatus::Error(message)),
         }
     }
@@ -317,7 +399,10 @@ impl TreeWindow {
             .people
             .iter()
             .find(|person| person.id == person_id);
-        let connections = inspector::connections(&self.tree, &person_id, &self.marriages);
+        let mut connections = inspector::connections(&self.tree, &person_id, &self.marriages);
+        if self.config.reverse_place_names {
+            inspector::reverse_marriage_places(&mut connections);
+        }
         if let Some(action) = inspector::show(
             ui,
             person,
@@ -512,7 +597,10 @@ impl TreeWindow {
             return;
         };
         match self.app.edit_person(&person_id, details) {
-            Ok(()) => self.reload_scene_quiet(),
+            Ok(()) => {
+                self.places.loaded = false;
+                self.reload_scene_quiet();
+            }
             Err(message) => self.app.set_status(UiStatus::Error(message)),
         }
     }

@@ -14,6 +14,7 @@ use super::import_report;
 use super::inspector::InspectorForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
+use super::places;
 use super::repositories;
 use super::settings;
 use super::sources;
@@ -50,6 +51,7 @@ pub struct TreeWindow {
     pub(super) drag_started_on_node: bool,
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
+    pub(super) places: places::PlacesState,
     pub(super) sources: sources::SourcesState,
     pub(super) citations: citations::CitationsState,
     pub(super) repositories: repositories::RepositoriesState,
@@ -86,6 +88,7 @@ impl TreeWindow {
             drag_started_on_node: false,
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
+            places: places::PlacesState::default(),
             sources: sources::SourcesState::default(),
             citations: citations::CitationsState::default(),
             repositories: repositories::RepositoriesState::default(),
@@ -144,6 +147,7 @@ impl App for TreeWindow {
             egui::CentralPanel::default().show(ui, |ui| match self.tab {
                 tabs::AppTab::Graph => self.canvas(ui),
                 tabs::AppTab::WatchList => self.watch_list(ui),
+                tabs::AppTab::Places => self.places_tab(ui),
                 tabs::AppTab::Sources => self.sources_tab(ui),
                 tabs::AppTab::Repositories => self.repositories_tab(ui),
             });
@@ -181,6 +185,7 @@ mod tests {
     use crate::gui::inspector;
     use crate::gui::inspector::InspectorAction;
     use crate::gui::inspector::RelationKind;
+    use crate::gui::places::PlacesEvent;
     use crate::gui::repositories::RepositoriesEvent;
     use crate::gui::sources::SourcesEvent;
     use crate::gui::welcome;
@@ -755,6 +760,55 @@ mod tests {
         assert_eq!(
             window.citations.choices_source.as_deref(),
             Some(source_id.as_str())
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn place_events_refresh_the_grid_and_inspector() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.reload_places();
+        assert!(window.places.loaded);
+
+        let person_id = window.rows.first().expect("one person").id.clone();
+        window.app.set_selected_person(Some(person_id.clone()));
+        window.sync_inspector_form();
+        window.inspector.birth_place = "Uppsala".to_string();
+        let details = window.inspector.to_details();
+        window.edit_person(&details);
+        window.reload_places();
+        assert_eq!(window.places.places.len(), 1);
+        assert_eq!(window.places.places[0].event_count, 1);
+        let id = window.places.places[0].id.clone();
+
+        window.apply_places_event(PlacesEvent::Select(id.clone()));
+        window.places.draft.name = "Uppsala, Sweden".to_string();
+        let draft = window.places.draft.to_draft().expect("draft parses");
+        window.apply_places_event(PlacesEvent::Save(Box::new(draft)));
+        assert_eq!(window.places.places.len(), 1);
+        assert_eq!(window.places.places[0].name, "Uppsala, Sweden");
+        window.sync_inspector_form();
+        assert_eq!(
+            window.inspector.birth_place, "Uppsala, Sweden",
+            "the inspector reloads the renamed place"
+        );
+
+        window.apply_places_event(PlacesEvent::Delete(id));
+        assert!(window.places.places.is_empty());
+        assert!(!window.places.editing);
+        window.sync_inspector_form();
+        assert!(
+            window.inspector.birth_place.is_empty(),
+            "deleting the place clears the event place"
         );
 
         let _ = std::fs::remove_file(&db_file);

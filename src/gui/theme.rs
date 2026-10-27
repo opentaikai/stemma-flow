@@ -62,6 +62,7 @@ mod tests {
         let config = AppConfig {
             theme: ThemeMode::Light,
             font_size: 21.0,
+            reverse_place_names: false,
         };
 
         apply_config_to_ctx(&ctx, &config);

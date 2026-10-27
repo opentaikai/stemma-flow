@@ -85,7 +85,7 @@ places, facts, alternate names and notes as first-class records.
 | Reusable citations across people, facts and families | done | P1 | Reference model; person and family-event reuse in the inspector |
 | Source list with edit, merge and template conversion | done | P1 | Inline target-wins merge; template conversion carries values |
 | Repositories and repository list | done | P1 | Grid, editor, source links and deletion |
-| Place authority: list, reverse ordering, notes, latitude and longitude | planned | P0 | Replaces free-text place duplication |
+| Place authority: list, reverse ordering, notes, latitude and longitude | done | P0 | Grid, editor, event counts and coordinate round-trip |
 | Place usage lists and editing people from a place | planned | P1 | See M4 for maps |
 | Fact catalogue: 60+ predefined fact types | planned | P0 | Birth, death, marriage first |
 | Custom fact types and user-defined roles | planned | P1 | Roles feed shared events |
@@ -149,7 +149,7 @@ Goal: connect people to locations and sources of evidence beyond text.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Place list with reverse order and usage counts | planned | P1 | Uses the M1 place authority |
+| Place list with reverse order and usage counts | done | P1 | Uses the M1 place authority |
 | Edit people and events directly from the place list | planned | P1 | Reduces navigation |
 | PlaceClean and place-name standardisation | planned | P2 | Batch workflow |
 | Geocoding of places (latitude and longitude) | planned | P2 | Local cache, opt-in service |
