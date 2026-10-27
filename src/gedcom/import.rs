@@ -14,6 +14,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
 use crate::gedcom::{GedcomError, ImportReport};
+use crate::model::fact::{FactScope, by_tag};
 
 /// A parsed GEDCOM line: `[level] [@XREF@] tag [payload]`.
 #[derive(Debug, Clone, Copy)]
@@ -41,15 +42,17 @@ pub(crate) struct SourceRef {
     pub data_text: Option<String>,
 }
 
-/// An event recovered from a `BIRT`/`DEAT`/`MARR` sub-block.
+/// A fact recovered from an event or attribute sub-block.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ParsedEvent {
-    /// Database event type: `BIRTH`, `DEATH` or `MARRIAGE`.
+    /// Database fact key, such as `BIRTH`, `OCCUPATION` or `MARRIAGE`.
     pub event_type: String,
     pub date: Option<String>,
     pub place: Option<String>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
+    /// Attribute value, such as `OCCU Teacher`.
+    pub description: Option<String>,
     pub source_refs: Vec<SourceRef>,
 }
 
@@ -787,18 +790,6 @@ impl<R: BufRead> RecordReader<R> {
                         "SEX" => rec.gender = normalize_gender(line.payload),
                         "FAMC" => push_pointer(&mut rec.famc, line, "FAMC", line_no, &mut warning),
                         "FAMS" => push_pointer(&mut rec.fams, line, "FAMS", line_no, &mut warning),
-                        "BIRT" | "DEAT" => {
-                            let event_type = if line.tag == "BIRT" { "BIRTH" } else { "DEATH" };
-                            rec.events.push(ParsedEvent {
-                                event_type: event_type.to_string(),
-                                date: None,
-                                place: None,
-                                latitude: None,
-                                longitude: None,
-                                source_refs: Vec::new(),
-                            });
-                            *event_slot = Some(rec.events.len() - 1);
-                        }
                         "NOTE" => {
                             // First note wins; later blocks are swallowed
                             // so their continuations stay silent too.
@@ -807,7 +798,22 @@ impl<R: BufRead> RecordReader<R> {
                                 rec.note = Some(line.payload.to_string());
                             }
                         }
-                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                        other => {
+                            if let Some(fact) = by_tag(other, FactScope::Person) {
+                                rec.events.push(ParsedEvent {
+                                    event_type: fact.key.to_string(),
+                                    date: None,
+                                    place: None,
+                                    latitude: None,
+                                    longitude: None,
+                                    description: optional_payload(line.payload),
+                                    source_refs: Vec::new(),
+                                });
+                                *event_slot = Some(rec.events.len() - 1);
+                            } else {
+                                warning = Some(unknown_tag_warning(line_no, &line));
+                            }
+                        }
                     }
                 } else if *in_note {
                     match line.tag {
@@ -843,18 +849,22 @@ impl<R: BufRead> RecordReader<R> {
                         "CHIL" => {
                             push_pointer(&mut rec.children, line, "CHIL", line_no, &mut warning)
                         }
-                        "MARR" => {
-                            rec.events.push(ParsedEvent {
-                                event_type: "MARRIAGE".to_string(),
-                                date: None,
-                                place: None,
-                                latitude: None,
-                                longitude: None,
-                                source_refs: Vec::new(),
-                            });
-                            *event_slot = Some(rec.events.len() - 1);
+                        other => {
+                            if let Some(fact) = by_tag(other, FactScope::Family) {
+                                rec.events.push(ParsedEvent {
+                                    event_type: fact.key.to_string(),
+                                    date: None,
+                                    place: None,
+                                    latitude: None,
+                                    longitude: None,
+                                    description: optional_payload(line.payload),
+                                    source_refs: Vec::new(),
+                                });
+                                *event_slot = Some(rec.events.len() - 1);
+                            } else {
+                                warning = Some(unknown_tag_warning(line_no, &line));
+                            }
                         }
-                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
                 } else if event_slot.is_none() {
                     // Children of an unknown level-1 tag (REFN/TYPE…).
@@ -1450,15 +1460,17 @@ fn insert_event(
         event.longitude,
     )?;
     conn.execute(
-        "INSERT INTO events (id, event_type, date, place_id, person_id, family_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO events
+         (id, event_type, date, place_id, person_id, family_id, description)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             id,
             event.event_type,
             event.date,
             place_id,
             person_id,
-            family_id
+            family_id,
+            event.description
         ],
     )?;
     report.events += 1;
