@@ -1,6 +1,7 @@
 //! Local storage layer: SQLite schema, connection setup and entity models.
 
 pub mod citations;
+pub mod facts;
 mod migrations;
 pub mod models;
 pub mod people;

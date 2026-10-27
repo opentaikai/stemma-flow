@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use rusqlite::{Connection, params};
 
 use super::{Citation, Event, Family, Person, init_db, open_connection};
+use crate::model::fact::builtin_facts;
 
 const TABLES: [&str; 20] = [
     "people",
@@ -729,10 +730,10 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<
 }
 
 #[test]
-fn new_database_is_schema_v6() -> rusqlite::Result<()> {
+fn new_database_is_schema_v7() -> rusqlite::Result<()> {
     let conn = setup_test_db()?;
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     assert!(has_column(&conn, "citations", "source_id")?);
     assert!(!has_column(&conn, "citations", "source_title")?);
     assert!(has_column(&conn, "citations", "quality_certainty")?);
@@ -748,7 +749,12 @@ fn new_database_is_schema_v6() -> rusqlite::Result<()> {
         scalar_count(&conn, "SELECT COUNT(*) FROM source_repositories")?,
         0
     );
-    assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM fact_types")?, 3);
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM fact_types")?,
+        builtin_facts().len() as i64
+    );
+    assert!(has_column(&conn, "fact_types", "scope")?);
+    assert!(has_column(&conn, "fact_types", "kind")?);
     assert_eq!(
         scalar_count(&conn, "SELECT COUNT(*) FROM source_templates")?,
         5,
@@ -790,7 +796,7 @@ fn init_db_migrates_a_v2_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     assert!(has_column(&conn, "sources", "abbreviation")?);
     assert!(has_column(&conn, "sources", "footnote")?);
     assert!(has_column(&conn, "citations", "quality_certainty")?);
@@ -828,7 +834,7 @@ fn init_db_migrates_a_v1_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM people")?, 2);
     assert_eq!(
         scalar_count(&conn, "SELECT COUNT(*) FROM source_templates")?,
@@ -854,7 +860,7 @@ fn init_db_migrates_a_v1_database() -> rusqlite::Result<()> {
     );
     assert_eq!(
         scalar_count(&conn, "SELECT COUNT(*) FROM fact_types")?,
-        3,
+        builtin_facts().len() as i64,
         "built-in fact types are seeded"
     );
     let (title, notes): (String, Option<String>) = conn.query_row(
@@ -896,7 +902,7 @@ fn init_db_migrates_a_v3_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     assert_eq!(
         scalar_count(&conn, "SELECT COUNT(*) FROM source_templates")?,
         5
@@ -906,7 +912,7 @@ fn init_db_migrates_a_v3_database() -> rusqlite::Result<()> {
 }
 
 #[test]
-fn init_db_migrates_citation_attachments_to_v6() -> rusqlite::Result<()> {
+fn init_db_migrates_citation_attachments_to_current() -> rusqlite::Result<()> {
     let conn = Connection::open_in_memory()?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     conn.execute_batch(V1_SCHEMA)?;
@@ -926,7 +932,7 @@ fn init_db_migrates_citation_attachments_to_v6() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     assert_eq!(
         scalar_count(
             &conn,
@@ -954,6 +960,54 @@ fn init_db_migrates_citation_attachments_to_v6() -> rusqlite::Result<()> {
         1,
         "re-running the migration must not duplicate links"
     );
+    Ok(())
+}
+
+#[test]
+fn init_db_migrates_fact_types_to_v7() -> rusqlite::Result<()> {
+    let conn = Connection::open_in_memory()?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    init_db(&conn)?;
+    conn.execute_batch(
+        "DROP TABLE fact_types;
+         CREATE TABLE fact_types (
+             key TEXT PRIMARY KEY,
+             label TEXT NOT NULL,
+             category TEXT,
+             gedcom_tag TEXT,
+             is_builtin INTEGER NOT NULL DEFAULT 1
+         );
+         INSERT INTO fact_types (key, label, category, gedcom_tag, is_builtin) VALUES
+             ('BIRTH', 'Birth', 'Vital', 'BIRT', 1),
+             ('CUSTOM', 'Custom', 'Other', '_CUST', 0);
+         PRAGMA user_version = 6;",
+    )?;
+
+    init_db(&conn)?;
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 7);
+    assert!(has_column(&conn, "fact_types", "scope")?);
+    assert!(has_column(&conn, "fact_types", "kind")?);
+    assert_eq!(
+        scalar_count(&conn, "SELECT COUNT(*) FROM fact_types")?,
+        builtin_facts().len() as i64 + 1,
+        "custom rows survive the v7 seed"
+    );
+    let (scope, kind, builtin): (String, String, i64) = conn.query_row(
+        "SELECT scope, kind, is_builtin FROM fact_types WHERE key = 'CUSTOM'",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    assert_eq!(scope, "person", "legacy rows get the default scope");
+    assert_eq!(kind, "event");
+    assert_eq!(builtin, 0);
+    let marriage_scope: String = conn.query_row(
+        "SELECT scope FROM fact_types WHERE key = 'MARRIAGE'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(marriage_scope, "family");
     Ok(())
 }
 
@@ -988,7 +1042,7 @@ fn migrates_the_local_family_tree_db_when_present() -> rusqlite::Result<()> {
         assert!(before > 0, "the fixture must contain people");
         init_db(&conn)?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         let after: i64 = conn.query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))?;
         assert_eq!(after, before, "migration preserves every person");
     }
