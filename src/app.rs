@@ -13,6 +13,7 @@ use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
 use crate::db::people::{self, ParentRole, PersonDetails};
+use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary};
 use crate::db::repositories::{
     self as repository_store, RepositoryDraft, RepositoryRecord, RepositorySummary,
 };
@@ -425,6 +426,38 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists places with their event counts.
+    pub fn list_places(&self) -> Result<Vec<PlaceSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        place_store::list_places(&conn)
+    }
+
+    /// Loads one place for editing.
+    pub fn load_place(&self, id: &str) -> Result<Option<PlaceRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        place_store::load_place(&conn, id)
+    }
+
+    /// Inserts or updates a place.
+    pub fn save_place(&mut self, draft: &PlaceDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = place_store::save_place(&mut conn, draft)?;
+        self.set_status(UiStatus::Success("Place saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes a place; events lose their place reference.
+    pub fn delete_place(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        place_store::delete_place(&mut conn, id)?;
+        self.set_status(UiStatus::Success("Place deleted".to_string()));
         Ok(())
     }
 
