@@ -8,6 +8,7 @@ pub mod import_report;
 pub mod inspector;
 pub mod layout;
 pub mod nodes;
+pub mod places;
 pub mod repositories;
 pub mod settings;
 pub mod sources;
