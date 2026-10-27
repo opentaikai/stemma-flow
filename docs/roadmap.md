@@ -90,7 +90,7 @@ places, facts, alternate names and notes as first-class records.
 | Fact catalogue: 60+ predefined fact types | done | P0 | 61 built-ins, GEDCOM round-trip and read-only facts |
 | Custom fact types and user-defined roles | done | P1 | Fact-type roles ready for shared events |
 | Shared events and witnesses | done | P2 | Participant roles and _WITN/_ROLE GEDCOM round-trip |
-| Age at event | planned | P1 | Derived from dates |
+| Age at event | done | P1 | Exact, approximate, bounded and ranged ages from dates |
 | Private facts and privacy suppression on export | planned | P1 | Living-person handling |
 | Alternate names and name pieces (prefix, suffix) | planned | P1 | Also married names |
 | Surname-first display option | planned | P2 | Per-file preference |

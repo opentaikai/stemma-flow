@@ -79,7 +79,10 @@ exact dates (`12 JAN 1850`, `JAN 1850`, `1850`), ISO convenience input
 (`1850-01-12`, `1850-01`), qualifiers (`ABT`/`CAL`/`EST`/`BEF`/`AFT`),
 ranges (`BET … AND …`), periods (`FROM … TO …`, `FROM …`, `TO …`) and
 phrases (`(free text)`), normalise them through `model::date`, and reject
-impossible calendar days (`31 FEB 1850`) with a field-named error.
+impossible calendar days (`31 FEB 1850`) with a field-named error. Ages are
+derived from birth and event dates: full dates are exact, partial or
+qualified dates show “about”, bounds show “at most”/“at least” and ranges
+show a span; phrases, BC/dual years and unusable dates produce no age.
 
 ## Graph layer
 
@@ -284,12 +287,14 @@ views (the app always launches on Graph View):
   nickname, gender) and **Vital Facts** (birth/death dates *and places*)
   editors — the date fields accept GEDCOM or ISO input, and an invalid
   date shows an inline message and disables saving — an **Other Facts**
-  card listing imported non-vital facts with their labels, dates, places
-  and values; facts the person witnessed also appear with their role and
-  principal, and **Add/Edit witnesses** opens a participant editor with
-  people search and the fact type's roles. Birth/death facts stay in Vital
-  Facts unless they have witnesses. Spouse rows carry a **Witnesses** action
-  for the marriage event. A **Citations** card
+  card listing imported non-vital facts with their labels, dates, places,
+  values and derived age when the birth date is usable; facts the person
+  witnessed also appear with their role and principal, and **Add/Edit
+  witnesses** opens a participant editor with people search and the fact
+  type's roles. Birth/death facts stay in Vital Facts unless they have
+  witnesses; Vital Facts also shows the age at death. Spouse rows carry a
+  **Witnesses** action for the marriage event and the selected person's age
+  at that marriage. A **Citations** card
   that attaches a source to the birth, death or a family marriage event and
   records the page, the Evidence Explained source/information/evidence
   quality and the GEDCOM certainty (each optionally "Don't know"). It can

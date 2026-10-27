@@ -6,6 +6,7 @@ use egui::{RichText, Ui};
 
 use crate::db::Person;
 use crate::db::facts::PersonFact;
+use crate::model::age;
 
 use super::ACCENT;
 use super::InspectorAction;
@@ -101,6 +102,13 @@ pub fn vital_editors(ui: &mut Ui, form: &mut InspectorForm) {
             ui.text_edit_singleline(&mut form.death_place);
             ui.end_row();
         });
+    if let Some(derived) = age::age_at(Some(&form.birth), Some(&form.death)) {
+        ui.label(
+            RichText::new(format!("Age at death: {derived}"))
+                .weak()
+                .small(),
+        );
+    }
 }
 
 /// Draws the inspector body and returns the action to apply, if any.
@@ -188,6 +196,10 @@ pub fn show(
                         } else {
                             ui.label(RichText::new(details).weak().small());
                         }
+                        if let Some(derived) = age::age_at(Some(&form.birth), fact.date.as_deref())
+                        {
+                            ui.label(RichText::new(format!("Age: {derived}")).weak().small());
+                        }
                         if fact.role.is_none() && !fact.participants.is_empty() {
                             let witnesses = fact
                                 .participants
@@ -268,13 +280,22 @@ pub fn show(
                     for relative in relatives {
                         let mut text = relative.label.clone();
                         if let Some(marriage) = &relative.marriage {
-                            let facts = [marriage.date.as_deref(), marriage.place.as_deref()]
-                                .into_iter()
-                                .flatten()
-                                .collect::<Vec<_>>()
-                                .join(" \u{00b7} ");
-                            if !facts.is_empty() {
-                                text.push_str(&format!(" \u{00b7} {facts}"));
+                            let mut marriage_facts =
+                                [marriage.date.as_deref(), marriage.place.as_deref()]
+                                    .into_iter()
+                                    .flatten()
+                                    .map(str::to_string)
+                                    .collect::<Vec<_>>();
+                            if let Some(derived) =
+                                age::age_at(Some(&form.birth), marriage.date.as_deref())
+                            {
+                                marriage_facts.push(format!("Age {derived}"));
+                            }
+                            if !marriage_facts.is_empty() {
+                                text.push_str(&format!(
+                                    " \u{00b7} {}",
+                                    marriage_facts.join(" \u{00b7} ")
+                                ));
                             }
                         }
                         let event_id = relative

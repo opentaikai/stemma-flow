@@ -52,6 +52,66 @@ pub fn canonicalize(input: &str) -> Result<String, DateError> {
     parse_value(&text)
 }
 
+/// The components of a canonical exact date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DateParts {
+    pub year: i32,
+    pub month: Option<u32>,
+    pub day: Option<u32>,
+}
+
+/// Parses a canonical exact date (`12 JAN 1850`, `JAN 1850`, `1850`).
+///
+/// Returns `None` for qualifiers, ranges, phrases, BC/dual years and ISO
+/// input; callers should canonicalize first when accepting user text.
+pub fn exact_parts(input: &str) -> Option<DateParts> {
+    let text = input.trim();
+    if text.is_empty() || text.starts_with('(') || text.contains(" BC") {
+        return None;
+    }
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    match tokens.as_slice() {
+        [year] => {
+            let year = parse_year(year).ok()?;
+            if year.bc || year.dual.is_some() {
+                return None;
+            }
+            Some(DateParts {
+                year: i32::try_from(year.value).ok()?,
+                month: None,
+                day: None,
+            })
+        }
+        [month, year] => {
+            let (_, month) = parse_month(month).ok()?;
+            let year = parse_year(year).ok()?;
+            if year.bc || year.dual.is_some() {
+                return None;
+            }
+            Some(DateParts {
+                year: i32::try_from(year.value).ok()?,
+                month: Some(month),
+                day: None,
+            })
+        }
+        [day, month, year] => {
+            let day = parse_day(day).ok()?;
+            let (_, month) = parse_month(month).ok()?;
+            let year = parse_year(year).ok()?;
+            if year.bc || year.dual.is_some() {
+                return None;
+            }
+            check_day(day, month, year.value).ok()?;
+            Some(DateParts {
+                year: i32::try_from(year.value).ok()?,
+                month: Some(month),
+                day: Some(day),
+            })
+        }
+        _ => None,
+    }
+}
+
 /// Checks `input` without returning its canonical form.
 pub fn validate(input: &str) -> Result<(), DateError> {
     canonicalize(input).map(|_| ())
@@ -378,6 +438,39 @@ mod tests {
         assert_eq!(canonical("29 FEB 2024"), "29 FEB 2024");
         assert!(canonicalize("29 FEB 1900").is_err());
         assert!(canonicalize("29 FEB 2023").is_err());
+    }
+
+    #[test]
+    fn exact_parts_reads_canonical_dates() {
+        assert_eq!(
+            exact_parts("12 JAN 1850"),
+            Some(DateParts {
+                year: 1850,
+                month: Some(1),
+                day: Some(12)
+            })
+        );
+        assert_eq!(
+            exact_parts("JAN 1850"),
+            Some(DateParts {
+                year: 1850,
+                month: Some(1),
+                day: None
+            })
+        );
+        assert_eq!(
+            exact_parts("1850"),
+            Some(DateParts {
+                year: 1850,
+                month: None,
+                day: None
+            })
+        );
+        assert!(exact_parts("ABT 1850").is_none());
+        assert!(exact_parts("1850-01-12").is_none());
+        assert!(exact_parts("1699/1700").is_none());
+        assert!(exact_parts("44 BC").is_none());
+        assert!(exact_parts("(circa 1850)").is_none());
     }
 
     #[test]
