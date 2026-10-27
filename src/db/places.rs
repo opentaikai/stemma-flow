@@ -24,6 +24,21 @@ pub struct PlaceRecord {
     pub longitude: Option<f64>,
 }
 
+/// One event that uses a place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaceUsage {
+    pub event_id: String,
+    pub event_type: String,
+    pub date: Option<String>,
+    pub person_id: Option<String>,
+    pub person_name: Option<String>,
+    pub family_id: Option<String>,
+    pub husband_id: Option<String>,
+    pub husband_name: Option<String>,
+    pub wife_id: Option<String>,
+    pub wife_name: Option<String>,
+}
+
 /// An editable place draft.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlaceDraft {
@@ -87,6 +102,63 @@ pub fn load_place(conn: &Connection, id: &str) -> Result<Option<PlaceRecord>, St
     )
     .optional()
     .map_err(|error| error.to_string())
+}
+
+/// Lists every event that uses a place, with person and couple names.
+pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUsage>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.id, e.event_type, e.date,
+                    e.person_id, p.given_name, p.middle_name, p.surname,
+                    e.family_id,
+                    f.husband_id, h.given_name, h.middle_name, h.surname,
+                    f.wife_id, w.given_name, w.middle_name, w.surname
+             FROM events e
+             LEFT JOIN people p ON p.id = e.person_id
+             LEFT JOIN families f ON f.id = e.family_id
+             LEFT JOIN people h ON h.id = f.husband_id
+             LEFT JOIN people w ON w.id = f.wife_id
+             WHERE e.place_id = ?1
+             ORDER BY e.event_type, e.date, e.rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![place_id], |row| {
+            Ok(PlaceUsage {
+                event_id: row.get(0)?,
+                event_type: row.get(1)?,
+                date: row.get(2)?,
+                person_id: row.get(3)?,
+                person_name: display_name(row.get(4)?, row.get(5)?, row.get(6)?),
+                family_id: row.get(7)?,
+                husband_id: row.get(8)?,
+                husband_name: display_name(row.get(9)?, row.get(10)?, row.get(11)?),
+                wife_id: row.get(12)?,
+                wife_name: display_name(row.get(13)?, row.get(14)?, row.get(15)?),
+            })
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    Ok(rows)
+}
+
+fn display_name(
+    given: Option<String>,
+    middle: Option<String>,
+    surname: Option<String>,
+) -> Option<String> {
+    let parts = [given, middle, surname]
+        .into_iter()
+        .flatten()
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" "))
+    }
 }
 
 /// Inserts or updates a place.
@@ -349,6 +421,69 @@ mod tests {
             .expect("link count");
         assert_eq!(links, 0);
         assert!(load_place(&conn, &id).expect("load").is_none());
+    }
+
+    #[test]
+    fn lists_people_and_couples_using_a_place() {
+        let mut conn = connection();
+        let place = save_place(
+            &mut conn,
+            &PlaceDraft {
+                name: "Uppsala, Sweden".to_string(),
+                ..PlaceDraft::default()
+            },
+        )
+        .expect("place saves");
+        conn.execute_batch(
+            "INSERT INTO people (id, given_name, middle_name, surname, gender) VALUES
+                ('p1', 'Ada', '', 'King', 'F'),
+                ('p2', 'Otto', '', 'King', 'M'),
+                ('p3', 'Bo', 'Lynn', 'King', 'M');
+             INSERT INTO families (id, husband_id, wife_id) VALUES ('f1', 'p2', 'p3');",
+        )
+        .expect("people and family insert");
+        for (id, event_type, date, person, family) in [
+            ("e1", "BIRTH", "1850", Some("p1"), None),
+            ("e2", "DEATH", "1900", Some("p1"), None),
+            ("e3", "MARRIAGE", "1875", None, Some("f1")),
+            ("e4", "CENSUS", "1860", Some("p1"), None),
+        ] {
+            conn.execute(
+                "INSERT INTO events (id, event_type, date, place_id, person_id, family_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id, event_type, date, place, person, family],
+            )
+            .expect("event insert");
+        }
+
+        let usage = list_place_usage(&conn, &place).expect("usage list");
+        assert_eq!(usage.len(), 4);
+        assert_eq!(usage[0].event_type, "BIRTH");
+        assert_eq!(usage[0].person_name.as_deref(), Some("Ada King"));
+        assert_eq!(usage[1].event_type, "CENSUS");
+        assert_eq!(usage[2].event_type, "DEATH");
+        assert_eq!(usage[3].event_type, "MARRIAGE");
+        assert_eq!(usage[3].husband_name.as_deref(), Some("Otto King"));
+        assert_eq!(usage[3].wife_name.as_deref(), Some("Bo Lynn King"));
+        assert_eq!(usage[3].husband_id.as_deref(), Some("p2"));
+        assert_eq!(usage[3].wife_id.as_deref(), Some("p3"));
+
+        let summary = list_places(&conn).expect("places list");
+        assert_eq!(summary[0].event_count, usage.len() as i64);
+    }
+
+    #[test]
+    fn empty_places_have_no_usage() {
+        let mut conn = connection();
+        let id = save_place(
+            &mut conn,
+            &PlaceDraft {
+                name: "Nowhere".to_string(),
+                ..PlaceDraft::default()
+            },
+        )
+        .expect("place saves");
+        assert!(list_place_usage(&conn, &id).expect("usage").is_empty());
     }
 
     #[test]
