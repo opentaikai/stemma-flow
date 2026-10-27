@@ -21,7 +21,7 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
 - `db::init_db(&conn)` creates or upgrades the schema (22 tables, 36
-  indexes) and records its version in `PRAGMA user_version` (currently 9):
+  indexes) and records its version in `PRAGMA user_version` (currently 10):
   `people`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
@@ -31,8 +31,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   backfilled. v2 databases gain the v3 source/citation metadata, v4 the
   source template catalogue, v5 the free-form citation outputs, v6 the
   reusable citation links, v7 fact scope/kind with the 61-type built-in
-  catalogue, v8 per-fact-type roles plus unique GEDCOM tags and v9 shared
-  event participants.
+  catalogue, v8 per-fact-type roles plus unique GEDCOM tags, v9 shared
+  event participants and v10 person/event privacy with living overrides.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -51,8 +51,10 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   `fact_types` carries the 61 built-in person/family event and attribute
   definitions, including their GEDCOM tags and scope; `fact_type_roles`
   holds user-defined roles for each type. `event_participants` links
-  additional people to an event with one of those roles. Custom types use
-  the same tables with `is_builtin = 0`. Citations keep page, note,
+  additional people to an event with one of those roles. `people` and
+  `events` carry private flags, and `people.living_override` stores the
+  Auto/Living/Deceased override. Custom types use the same tables with
+  `is_builtin = 0`. Citations keep page, note,
   certainty, media type and data date/text; `citation_links` attaches one
   canonical citation to any number of person or family events.
   `load_vital_dates` and
@@ -152,7 +154,9 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   their stored GEDCOM tags; attribute values are stored in
   `events.description`. Shared-event witnesses use custom `2 _WITN @I@` and
   `3 _ROLE <label>` lines; imported role labels are added to the fact type
-  when missing. Populated
+  when missing. Privacy filtering happens before serialisation: hidden
+  people and private facts are omitted, `RESN`/`_PRIV` markers are written
+  when included, and family links are limited to visible people. Populated
   `people.notes` travel as `1 NOTE` + `2 CONT` lines after `1 SEX`, so
   notes round-trip losslessly. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
@@ -213,11 +217,19 @@ a tree becomes usable:
 - The `File` menu lists **New Family Tree…**, **Open Tree…**,
   **Import GEDCOM…** (into a fresh database from the dashboard; into the
   open tree once one is active), **Export GEDCOM…** (enabled once a tree is
-  open), **Recent**, **Close Tree** (unloads the active database and
+  open; opens a privacy options dialog before the file picker), **Recent**,
+  **Close Tree** (unloads the active database and
   returns to the dashboard), **Settings…** (the appearance dialog) and
   **Quit**. The menu bar keeps a muted
   **Active Tree: &lt;file&gt;** label on its right edge whenever a database
   is loaded.
+
+GEDCOM export excludes living people and private people/facts by default.
+The export dialog can include either category and adjusts the automatic
+living-age threshold (default 110 years); manual living overrides always
+win. Included private or living people carry `1 RESN privacy`, and
+included private events carry `2 _PRIV Y`. Family links to hidden people
+are removed, and families with no visible member are not exported.
 
 ## Graph View, Watch List, Places, Fact Types, Sources & inspector
 
@@ -294,7 +306,9 @@ views (the app always launches on Graph View):
   type's roles. Birth/death facts stay in Vital Facts unless they have
   witnesses; Vital Facts also shows the age at death. Spouse rows carry a
   **Witnesses** action for the marriage event and the selected person's age
-  at that marriage. A **Citations** card
+  at that marriage. A **Privacy** card marks the person private, overrides
+  auto living status (Auto/Living/Deceased) and lists every own or family
+  event with a private checkbox. A **Citations** card
   that attaches a source to the birth, death or a family marriage event and
   records the page, the Evidence Explained source/information/evidence
   quality and the GEDCOM certainty (each optionally "Don't know"). It can

@@ -91,7 +91,7 @@ places, facts, alternate names and notes as first-class records.
 | Custom fact types and user-defined roles | done | P1 | Fact-type roles ready for shared events |
 | Shared events and witnesses | done | P2 | Participant roles and _WITN/_ROLE GEDCOM round-trip |
 | Age at event | done | P1 | Exact, approximate, bounded and ranged ages from dates |
-| Private facts and privacy suppression on export | planned | P1 | Living-person handling |
+| Private facts and privacy suppression on export | done | P1 | Private people/facts, living detection and opt-in export |
 | Alternate names and name pieces (prefix, suffix) | planned | P1 | Also married names |
 | Surname-first display option | planned | P2 | Per-file preference |
 | Notes on person, family, fact, citation and place | planned | P0 | Current person notes migrate |
@@ -120,7 +120,7 @@ places, facts, alternate names and notes as first-class records.
 | Merge duplicates with side-by-side comparison | planned | P0 | Copy fields, merge families, SmartMerge-style pass |
 | Backup and restore with timestamped file names | planned | P0 | Media included once M4 lands |
 | Database tools: integrity check, rebuild indexes, compress | planned | P1 | Safe, on-demand maintenance |
-| Living and privacy flags | planned | P1 | Suppress in exports and reports |
+| Living and privacy flags | done | P1 | Auto living plus override; export suppression |
 
 ## M3 - Research workflow (P1)
 
@@ -226,8 +226,8 @@ long research sessions.
 - Schema versioning with forward-only migrations and migration tests.
 - GEDCOM fidelity harness: import -> export -> import comparisons for
   every new entity.
-- Privacy by default: living people and private facts excluded from
-  exports and reports unless the user opts in.
+- Privacy by default: living people and private facts are excluded from
+  exports unless the user opts in; report privacy remains future work.
 - No network access unless a feature is explicitly enabled.
 - Performance budgets for 10,000+ person trees in layout, search and
   rendering.
