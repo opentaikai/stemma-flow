@@ -1204,6 +1204,115 @@ fn import_creates_places_and_links_events() -> Result<(), GedcomError> {
 }
 
 #[test]
+fn place_coordinates_round_trip() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 PLAC Uppsala, Sweden
+3 MAP
+4 LATI N59.8586
+4 LONG E17.6389
+1 DEAT
+2 PLAC Quito, Ecuador
+3 MAP
+4 LATI S0.1807
+4 LONG W78.4678
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(
+        report.warnings.is_empty(),
+        "valid coordinates must not warn: {:?}",
+        report.warnings
+    );
+
+    let uppsala: (f64, f64) = conn
+        .query_row(
+            "SELECT latitude, longitude FROM places WHERE name = 'Uppsala, Sweden'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(uppsala, (59.8586, 17.6389));
+    let quito: (f64, f64) = conn
+        .query_row(
+            "SELECT latitude, longitude FROM places WHERE name = 'Quito, Ecuador'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(quito, (-0.1807, -78.4678));
+
+    let exported = export_to_gedcom(&conn)?;
+    for expected in [
+        "2 PLAC Uppsala, Sweden",
+        "3 MAP",
+        "4 LATI N59.8586",
+        "4 LONG E17.6389",
+        "2 PLAC Quito, Ecuador",
+        "4 LATI S0.1807",
+        "4 LONG W78.4678",
+    ] {
+        assert!(
+            exported.contains(expected),
+            "export must contain {expected:?}: {exported:?}"
+        );
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert!(
+        report.warnings.is_empty(),
+        "coordinate export must re-import cleanly: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        export_to_gedcom(&fresh)?,
+        exported,
+        "place coordinates must round-trip byte for byte"
+    );
+    Ok(())
+}
+
+#[test]
+fn invalid_place_coordinates_warn_and_are_ignored() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 PLAC Uppsala, Sweden
+3 MAP
+4 LATI X59.8586
+4 LONG E17.6389
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("invalid latitude")),
+        "invalid latitude must warn: {:?}",
+        report.warnings
+    );
+    let coordinates: (Option<f64>, Option<f64>) = conn
+        .query_row(
+            "SELECT latitude, longitude FROM places WHERE name = 'Uppsala, Sweden'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(coordinates.0, None);
+    assert_eq!(coordinates.1, Some(17.6389));
+    Ok(())
+}
+
+#[test]
 fn import_reuses_one_source_for_repeated_pointers() -> Result<(), GedcomError> {
     let sample = "\
 0 HEAD
