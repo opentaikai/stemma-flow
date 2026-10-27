@@ -351,6 +351,18 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
                 );
             }
 
+            let latitude = parse_coordinate(&state.draft.latitude, 90.0, "Latitude");
+            let longitude = parse_coordinate(&state.draft.longitude, 180.0, "Longitude");
+            for error in [latitude.as_ref().err(), longitude.as_ref().err()]
+                .into_iter()
+                .flatten()
+            {
+                ui.label(
+                    RichText::new(error)
+                        .color(ui.visuals().error_fg_color)
+                        .small(),
+                );
+            }
             if let Some(error) = &state.error {
                 ui.label(
                     RichText::new(error)
@@ -359,17 +371,20 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
                 );
             }
 
+            let valid =
+                !state.draft.name.trim().is_empty() && latitude.is_ok() && longitude.is_ok();
             if ui
-                .add_enabled(
-                    !state.draft.name.trim().is_empty(),
-                    egui::Button::new(RichText::new("Save").strong()),
-                )
+                .add_enabled(valid, egui::Button::new(RichText::new("Save").strong()))
                 .clicked()
+                && let (Ok(latitude), Ok(longitude)) = (latitude, longitude)
             {
-                match state.draft.to_draft() {
-                    Ok(draft) => *event = Some(PlacesEvent::Save(Box::new(draft))),
-                    Err(message) => state.error = Some(message),
-                }
+                *event = Some(PlacesEvent::Save(Box::new(PlaceDraft {
+                    id: state.draft.id.clone(),
+                    name: state.draft.name.clone(),
+                    notes: state.draft.notes.clone(),
+                    latitude,
+                    longitude,
+                })));
             }
         });
 }
