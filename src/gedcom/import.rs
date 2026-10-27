@@ -54,6 +54,7 @@ pub(crate) struct ParsedEvent {
     pub longitude: Option<f64>,
     /// Attribute value, such as `OCCU Teacher`.
     pub description: Option<String>,
+    pub private: bool,
     pub participants: Vec<ParsedParticipant>,
     pub source_refs: Vec<SourceRef>,
 }
@@ -82,6 +83,7 @@ pub(crate) struct IndiRecord {
     pub events: Vec<ParsedEvent>,
     pub famc: Vec<String>,
     pub fams: Vec<String>,
+    pub private: bool,
 }
 
 /// A parsed `0 @F1@ FAM` record.
@@ -174,6 +176,7 @@ impl IndiRecord {
             events: Vec::new(),
             famc: Vec::new(),
             fams: Vec::new(),
+            private: false,
         }
     }
 }
@@ -799,6 +802,7 @@ impl<R: BufRead> RecordReader<R> {
                             rec.surname = surname;
                         }
                         "SEX" => rec.gender = normalize_gender(line.payload),
+                        "RESN" => rec.private = !line.payload.trim().is_empty(),
                         "FAMC" => push_pointer(&mut rec.famc, line, "FAMC", line_no, &mut warning),
                         "FAMS" => push_pointer(&mut rec.fams, line, "FAMS", line_no, &mut warning),
                         "NOTE" => {
@@ -818,6 +822,7 @@ impl<R: BufRead> RecordReader<R> {
                                     latitude: None,
                                     longitude: None,
                                     description: optional_payload(line.payload),
+                                    private: false,
                                     participants: Vec::new(),
                                     source_refs: Vec::new(),
                                 });
@@ -870,6 +875,7 @@ impl<R: BufRead> RecordReader<R> {
                                     latitude: None,
                                     longitude: None,
                                     description: optional_payload(line.payload),
+                                    private: false,
                                     participants: Vec::new(),
                                     source_refs: Vec::new(),
                                 });
@@ -960,6 +966,12 @@ fn fill_event(
         2 => match line.tag {
             "DATE" => event.date = optional_payload(line.payload),
             "PLAC" => event.place = optional_payload(line.payload),
+            "_PRIV" => {
+                event.private = !matches!(
+                    line.payload.trim().to_ascii_uppercase().as_str(),
+                    "" | "N" | "NO" | "0" | "FALSE"
+                );
+            }
             "_WITN" => {
                 if is_pointer(line.payload) {
                     event.participants.push(ParsedParticipant {
@@ -1132,8 +1144,9 @@ pub fn import_gedcom<R: BufRead>(
                 }
                 let id = Uuid::new_v4().to_string();
                 tx.execute(
-                    "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender, notes)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    "INSERT INTO people
+                     (id, given_name, middle_name, surname, nickname, gender, notes, private)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![
                         id,
                         indi.given_name,
@@ -1141,7 +1154,8 @@ pub fn import_gedcom<R: BufRead>(
                         indi.surname,
                         indi.nickname,
                         indi.gender,
-                        indi.note.unwrap_or_default()
+                        indi.note.unwrap_or_default(),
+                        indi.private as i64
                     ],
                 )?;
                 report.people += 1;
@@ -1558,8 +1572,8 @@ fn insert_event(
     )?;
     conn.execute(
         "INSERT INTO events
-         (id, event_type, date, place_id, person_id, family_id, description)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         (id, event_type, date, place_id, person_id, family_id, description, private)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             id,
             event.event_type,
@@ -1567,7 +1581,8 @@ fn insert_event(
             place_id,
             person_id,
             family_id,
-            event.description
+            event.description,
+            event.private as i64
         ],
     )?;
     report.events += 1;

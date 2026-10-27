@@ -6,7 +6,7 @@ pub mod import;
 #[cfg(test)]
 mod tests;
 
-pub use export::export_to_gedcom;
+pub use export::{ExportOptions, export_to_gedcom, export_to_gedcom_with_options};
 pub use import::import_gedcom;
 
 use thiserror::Error;

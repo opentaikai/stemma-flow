@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS people (
     nickname TEXT NOT NULL DEFAULT '',
     gender TEXT NOT NULL CHECK (gender IN ('M', 'F', 'U')),
     notes TEXT NOT NULL DEFAULT '',
+    private INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1)),
+    living_override INTEGER CHECK (living_override IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -91,6 +93,7 @@ CREATE TABLE IF NOT EXISTS events (
     date TEXT,
     place_id TEXT REFERENCES places(id) ON DELETE SET NULL,
     description TEXT,
+    private INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1)),
     person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
     family_id TEXT REFERENCES families(id) ON DELETE CASCADE
 );
@@ -383,7 +386,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v5_to_v6(conn)?;
         super::migrations::migrate_v6_to_v7(conn)?;
         super::migrations::migrate_v7_to_v8(conn)?;
-        return super::migrations::migrate_v8_to_v9(conn);
+        super::migrations::migrate_v8_to_v9(conn)?;
+        return super::migrations::migrate_v9_to_v10(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -411,9 +415,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 8 {
             super::migrations::migrate_v7_to_v8(conn)?;
         }
-        return super::migrations::migrate_v8_to_v9(conn);
+        if version < 9 {
+            super::migrations::migrate_v8_to_v9(conn)?;
+        }
+        return super::migrations::migrate_v9_to_v10(conn);
     }
-    ensure_v9(conn)
+    ensure_v10(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -427,7 +434,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v9(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v10(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
@@ -467,6 +474,24 @@ fn ensure_v9(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(FACT_TAG_INDEX_SQL)?;
     conn.execute_batch(EVENT_PARTICIPANTS_TABLE_SQL)?;
     conn.execute_batch(EVENT_PARTICIPANTS_INDEX_SQL)?;
+    ensure_column(
+        conn,
+        "people",
+        "private",
+        "INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1))",
+    )?;
+    ensure_column(
+        conn,
+        "people",
+        "living_override",
+        "INTEGER CHECK (living_override IN (0, 1))",
+    )?;
+    ensure_column(
+        conn,
+        "events",
+        "private",
+        "INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1))",
+    )?;
     Ok(())
 }
 

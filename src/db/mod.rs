@@ -7,6 +7,7 @@ pub mod models;
 pub mod participants;
 pub mod people;
 pub mod places;
+pub mod privacy;
 pub mod repositories;
 pub mod schema;
 pub mod sources;

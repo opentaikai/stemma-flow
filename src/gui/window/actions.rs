@@ -6,6 +6,7 @@ use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
 use crate::gui::citations::CitationDraft;
 use crate::gui::dialogs;
+use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
@@ -518,6 +519,7 @@ impl TreeWindow {
             connections,
             &mut self.citations,
             &facts,
+            self.person_privacy.as_ref(),
         ) {
             self.apply_inspector_action(action, &person_id);
         }
@@ -587,7 +589,39 @@ impl TreeWindow {
                 self.load_citation_choices();
             }
             InspectorAction::EditParticipants(event_id) => self.open_participants(&event_id),
+            InspectorAction::SetPersonPrivate(private) => {
+                match self.app.set_person_private(person_id, private) {
+                    Ok(()) => self.reload_person_privacy(),
+                    Err(message) => self.app.set_status(UiStatus::Error(message)),
+                }
+            }
+            InspectorAction::SetLivingOverride(value) => {
+                match self.app.set_living_override(person_id, value) {
+                    Ok(()) => self.reload_person_privacy(),
+                    Err(message) => self.app.set_status(UiStatus::Error(message)),
+                }
+            }
+            InspectorAction::SetEventPrivate { event_id, private } => {
+                match self.app.set_event_private(&event_id, private) {
+                    Ok(()) => self.reload_person_privacy(),
+                    Err(message) => self.app.set_status(UiStatus::Error(message)),
+                }
+            }
         }
+    }
+
+    pub(super) fn reload_person_privacy(&mut self) {
+        self.person_privacy = if let Some(id) = self.inspected.as_deref() {
+            match self.app.person_privacy(id) {
+                Ok(privacy) => privacy,
+                Err(message) => {
+                    self.app.set_status(UiStatus::Error(message));
+                    None
+                }
+            }
+        } else {
+            None
+        };
     }
 
     pub(super) fn open_participants(&mut self, event_id: &str) {
@@ -599,6 +633,15 @@ impl TreeWindow {
                 .app
                 .set_status(UiStatus::Error(format!("no event with id {event_id}"))),
             Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn show_export_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_export {
+            return;
+        }
+        if export_dialog::show(ctx, &mut self.export_options, &mut self.show_export) == Some(true) {
+            self.app.begin_export_with_options(self.export_options);
         }
     }
 
@@ -731,6 +774,7 @@ impl TreeWindow {
         self.inspector = person
             .map(|person| InspectorForm::from_person(person, &self.dates))
             .unwrap_or_default();
+        self.reload_person_privacy();
     }
 
     /// Persists the buffered profile through the app layer.
@@ -742,6 +786,7 @@ impl TreeWindow {
             Ok(()) => {
                 self.places.loaded = false;
                 self.reload_scene_quiet();
+                self.reload_person_privacy();
             }
             Err(message) => self.app.set_status(UiStatus::Error(message)),
         }
