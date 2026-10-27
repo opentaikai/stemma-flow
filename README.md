@@ -20,18 +20,19 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (21 tables, 35
-  indexes) and records its version in `PRAGMA user_version` (currently 8):
+- `db::init_db(&conn)` creates or upgrades the schema (22 tables, 36
+  indexes) and records its version in `PRAGMA user_version` (currently 9):
   `people`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
-  `events`, `citations`, `citation_links`, `media`, `media_links`, `tasks`,
-  `task_links`, `groups` and `group_members`. A v1 database is migrated in place: citation titles
+  `events`, `event_participants`, `citations`, `citation_links`, `media`,
+  `media_links`, `tasks`, `task_links`, `groups` and `group_members`. A v1 database is migrated in place: citation titles
   become `sources`, event places become `places`, and the new links are
   backfilled. v2 databases gain the v3 source/citation metadata, v4 the
   source template catalogue, v5 the free-form citation outputs, v6 the
   reusable citation links, v7 fact scope/kind with the 61-type built-in
-  catalogue and v8 per-fact-type roles plus unique GEDCOM tags.
+  catalogue, v8 per-fact-type roles plus unique GEDCOM tags and v9 shared
+  event participants.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -49,8 +50,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   latitude and longitude and are shared by every event that mentions them.
   `fact_types` carries the 61 built-in person/family event and attribute
   definitions, including their GEDCOM tags and scope; `fact_type_roles`
-  holds user-defined roles for each type. Custom types use the same tables
-  with `is_builtin = 0`. Citations keep page, note,
+  holds user-defined roles for each type. `event_participants` links
+  additional people to an event with one of those roles. Custom types use
+  the same tables with `is_builtin = 0`. Citations keep page, note,
   certainty, media type and data date/text; `citation_links` attaches one
   canonical citation to any number of person or family events.
   `load_vital_dates` and
@@ -145,7 +147,9 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
   `4 LONG`, while place notes remain app-only. Fact types and attributes such
   as `OCCU`, `CENS`, `BURI` and `DIV` round-trip, including custom types with
   their stored GEDCOM tags; attribute values are stored in
-  `events.description`. Populated
+  `events.description`. Shared-event witnesses use custom `2 _WITN @I@` and
+  `3 _ROLE <label>` lines; imported role labels are added to the fact type
+  when missing. Populated
   `people.notes` travel as `1 NOTE` + `2 CONT` lines after `1 SEX`, so
   notes round-trip losslessly. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
@@ -247,8 +251,8 @@ views (the app always launches on Graph View):
   fact types with category, scope, kind, GEDCOM tag, role count and event
   usage, plus an editor. Custom types get an immutable generated key and a
   unique GEDCOM tag; built-in metadata is read-only. Roles are defined per
-  fact type (for example Owner or Witness) and are ready to feed shared
-  events; deleting a custom type is blocked while events use it. Custom tags
+  fact type (for example Owner or Witness) and feed shared-event witnesses;
+  deleting a custom type is blocked while events use it. Custom tags
   round-trip through GEDCOM.
 - **Sources** — a searchable list of the tree's sources with citation
   counts, plus an editor beside it. A source is either free-form or uses one
@@ -281,7 +285,11 @@ views (the app always launches on Graph View):
   editors — the date fields accept GEDCOM or ISO input, and an invalid
   date shows an inline message and disables saving — an **Other Facts**
   card listing imported non-vital facts with their labels, dates, places
-  and values (read-only for now), a **Citations** card
+  and values; facts the person witnessed also appear with their role and
+  principal, and **Add/Edit witnesses** opens a participant editor with
+  people search and the fact type's roles. Birth/death facts stay in Vital
+  Facts unless they have witnesses. Spouse rows carry a **Witnesses** action
+  for the marriage event. A **Citations** card
   that attaches a source to the birth, death or a family marriage event and
   records the page, the Evidence Explained source/information/evidence
   quality and the GEDCOM certainty (each optionally "Don't know"). It can

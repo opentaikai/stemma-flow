@@ -15,6 +15,7 @@ use crate::db::citations::{
 use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
+use crate::db::participants::{self as participant_store, EventContext, ParticipantDraft};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
 use crate::db::repositories::{
@@ -432,6 +433,26 @@ impl StemmaApp {
         Ok(())
     }
 
+    /// Loads an event with its roles and participants.
+    pub fn load_event_context(&self, event_id: &str) -> Result<Option<EventContext>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        participant_store::load_event_context(&conn, event_id)
+    }
+
+    /// Replaces an event's participants.
+    pub fn save_event_participants(
+        &mut self,
+        event_id: &str,
+        participants: &[ParticipantDraft],
+    ) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        participant_store::save_event_participants(&mut conn, event_id, participants)?;
+        self.set_status(UiStatus::Success("Witnesses saved".to_string()));
+        Ok(())
+    }
+
     /// Lists fact types with role/event counts.
     pub fn list_fact_types(&self) -> Result<Vec<FactTypeSummary>, String> {
         let path = self.require_active_db()?;
@@ -609,11 +630,12 @@ impl StemmaApp {
 /// user always sees whether anything was skipped.
 fn import_summary(report: &ImportReport) -> String {
     format!(
-        "Imported {} people, {} families, {} events, {} citations, {} warnings",
+        "Imported {} people, {} families, {} events, {} citations, {} witnesses, {} warnings",
         report.people,
         report.families,
         report.events,
         report.citations,
+        report.participants,
         report.warnings.len()
     )
 }
@@ -808,6 +830,7 @@ mod tests {
             child_links: 1,
             events: 0,
             citations: 0,
+            participants: 0,
             warnings: Vec::new(),
         }));
         assert!(app.poll(), "queued events must be applied");
@@ -832,6 +855,7 @@ mod tests {
                 child_links: 2,
                 events: 0,
                 citations: 0,
+                participants: 0,
                 warnings: Vec::new(),
             },
             path: PathBuf::from("/tmp/fresh.db"),
@@ -879,6 +903,7 @@ mod tests {
             child_links: 1,
             events: 0,
             citations: 0,
+            participants: 0,
             warnings: Vec::new(),
         }));
         assert!(!app.is_busy());
@@ -904,6 +929,7 @@ mod tests {
             child_links: 0,
             events: 3,
             citations: 1,
+            participants: 0,
             warnings: vec!["Line 6: ignored".to_string(), "Line 9: ignored".to_string()],
         }));
 

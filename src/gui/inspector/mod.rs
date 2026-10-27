@@ -3,11 +3,13 @@
 mod connections;
 mod form;
 mod panel;
+mod participants;
 mod relation;
 
 pub use connections::{Connections, Relative, connections, person_label, reverse_marriage_places};
 pub use form::InspectorForm;
 pub use panel::{field_editors, show};
+pub use participants::{ParticipantForm, ParticipantOutcome, show as participant_window};
 pub use relation::{RelationForm, RelationKind, RelationOutcome, relation_window};
 
 use egui::Color32;
@@ -50,6 +52,8 @@ pub enum InspectorAction {
     DeleteCitation(String),
     /// Load the reusable citations of a source.
     LoadCitationChoices(String),
+    /// Open the witness editor for an event.
+    EditParticipants(String),
 }
 
 #[cfg(test)]
@@ -200,6 +204,7 @@ mod tests {
         marriages.insert(
             "f-own".to_string(),
             MarriageInfo {
+                event_id: Some("e-marriage".to_string()),
                 date: Some("1910".to_string()),
                 place: Some("Uppsala".to_string()),
             },
@@ -253,6 +258,10 @@ mod tests {
             date: Some("1870".to_string()),
             place: Some("Uppsala".to_string()),
             value: Some("Teacher".to_string()),
+            role: None,
+            principal: None,
+            principal_id: None,
+            participants: Vec::new(),
         }];
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
             captured = show(
@@ -292,6 +301,7 @@ mod tests {
                 id: "p2".to_string(),
                 label: "Otto King".to_string(),
                 marriage: Some(MarriageInfo {
+                    event_id: Some("e-marriage".to_string()),
                     date: None,
                     place: Some("Uppsala, Sweden".to_string()),
                 }),

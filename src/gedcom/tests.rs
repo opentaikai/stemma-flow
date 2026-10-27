@@ -1350,6 +1350,76 @@ fn custom_fact_tags_round_trip() -> Result<(), GedcomError> {
 }
 
 #[test]
+fn event_witnesses_round_trip() -> Result<(), GedcomError> {
+    use crate::db::facts::load_fact_type;
+
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 1850
+2 _WITN @I2@
+3 _ROLE Godparent
+0 @I2@ INDI
+1 NAME Bo /King/
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(
+        report.warnings.is_empty(),
+        "witness import must not warn: {:?}",
+        report.warnings
+    );
+    assert_eq!(report.participants, 1);
+
+    let witness: (String, String) = conn
+        .query_row(
+            "SELECT p.id, r.label
+             FROM event_participants ep
+             JOIN people p ON p.id = ep.person_id
+             JOIN events e ON e.id = ep.event_id
+             JOIN fact_type_roles r
+                 ON r.fact_type_key = e.event_type AND r.role_key = ep.role_key
+             WHERE e.event_type = 'BIRTH'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(witness.1, "Godparent");
+    let birth = load_fact_type(&conn, "BIRTH")
+        .expect("load")
+        .expect("birth");
+    assert!(
+        birth.roles.iter().any(|role| role.label == "Godparent"),
+        "the witness role is catalogued"
+    );
+
+    let exported = export_to_gedcom(&conn)?;
+    for expected in ["2 _WITN @I2@", "3 _ROLE Godparent"] {
+        assert!(
+            exported.contains(expected),
+            "export must contain {expected:?}: {exported:?}"
+        );
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert!(
+        report.warnings.is_empty(),
+        "witness export must re-import cleanly: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        export_to_gedcom(&fresh)?,
+        exported,
+        "event witnesses must round-trip byte for byte"
+    );
+    Ok(())
+}
+
+#[test]
 fn place_coordinates_round_trip() -> Result<(), GedcomError> {
     let sample = "\
 0 HEAD

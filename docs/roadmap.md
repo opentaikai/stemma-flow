@@ -49,7 +49,7 @@ Priority:
 | Theme and font scaling settings | done | P2 | Persisted config |
 | Background import and export jobs | done | P1 | UI stays responsive |
 | Sources and citations | partial | P0 | Source and citation editors, reusable citations and source merge |
-| Facts and events | partial | P0 | Read-only facts; custom types/roles; generic editor pending |
+| Facts and events | partial | P0 | Read-only facts with witness editing; generic editor pending |
 | Places | partial | P0 | Place records in schema v2; no place page yet |
 | Names | partial | P0 | Given, middle, surname, nickname only |
 | Notes | partial | P1 | Person level only, no rich text or spell check |
@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v8: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 citation links, v8 roles |
+| Schema v2-v9: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
@@ -89,7 +89,7 @@ places, facts, alternate names and notes as first-class records.
 | Place usage lists and editing people from a place | done | P1 | Per-event usage and inspector selection |
 | Fact catalogue: 60+ predefined fact types | done | P0 | 61 built-ins, GEDCOM round-trip and read-only facts |
 | Custom fact types and user-defined roles | done | P1 | Fact-type roles ready for shared events |
-| Shared events and witnesses | planned | P2 | Associations between participants |
+| Shared events and witnesses | done | P2 | Participant roles and _WITN/_ROLE GEDCOM round-trip |
 | Age at event | planned | P1 | Derived from dates |
 | Private facts and privacy suppression on export | planned | P1 | Living-person handling |
 | Alternate names and name pieces (prefix, suffix) | planned | P1 | Also married names |

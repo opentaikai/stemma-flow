@@ -6,7 +6,8 @@ use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use uuid::Uuid;
 
 use super::schema::{
-    CITATION_LINKS_INDEXES_SQL, CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL, FACT_ROLES_TABLE_SQL,
+    CITATION_LINKS_INDEXES_SQL, CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL,
+    EVENT_PARTICIPANTS_INDEX_SQL, EVENT_PARTICIPANTS_TABLE_SQL, FACT_ROLES_TABLE_SQL,
     FACT_TAG_INDEX_SQL, INDEXES_SQL, LINK_TABLES_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL,
     V4_TABLES_SQL, V5_COLUMNS, ensure_column, seed_source_templates,
 };
@@ -110,6 +111,15 @@ pub(super) fn migrate_v7_to_v8(conn: &Connection) -> rusqlite::Result<()> {
     tx.execute_batch(FACT_ROLES_TABLE_SQL)?;
     tx.execute_batch(FACT_TAG_INDEX_SQL)?;
     tx.pragma_update(None, "user_version", 8)?;
+    tx.commit()
+}
+
+/// Adds event participants for shared events and witnesses.
+pub(super) fn migrate_v8_to_v9(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch(EVENT_PARTICIPANTS_TABLE_SQL)?;
+    tx.execute_batch(EVENT_PARTICIPANTS_INDEX_SQL)?;
+    tx.pragma_update(None, "user_version", 9)?;
     tx.commit()
 }
 
