@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -256,6 +256,24 @@ pub(super) const V5_COLUMNS: [(&str, &str, &str); 3] = [
     ("sources", "bibliography", "TEXT"),
 ];
 
+/// Roles belong to one fact type and feed future shared events.
+pub(super) const FACT_ROLES_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS fact_type_roles (
+    fact_type_key TEXT NOT NULL REFERENCES fact_types(key) ON DELETE CASCADE,
+    role_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (fact_type_key, role_key)
+);
+"#;
+
+/// Built-in and custom GEDCOM tags must not collide.
+pub(super) const FACT_TAG_INDEX_SQL: &str = r#"
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_types_gedcom_tag
+    ON fact_types(gedcom_tag)
+    WHERE gedcom_tag IS NOT NULL AND trim(gedcom_tag) <> '';
+"#;
+
 /// Source templates and their fields.
 pub(super) const V4_TABLES_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS source_templates (
@@ -347,7 +365,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v3_to_v4(conn)?;
         super::migrations::migrate_v4_to_v5(conn)?;
         super::migrations::migrate_v5_to_v6(conn)?;
-        return super::migrations::migrate_v6_to_v7(conn);
+        super::migrations::migrate_v6_to_v7(conn)?;
+        return super::migrations::migrate_v7_to_v8(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -369,9 +388,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 6 {
             super::migrations::migrate_v5_to_v6(conn)?;
         }
-        return super::migrations::migrate_v6_to_v7(conn);
+        if version < 7 {
+            super::migrations::migrate_v6_to_v7(conn)?;
+        }
+        return super::migrations::migrate_v7_to_v8(conn);
     }
-    ensure_v7(conn)
+    ensure_v8(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -385,7 +407,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v7(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v8(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
@@ -421,6 +443,8 @@ fn ensure_v7(conn: &Connection) -> rusqlite::Result<()> {
         "TEXT NOT NULL DEFAULT 'event' CHECK (kind IN ('event', 'attribute'))",
     )?;
     super::facts::seed_fact_types(conn)?;
+    conn.execute_batch(FACT_ROLES_TABLE_SQL)?;
+    conn.execute_batch(FACT_TAG_INDEX_SQL)?;
     Ok(())
 }
 

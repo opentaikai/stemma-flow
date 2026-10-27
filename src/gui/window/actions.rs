@@ -6,6 +6,7 @@ use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
 use crate::gui::citations::CitationDraft;
 use crate::gui::dialogs;
+use crate::gui::fact_types::{self, FactTypesEvent};
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
 use crate::gui::inspector::InspectorForm;
@@ -232,6 +233,101 @@ impl TreeWindow {
                 self.places.editing = false;
             }
             (Err(message), _) | (_, Err(message)) => self.places.error = Some(message),
+        }
+    }
+
+    pub(super) fn fact_types_tab(&mut self, ui: &mut Ui) {
+        if !self.fact_types.loaded {
+            self.reload_fact_types();
+        }
+        if let Some(event) = fact_types::show(ui, &mut self.fact_types) {
+            self.apply_fact_types_event(event);
+        }
+    }
+
+    pub(super) fn apply_fact_types_event(&mut self, event: FactTypesEvent) {
+        match event {
+            FactTypesEvent::New => {
+                self.fact_types.selected = None;
+                self.fact_types.draft = crate::db::facts::FactTypeDraft::default();
+                self.fact_types.builtin = false;
+                self.fact_types.auto_tag = true;
+                self.fact_types.add_role.clear();
+                self.fact_types.editing = true;
+                self.fact_types.error = None;
+            }
+            FactTypesEvent::Select(key) => self.load_fact_type_draft(&key),
+            FactTypesEvent::Save(draft) => {
+                let result = if self.fact_types.builtin {
+                    match draft.key.clone() {
+                        Some(key) => self.app.save_fact_roles(&key, &draft.roles).map(|()| key),
+                        None => Err("built-in fact type has no key".to_string()),
+                    }
+                } else {
+                    self.app.save_fact_type(&draft)
+                };
+                match result {
+                    Ok(key) => {
+                        self.fact_types.selected = Some(key);
+                        self.fact_types.editing = true;
+                        self.fact_types.error = None;
+                        self.reload_fact_types();
+                        self.places.loaded = false;
+                        self.reload_scene_quiet();
+                    }
+                    Err(message) => self.fact_types.error = Some(message),
+                }
+            }
+            FactTypesEvent::Delete(key) => match self.app.delete_fact_type(&key) {
+                Ok(()) => {
+                    self.fact_types.selected = None;
+                    self.fact_types.draft = crate::db::facts::FactTypeDraft::default();
+                    self.fact_types.editing = false;
+                    self.fact_types.error = None;
+                    self.reload_fact_types();
+                    self.places.loaded = false;
+                    self.reload_scene_quiet();
+                }
+                Err(message) => self.fact_types.error = Some(message),
+            },
+        }
+    }
+
+    pub(super) fn reload_fact_types(&mut self) {
+        match self.app.list_fact_types() {
+            Ok(types) => {
+                self.fact_types.types = types;
+                self.fact_types.loaded = true;
+                self.fact_types.error = None;
+                if let Some(key) = self.fact_types.selected.clone() {
+                    self.load_fact_type_draft(&key);
+                }
+            }
+            Err(message) => {
+                self.fact_types.error = Some(message);
+                self.fact_types.loaded = true;
+            }
+        }
+    }
+
+    pub(super) fn load_fact_type_draft(&mut self, key: &str) {
+        match self.app.load_fact_type(key) {
+            Ok(Some(record)) => {
+                self.fact_types.selected = Some(key.to_string());
+                self.fact_types.builtin = record.is_builtin;
+                self.fact_types.auto_tag = false;
+                self.fact_types.add_role.clear();
+                self.fact_types.draft = fact_types::draft_from_record(&record);
+                self.fact_types.editing = true;
+                self.fact_types.error = None;
+            }
+            Ok(None) => {
+                self.fact_types.selected = None;
+                self.fact_types.draft = crate::db::facts::FactTypeDraft::default();
+                self.fact_types.builtin = false;
+                self.fact_types.editing = false;
+            }
+            Err(message) => self.fact_types.error = Some(message),
         }
     }
 

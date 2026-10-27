@@ -4,6 +4,7 @@ pub mod canvas;
 pub mod citations;
 pub mod connectors;
 pub mod dialogs;
+pub mod fact_types;
 pub mod import_report;
 pub mod inspector;
 pub mod layout;

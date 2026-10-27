@@ -9,6 +9,7 @@ pub enum AppTab {
     Graph,
     WatchList,
     Places,
+    FactTypes,
     Sources,
     Repositories,
 }
@@ -19,6 +20,7 @@ pub fn show(ui: &mut Ui, active: &mut AppTab) {
         ui.selectable_value(active, AppTab::Graph, "Graph View");
         ui.selectable_value(active, AppTab::WatchList, "Watch List");
         ui.selectable_value(active, AppTab::Places, "Places");
+        ui.selectable_value(active, AppTab::FactTypes, "Fact Types");
         ui.selectable_value(active, AppTab::Sources, "Sources");
         ui.selectable_value(active, AppTab::Repositories, "Repositories");
     });
