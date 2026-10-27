@@ -44,7 +44,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   `template_id`; `source_repositories` links a source to one or more
   repositories with a call number and media type; `source_fields` stores
   template values, `source_templates` and `source_template_fields` hold the
-  built-in Evidence Explained style catalogue. Citations keep page, note,
+  built-in Evidence Explained style catalogue. Places carry notes,
+  latitude and longitude and are shared by every event that mentions them. Citations keep page, note,
   certainty, media type and data date/text; `citation_links` attaches one
   canonical citation to any number of person or family events.
   `load_vital_dates` and
@@ -135,7 +136,8 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
   `PUBL`, `ABBR`, `REPO`/`CALN`, `NOTE` and `DATA` (templated sources render
   those columns from their fields when saved), then `INDI` and `FAM`
   records and finally `TRLR`. Events read their `2 PLAC` from the linked
-  place record. Populated
+  place record; stored coordinates are written as `3 MAP` with `4 LATI` and
+  `4 LONG`, while place notes remain app-only. Populated
   `people.notes` travel as `1 NOTE` + `2 CONT` lines after `1 SEX`, so
   notes round-trip losslessly. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
@@ -202,9 +204,9 @@ a tree becomes usable:
   **Active Tree: &lt;file&gt;** label on its right edge whenever a database
   is loaded.
 
-## Graph View, Watch List, Sources & inspector
+## Graph View, Watch List, Places, Sources & inspector
 
-With a tree open the `eframe` window (1200x800) shows a tab bar with three
+With a tree open the `eframe` window (1200x800) shows a tab bar with five
 views (the app always launches on Graph View):
 
 - **Graph View** — the interactive canvas: opening (or reloading) a tree
@@ -223,6 +225,14 @@ views (the app always launches on Graph View):
   delete removes the person, their events, citations and child links.
   **+ Add Independent Person** inserts an unnamed draft and focuses it; a
   first or last name is required before it can be saved.
+- **Places** — a filterable, sortable grid of the tree's shared place
+  records with event counts, notes, latitude and longitude. The editor
+  changes the canonical name, notes and decimal-degree coordinates; renaming
+  a place updates every event that references it. Deleting a place asks for
+  confirmation and clears the place from its events. Read-only place
+  displays can show comma components in reverse order; the stored name and
+  GEDCOM output keep the canonical order. Coordinates round-trip through
+  `MAP`/`LATI`/`LONG`; place notes remain local to the tree.
 - **Sources** — a searchable list of the tree's sources with citation
   counts, plus an editor beside it. A source is either free-form or uses one
   of five built-in Evidence Explained style templates (book, census,
@@ -324,6 +334,9 @@ each module's `mod.rs`:
   preference through egui's `ThemePreference`.
 - **Font size** — a 10–24pt slider driving `ctx.set_zoom_factor` (14pt
   maps to 1.0), so every tab, panel and window rescales in real time.
+- **Places** — **Reverse place-name order** shows comma-separated place
+  components largest-first in read-only displays; editors and GEDCOM keep
+  the stored order.
 
 Theme changes apply to the context immediately and persist to
 `<config_dir>/stemma-flow/config.toml` resolved with `dirs::config_dir()`
