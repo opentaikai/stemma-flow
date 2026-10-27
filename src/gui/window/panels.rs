@@ -35,6 +35,7 @@ impl TreeWindow {
                     .clicked()
                 {
                     ui.close();
+                    self.export_options = crate::gedcom::ExportOptions::default();
                     self.show_export = true;
                 }
                 if !self.recent.is_empty() {
