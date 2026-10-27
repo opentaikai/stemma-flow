@@ -16,6 +16,7 @@ use crate::gui::theme;
 pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<String> {
     let mut theme_changed = false;
     let mut font_apply = false;
+    let mut places_changed = false;
     Window::new("Settings")
         .id(egui::Id::new("settings_window"))
         .collapsible(false)
@@ -56,9 +57,28 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
                     font_apply = true;
                 }
             });
+
+            ui.separator();
+            ui.heading("Places");
+            if ui
+                .checkbox(
+                    &mut config.reverse_place_names,
+                    "Reverse place-name order",
+                )
+                .changed()
+            {
+                places_changed = true;
+            }
+            ui.label(
+                egui::RichText::new(
+                    "Read-only place displays show country first; editors and GEDCOM keep the stored order.",
+                )
+                .weak()
+                .small(),
+            );
         });
 
-    if !(theme_changed || font_apply) {
+    if !(theme_changed || font_apply || places_changed) {
         return None;
     }
     theme::apply_config_to_ctx(ctx, config);

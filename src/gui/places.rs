@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use egui::{RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
-use crate::db::places::{PlaceDraft, PlaceRecord, PlaceSummary};
+use crate::db::places::{PlaceDraft, PlaceRecord, PlaceSummary, reverse_name};
 
 /// What the user asked the shell to do from the places tab.
 #[derive(Debug, Clone, PartialEq)]
@@ -104,7 +104,7 @@ fn parse_coordinate(text: &str, limit: f64, label: &str) -> Result<Option<f64>, 
 }
 
 /// Draws the places tab and returns the action the window should apply.
-pub fn show(ui: &mut Ui, state: &mut PlacesState) -> Option<PlacesEvent> {
+pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<PlacesEvent> {
     let mut event = None;
     ui.horizontal(|ui| {
         ui.label("Filter:");
@@ -125,7 +125,7 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState) -> Option<PlacesEvent> {
         });
     });
 
-    let visible = visible_indices(state);
+    let visible = visible_indices(state, reverse);
     ui.label(
         RichText::new(format!(
             "Showing {} of {} places",
@@ -199,7 +199,8 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState) -> Option<PlacesEvent> {
                     let selected = state.selected.as_deref() == Some(place.id.as_str());
                     row.set_selected(selected);
                     row.col(|ui| {
-                        selectable_cell(ui, &place.name, &place.id, &mut event);
+                        let name = display_name(place, reverse);
+                        selectable_cell(ui, &name, &place.id, &mut event);
                     });
                     row.col(|ui| {
                         if ui
@@ -266,7 +267,7 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState) -> Option<PlacesEvent> {
     ui.separator();
     let editor_height = ui.available_height().max(0.0);
     ui.allocate_ui(egui::vec2(ui.available_width(), editor_height), |ui| {
-        editor(ui, state, &mut event);
+        editor(ui, state, &mut event, reverse);
     });
     let remaining = ui.available_height();
     if remaining > 0.0 {
@@ -275,7 +276,7 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState) -> Option<PlacesEvent> {
     event
 }
 
-fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>) {
+fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>, reverse: bool) {
     if !state.editing {
         ui.label(
             RichText::new("Select a place or create a new one.")
@@ -339,6 +340,16 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>)
                     .weak()
                     .small(),
             );
+            if reverse && !state.draft.name.trim().is_empty() {
+                ui.label(
+                    RichText::new(format!(
+                        "Reversed name: {}",
+                        reverse_name(&state.draft.name)
+                    ))
+                    .weak()
+                    .small(),
+                );
+            }
 
             if let Some(error) = &state.error {
                 ui.label(
@@ -373,7 +384,7 @@ fn coordinate_cell(ui: &mut Ui, value: Option<f64>, id: &str, event: &mut Option
     }
 }
 
-fn visible_indices(state: &PlacesState) -> Vec<usize> {
+fn visible_indices(state: &PlacesState, reverse: bool) -> Vec<usize> {
     let needle = state.filter.trim().to_lowercase();
     let mut indices: Vec<usize> = state
         .places
@@ -383,7 +394,9 @@ fn visible_indices(state: &PlacesState) -> Vec<usize> {
             if needle.is_empty() {
                 return true;
             }
-            place.name.to_lowercase().contains(&needle)
+            display_name(place, reverse)
+                .to_lowercase()
+                .contains(&needle)
                 || place
                     .notes
                     .as_deref()
@@ -400,7 +413,9 @@ fn visible_indices(state: &PlacesState) -> Vec<usize> {
                 return Ordering::Equal;
             };
             let order = match column {
-                SortColumn::Name => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
+                SortColumn::Name => display_name(left, reverse)
+                    .to_lowercase()
+                    .cmp(&display_name(right, reverse).to_lowercase()),
                 SortColumn::Events => left.event_count.cmp(&right.event_count),
                 SortColumn::Latitude => compare_coordinate(left.latitude, right.latitude),
                 SortColumn::Longitude => compare_coordinate(left.longitude, right.longitude),
@@ -415,6 +430,14 @@ fn visible_indices(state: &PlacesState) -> Vec<usize> {
         });
     }
     indices
+}
+
+fn display_name(place: &PlaceSummary, reverse: bool) -> String {
+    if reverse {
+        reverse_name(&place.name)
+    } else {
+        place.name.clone()
+    }
 }
 
 fn compare_coordinate(left: Option<f64>, right: Option<f64>) -> Ordering {
@@ -494,19 +517,31 @@ mod tests {
     }
 
     #[test]
+    fn reversed_names_drive_display_and_filtering() {
+        let mut state = PlacesState {
+            places: vec![summary("p1", "Uppsala, Sweden", 0)],
+            ..PlacesState::default()
+        };
+        assert_eq!(display_name(&state.places[0], true), "Sweden, Uppsala");
+        state.filter = "sweden, uppsala".to_string();
+        assert_eq!(visible_indices(&state, true), vec![0]);
+        assert!(visible_indices(&state, false).is_empty());
+    }
+
+    #[test]
     fn filters_and_sorts_the_grid() {
         let mut state = PlacesState {
             places: vec![summary("p1", "Uppsala", 1), summary("p2", "Lund", 3)],
             ..PlacesState::default()
         };
-        assert_eq!(visible_indices(&state), vec![0, 1]);
+        assert_eq!(visible_indices(&state, false), vec![0, 1]);
         state.filter = "lund".to_string();
-        assert_eq!(visible_indices(&state), vec![1]);
+        assert_eq!(visible_indices(&state, false), vec![1]);
         state.filter.clear();
         toggle_sort(&mut state, SortColumn::Events);
-        assert_eq!(visible_indices(&state), vec![0, 1]);
+        assert_eq!(visible_indices(&state, false), vec![0, 1]);
         toggle_sort(&mut state, SortColumn::Events);
-        assert_eq!(visible_indices(&state), vec![1, 0]);
+        assert_eq!(visible_indices(&state, false), vec![1, 0]);
     }
 
     #[test]
@@ -519,7 +554,7 @@ mod tests {
         let mut fills = false;
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
             let available = ui.available_height();
-            show(ui, &mut state);
+            show(ui, &mut state, false);
             fills = ui.min_rect().height() >= available - 1.0;
         });
         output.textures_delta.clear();
@@ -537,7 +572,7 @@ mod tests {
             ..PlacesState::default()
         };
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            show(ui, &mut state);
+            show(ui, &mut state, false);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the places tab paints");

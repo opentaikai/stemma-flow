@@ -5,7 +5,7 @@ mod form;
 mod panel;
 mod relation;
 
-pub use connections::{Connections, Relative, connections, person_label};
+pub use connections::{Connections, Relative, connections, person_label, reverse_marriage_places};
 pub use form::InspectorForm;
 pub use panel::{field_editors, show};
 pub use relation::{RelationForm, RelationKind, RelationOutcome, relation_window};
@@ -273,5 +273,30 @@ mod tests {
         assert_eq!(outcome, None, "no input keeps the window open");
         assert_eq!(relation.role, ParentRole::Father);
         assert_eq!(relation.details.gender, "M", "father presets male");
+    }
+
+    #[test]
+    fn reverses_marriage_places_for_display() {
+        let mut connections = Connections {
+            spouses: vec![Relative {
+                id: "p2".to_string(),
+                label: "Otto King".to_string(),
+                marriage: Some(MarriageInfo {
+                    date: None,
+                    place: Some("Uppsala, Sweden".to_string()),
+                }),
+            }],
+            ..Connections::default()
+        };
+
+        reverse_marriage_places(&mut connections);
+
+        assert_eq!(
+            connections.spouses[0]
+                .marriage
+                .as_ref()
+                .and_then(|marriage| marriage.place.as_deref()),
+            Some("Sweden, Uppsala")
+        );
     }
 }

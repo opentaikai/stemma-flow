@@ -20,6 +20,9 @@ pub struct AppConfig {
     pub theme: ThemeMode,
     /// Rendered font size in points; the baseline of 14.0 maps to zoom 1.0.
     pub font_size: f32,
+    /// Show comma-separated place names from largest to smallest in
+    /// read-only displays. Stored places and GEDCOM keep the original order.
+    pub reverse_place_names: bool,
 }
 
 impl Default for AppConfig {
@@ -27,6 +30,7 @@ impl Default for AppConfig {
         Self {
             theme: ThemeMode::Light,
             font_size: 14.0,
+            reverse_place_names: false,
         }
     }
 }
@@ -114,6 +118,7 @@ mod tests {
         let config = AppConfig {
             theme: ThemeMode::Dark,
             font_size: 18.5,
+            reverse_place_names: true,
         };
         let text = toml::to_string_pretty(&config).expect("serialize");
         let back: AppConfig = toml::from_str(&text).expect("parse");
@@ -178,6 +183,7 @@ mod tests {
         let config = AppConfig {
             theme: ThemeMode::System,
             font_size: 16.0,
+            reverse_place_names: false,
         };
 
         config.save_to(&path).expect("save");
@@ -185,6 +191,20 @@ mod tests {
         let back: AppConfig =
             toml::from_str(&fs::read_to_string(&path).expect("read")).expect("parse");
         assert_eq!(back, config);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn old_configs_default_reverse_place_names_to_false() {
+        let dir = temp_dir("reverse-default");
+        let path = dir.join("config.toml");
+        fs::write(&path, "theme = \"Dark\"\nfont_size = 14.0\n").expect("write");
+
+        let loaded = AppConfig::load_from(&path);
+
+        assert!(!loaded.reverse_place_names);
+        assert_eq!(loaded.theme, ThemeMode::Dark);
 
         let _ = fs::remove_dir_all(&dir);
     }

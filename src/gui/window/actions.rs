@@ -154,7 +154,7 @@ impl TreeWindow {
         if !self.places.loaded {
             self.reload_places();
         }
-        if let Some(event) = places::show(ui, &mut self.places) {
+        if let Some(event) = places::show(ui, &mut self.places, self.config.reverse_place_names) {
             self.apply_places_event(event);
         }
     }
@@ -399,7 +399,10 @@ impl TreeWindow {
             .people
             .iter()
             .find(|person| person.id == person_id);
-        let connections = inspector::connections(&self.tree, &person_id, &self.marriages);
+        let mut connections = inspector::connections(&self.tree, &person_id, &self.marriages);
+        if self.config.reverse_place_names {
+            inspector::reverse_marriage_places(&mut connections);
+        }
         if let Some(action) = inspector::show(
             ui,
             person,
