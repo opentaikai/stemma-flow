@@ -6,9 +6,9 @@ use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use uuid::Uuid;
 
 use super::schema::{
-    CITATION_LINKS_INDEXES_SQL, CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL, INDEXES_SQL,
-    LINK_TABLES_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS,
-    ensure_column, seed_source_templates,
+    CITATION_LINKS_INDEXES_SQL, CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL, FACT_ROLES_TABLE_SQL,
+    FACT_TAG_INDEX_SQL, INDEXES_SQL, LINK_TABLES_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL,
+    V4_TABLES_SQL, V5_COLUMNS, ensure_column, seed_source_templates,
 };
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
@@ -92,6 +92,24 @@ pub(super) fn migrate_v6_to_v7(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     super::facts::seed_fact_types(&tx)?;
     tx.pragma_update(None, "user_version", 7)?;
+    tx.commit()
+}
+
+/// Adds fact roles and the unique GEDCOM-tag index.
+pub(super) fn migrate_v7_to_v8(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch(
+        "UPDATE fact_types SET gedcom_tag = NULL
+         WHERE gedcom_tag IS NOT NULL AND trim(gedcom_tag) <> ''
+           AND rowid NOT IN (
+               SELECT MIN(rowid) FROM fact_types
+               WHERE gedcom_tag IS NOT NULL AND trim(gedcom_tag) <> ''
+               GROUP BY gedcom_tag
+           );",
+    )?;
+    tx.execute_batch(FACT_ROLES_TABLE_SQL)?;
+    tx.execute_batch(FACT_TAG_INDEX_SQL)?;
+    tx.pragma_update(None, "user_version", 8)?;
     tx.commit()
 }
 

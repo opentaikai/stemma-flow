@@ -12,6 +12,9 @@ use crate::db;
 use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
+use crate::db::facts::{
+    self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
+};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
 use crate::db::repositories::{
@@ -426,6 +429,47 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists fact types with role/event counts.
+    pub fn list_fact_types(&self) -> Result<Vec<FactTypeSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        fact_store::list_fact_type_summaries(&conn)
+    }
+
+    /// Loads one fact type and its roles.
+    pub fn load_fact_type(&self, key: &str) -> Result<Option<FactTypeRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        fact_store::load_fact_type(&conn, key)
+    }
+
+    /// Inserts or updates a custom fact type.
+    pub fn save_fact_type(&mut self, draft: &FactTypeDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let key = fact_store::save_fact_type(&mut conn, draft)?;
+        self.set_status(UiStatus::Success("Fact type saved".to_string()));
+        Ok(key)
+    }
+
+    /// Replaces the roles of a fact type, including built-ins.
+    pub fn save_fact_roles(&mut self, key: &str, roles: &[FactRoleDraft]) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        fact_store::save_fact_roles(&mut conn, key, roles)?;
+        self.set_status(UiStatus::Success("Fact roles saved".to_string()));
+        Ok(())
+    }
+
+    /// Deletes an unused custom fact type.
+    pub fn delete_fact_type(&mut self, key: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        fact_store::delete_fact_type(&mut conn, key)?;
+        self.set_status(UiStatus::Success("Fact type deleted".to_string()));
         Ok(())
     }
 
