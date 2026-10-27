@@ -94,6 +94,7 @@ impl TreeWindow {
             self.pending_participants = None;
         } else if generation_changed {
             self.places.loaded = false;
+            self.fact_types.loaded = false;
             self.repositories.loaded = false;
         }
     }
