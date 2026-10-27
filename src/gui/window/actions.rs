@@ -164,6 +164,7 @@ impl TreeWindow {
             PlacesEvent::New => {
                 self.places.selected = None;
                 self.places.draft = places::PlaceEdit::default();
+                self.places.usage.clear();
                 self.places.editing = true;
                 self.places.error = None;
             }
@@ -183,6 +184,7 @@ impl TreeWindow {
                 Ok(()) => {
                     self.places.selected = None;
                     self.places.draft = places::PlaceEdit::default();
+                    self.places.usage.clear();
                     self.places.editing = false;
                     self.places.error = None;
                     self.reload_places();
@@ -191,6 +193,9 @@ impl TreeWindow {
                 }
                 Err(message) => self.places.error = Some(message),
             },
+            PlacesEvent::SelectPerson(id) => {
+                self.app.set_selected_person(Some(id));
+            }
         }
     }
 
@@ -212,19 +217,21 @@ impl TreeWindow {
     }
 
     pub(super) fn load_place_draft(&mut self, id: &str) {
-        match self.app.load_place(id) {
-            Ok(Some(record)) => {
+        match (self.app.load_place(id), self.app.place_usage(id)) {
+            (Ok(Some(record)), Ok(usage)) => {
                 self.places.selected = Some(id.to_string());
                 self.places.draft = places::draft_from_record(&record);
+                self.places.usage = usage;
                 self.places.editing = true;
                 self.places.error = None;
             }
-            Ok(None) => {
+            (Ok(None), _) => {
                 self.places.selected = None;
                 self.places.draft = places::PlaceEdit::default();
+                self.places.usage.clear();
                 self.places.editing = false;
             }
-            Err(message) => self.places.error = Some(message),
+            (Err(message), _) | (_, Err(message)) => self.places.error = Some(message),
         }
     }
 

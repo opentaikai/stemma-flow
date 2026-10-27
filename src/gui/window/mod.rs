@@ -791,6 +791,20 @@ mod tests {
         let id = window.places.places[0].id.clone();
 
         window.apply_places_event(PlacesEvent::Select(id.clone()));
+        assert_eq!(window.places.usage.len(), 1);
+        assert_eq!(window.places.usage[0].event_type, "BIRTH");
+        assert_eq!(
+            window.places.usage[0].person_name.as_deref(),
+            Some("Johan Ahlberg")
+        );
+        window.app.set_selected_person(None);
+        window.tab = crate::gui::tabs::AppTab::Places;
+        window.apply_places_event(PlacesEvent::SelectPerson(person_id.clone()));
+        assert_eq!(window.app.selected_person_id(), Some(person_id.as_str()));
+        assert_eq!(window.tab, crate::gui::tabs::AppTab::Places);
+        window.sync_inspector_form();
+        assert_eq!(window.inspector.given_name, "Johan");
+
         window.places.draft.name = "Uppsala, Sweden".to_string();
         let draft = window.places.draft.to_draft().expect("draft parses");
         window.apply_places_event(PlacesEvent::Save(Box::new(draft)));
@@ -804,6 +818,7 @@ mod tests {
 
         window.apply_places_event(PlacesEvent::Delete(id));
         assert!(window.places.places.is_empty());
+        assert!(window.places.usage.is_empty());
         assert!(!window.places.editing);
         window.sync_inspector_form();
         assert!(
