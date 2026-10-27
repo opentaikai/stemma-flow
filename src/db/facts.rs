@@ -527,6 +527,73 @@ pub fn save_fact_type(conn: &mut Connection, draft: &FactTypeDraft) -> Result<St
     Ok(key)
 }
 
+/// Finds a role by label or creates it for an imported witness.
+pub fn ensure_role_label(
+    conn: &Connection,
+    fact_type_key: &str,
+    label: &str,
+) -> Result<String, String> {
+    let label = clean_text(label).unwrap_or_else(|| "Witness".to_string());
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM fact_types WHERE key = ?1",
+            params![fact_type_key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if exists.is_none() {
+        return Err(format!("no fact type with key {fact_type_key}"));
+    }
+    let mut stmt = conn
+        .prepare("SELECT role_key, label FROM fact_type_roles WHERE fact_type_key = ?1")
+        .map_err(|error| error.to_string())?;
+    let roles = stmt
+        .query_map(params![fact_type_key], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    drop(stmt);
+    if let Some((key, _)) = roles
+        .iter()
+        .find(|(_, existing)| existing.eq_ignore_ascii_case(&label))
+    {
+        return Ok(key.clone());
+    }
+    let used: HashSet<&str> = roles.iter().map(|(key, _)| key.as_str()).collect();
+    let base = {
+        let slug = slug(&label);
+        if slug.is_empty() {
+            "ROLE".to_string()
+        } else {
+            slug
+        }
+    };
+    let mut candidate = base.clone();
+    let mut suffix = 2;
+    while used.contains(candidate.as_str()) {
+        candidate = format!("{base}_{suffix}");
+        suffix += 1;
+    }
+    let sort_order: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM fact_type_roles
+             WHERE fact_type_key = ?1",
+            params![fact_type_key],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    conn.execute(
+        "INSERT INTO fact_type_roles (fact_type_key, role_key, label, sort_order)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![fact_type_key, candidate, label, sort_order],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(candidate)
+}
+
 /// Replaces the roles of any fact type, including built-ins.
 pub fn save_fact_roles(
     conn: &mut Connection,
@@ -991,6 +1058,22 @@ mod tests {
         assert_eq!(lookup.tag_for("HEIRLOOM"), Some("_HEIR"));
         assert_eq!(lookup.tag_for("BIRTH"), Some("BIRT"));
         assert!(lookup.by_tag("_HEIR", FactScope::Family).is_none());
+    }
+
+    #[test]
+    fn ensures_imported_role_labels() {
+        let conn = connection();
+        let first = ensure_role_label(&conn, "BIRTH", "Godparent").expect("role created");
+        let second = ensure_role_label(&conn, "BIRTH", "godparent").expect("role reused");
+        assert_eq!(first, second);
+        assert_eq!(
+            load_fact_type(&conn, "BIRTH")
+                .expect("load")
+                .expect("birth")
+                .roles
+                .len(),
+            1
+        );
     }
 
     #[test]

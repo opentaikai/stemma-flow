@@ -326,6 +326,7 @@ mod tests {
                 child_links: 0,
                 events: 0,
                 citations: 0,
+                participants: 0,
                 warnings: Vec::new(),
             }));
         assert_eq!(

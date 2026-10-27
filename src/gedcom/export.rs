@@ -36,6 +36,12 @@ struct EventRow {
     family_id: Option<String>,
 }
 
+struct ParticipantRow {
+    event_id: String,
+    person_id: String,
+    role_label: String,
+}
+
 struct RepositoryRow {
     id: String,
     name: String,
@@ -119,6 +125,7 @@ fn push_event(
     facts: &FactLookup,
     citations: &CitationsByEvent<'_>,
     source_xrefs: &HashMap<&str, String>,
+    participants: &HashMap<&str, Vec<(&str, &str)>>,
 ) {
     let tag = facts
         .tag_for(&event.event_type)
@@ -176,6 +183,11 @@ fn push_event(
                     push_text(out, 4, "TEXT", text);
                 }
             }
+        }
+    }
+    if let Some(witnesses) = participants.get(event.id.as_str()) {
+        for (xref, role) in witnesses {
+            out.push_str(&format!("2 _WITN {xref}\n3 _ROLE {role}\n"));
         }
     }
 }
@@ -343,10 +355,41 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         citations.push(row?);
     }
 
+    let mut participants = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT ep.event_id, ep.person_id, COALESCE(r.label, ep.role_key)
+         FROM event_participants ep
+         JOIN events e ON e.id = ep.event_id
+         LEFT JOIN fact_type_roles r
+             ON r.fact_type_key = e.event_type AND r.role_key = ep.role_key
+         ORDER BY ep.event_id, ep.sort_order, ep.person_id",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(ParticipantRow {
+            event_id: row.get(0)?,
+            person_id: row.get(1)?,
+            role_label: row.get(2)?,
+        })
+    })?;
+    for row in rows {
+        participants.push(row?);
+    }
+
     let mut person_xref: HashMap<&str, String> = HashMap::new();
     for (index, person) in people.iter().enumerate() {
         person_xref.insert(&person.id, format!("@I{}@", index + 1));
     }
+    let mut participants_by_event: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
+    for participant in &participants {
+        let Some(xref) = person_xref.get(participant.person_id.as_str()) else {
+            continue;
+        };
+        participants_by_event
+            .entry(participant.event_id.as_str())
+            .or_default()
+            .push((xref.as_str(), participant.role_label.as_str()));
+    }
+
     let mut family_xref: HashMap<&str, String> = HashMap::new();
     for (index, family) in families.iter().enumerate() {
         family_xref.insert(&family.id, format!("@F{}@", index + 1));
@@ -487,7 +530,14 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 
         if let Some(person_events) = events_by_person.get(person.id.as_str()) {
             for event in person_events {
-                push_event(&mut out, event, &facts, &citations_by_event, &source_xref);
+                push_event(
+                    &mut out,
+                    event,
+                    &facts,
+                    &citations_by_event,
+                    &source_xref,
+                    &participants_by_event,
+                );
             }
         }
         if let Some(families) = famc_by_child.get(person.id.as_str()) {
@@ -527,7 +577,14 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         }
         if let Some(family_events) = events_by_family.get(family.id.as_str()) {
             for event in family_events {
-                push_event(&mut out, event, &facts, &citations_by_event, &source_xref);
+                push_event(
+                    &mut out,
+                    event,
+                    &facts,
+                    &citations_by_event,
+                    &source_xref,
+                    &participants_by_event,
+                );
             }
         }
     }

@@ -54,7 +54,15 @@ pub(crate) struct ParsedEvent {
     pub longitude: Option<f64>,
     /// Attribute value, such as `OCCU Teacher`.
     pub description: Option<String>,
+    pub participants: Vec<ParsedParticipant>,
     pub source_refs: Vec<SourceRef>,
+}
+
+/// A `_WITN @X@` participant reference on an event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParsedParticipant {
+    pub xref: String,
+    pub role: Option<String>,
 }
 
 /// A parsed `0 @I1@ INDI` record.
@@ -810,6 +818,7 @@ impl<R: BufRead> RecordReader<R> {
                                     latitude: None,
                                     longitude: None,
                                     description: optional_payload(line.payload),
+                                    participants: Vec::new(),
                                     source_refs: Vec::new(),
                                 });
                                 *event_slot = Some(rec.events.len() - 1);
@@ -861,6 +870,7 @@ impl<R: BufRead> RecordReader<R> {
                                     latitude: None,
                                     longitude: None,
                                     description: optional_payload(line.payload),
+                                    participants: Vec::new(),
                                     source_refs: Vec::new(),
                                 });
                                 *event_slot = Some(rec.events.len() - 1);
@@ -950,6 +960,16 @@ fn fill_event(
         2 => match line.tag {
             "DATE" => event.date = optional_payload(line.payload),
             "PLAC" => event.place = optional_payload(line.payload),
+            "_WITN" => {
+                if is_pointer(line.payload) {
+                    event.participants.push(ParsedParticipant {
+                        xref: line.payload.trim().to_string(),
+                        role: None,
+                    });
+                } else {
+                    *warning = Some(format!("line {line_no}: _WITN without pointer ignored"));
+                }
+            }
             "SOUR" => {
                 let mut source = SourceRef {
                     xref: None,
@@ -976,8 +996,16 @@ fn fill_event(
             _ => *warning = Some(unknown_tag_warning(line_no, &line)),
         },
         3 => match line.tag {
-            "DATA" => {}
-            "MAP" => {}
+            "DATA" | "MAP" => {}
+            "_ROLE" => {
+                if let Some(participant) = event.participants.last_mut() {
+                    participant.role = optional_payload(line.payload);
+                } else {
+                    *warning = Some(format!(
+                        "line {line_no}: _ROLE without a preceding _WITN ignored"
+                    ));
+                }
+            }
             "PAGE" | "QUAY" | "NOTE" | "MEDI" => {
                 if let Some(source) = event.source_refs.last_mut() {
                     match line.tag {
@@ -1061,6 +1089,13 @@ struct PendingCitation {
     data_text: Option<String>,
 }
 
+/// A `_WITN @X@` pointer waiting for its person record.
+struct PendingParticipant {
+    event_id: String,
+    xref: String,
+    role: Option<String>,
+}
+
 /// Streams a GEDCOM 5.5.1 document from `reader` into `conn`.
 ///
 /// Runs entirely inside a single transaction: any I/O or database error rolls
@@ -1083,6 +1118,7 @@ pub fn import_gedcom<R: BufRead>(
     let mut repo_ids: HashMap<String, String> = HashMap::new();
     let mut inline_sources: HashMap<String, String> = HashMap::new();
     let mut pending_citations: Vec<PendingCitation> = Vec::new();
+    let mut pending_participants: Vec<PendingParticipant> = Vec::new();
     let mut place_cache: HashMap<String, String> = HashMap::new();
 
     // Pass 1: stream records into the tables, recording xref -> UUID mappings.
@@ -1112,6 +1148,7 @@ pub fn import_gedcom<R: BufRead>(
                 for event in &indi.events {
                     let event_id =
                         insert_event(&tx, event, Some(&id), None, &mut report, &mut place_cache)?;
+                    collect_participants(event, &event_id, &mut pending_participants);
                     collect_source_refs(
                         &tx,
                         event,
@@ -1142,6 +1179,7 @@ pub fn import_gedcom<R: BufRead>(
                 for event in &fam.events {
                     let event_id =
                         insert_event(&tx, event, None, Some(&id), &mut report, &mut place_cache)?;
+                    collect_participants(event, &event_id, &mut pending_participants);
                     collect_source_refs(
                         &tx,
                         event,
@@ -1272,6 +1310,46 @@ pub fn import_gedcom<R: BufRead>(
         }
     }
 
+    for participant in &pending_participants {
+        let Some(person_id) = id_map.get(participant.xref.as_str()) else {
+            report
+                .warnings
+                .push(format!("dangling _WITN pointer {}", participant.xref));
+            continue;
+        };
+        let (event_type, principal): (String, Option<String>) = tx.query_row(
+            "SELECT event_type, person_id FROM events WHERE id = ?1",
+            params![participant.event_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if principal.as_deref() == Some(person_id.as_str()) {
+            report.warnings.push(format!(
+                "event principal {} cannot also be a witness",
+                participant.xref
+            ));
+            continue;
+        }
+        let role_key = crate::db::facts::ensure_role_label(
+            &tx,
+            &event_type,
+            participant.role.as_deref().unwrap_or("Witness"),
+        )
+        .map_err(|error| GedcomError::Db(rusqlite::Error::InvalidParameterName(error)))?;
+        let sort_order: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM event_participants
+             WHERE event_id = ?1",
+            params![participant.event_id],
+            |row| row.get(0),
+        )?;
+        let changed = tx.execute(
+            "INSERT OR IGNORE INTO event_participants
+             (event_id, person_id, role_key, sort_order)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![participant.event_id, person_id, role_key, sort_order],
+        )?;
+        report.participants += changed;
+    }
+
     // Materialise SOUR records as sources, then attach the pending citations.
     // Insertion follows document order so repeated exports stay deterministic.
     let mut source_ids: HashMap<&str, String> = HashMap::with_capacity(sour_order.len());
@@ -1304,6 +1382,20 @@ pub fn import_gedcom<R: BufRead>(
 
     tx.commit()?;
     Ok(report)
+}
+
+fn collect_participants(
+    event: &ParsedEvent,
+    event_id: &str,
+    pending: &mut Vec<PendingParticipant>,
+) {
+    for participant in &event.participants {
+        pending.push(PendingParticipant {
+            event_id: event_id.to_string(),
+            xref: participant.xref.clone(),
+            role: participant.role.clone(),
+        });
+    }
 }
 
 /// Persists inline source texts immediately and queues `@X@` pointers for the

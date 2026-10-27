@@ -54,6 +54,7 @@ mod tests {
             families: 1,
             events: 2,
             citations: 0,
+            participants: 0,
             warnings: (0..warnings)
                 .map(|index| format!("Line {index}: Tag recognized/unsupported or ignored"))
                 .collect(),

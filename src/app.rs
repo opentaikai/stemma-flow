@@ -630,11 +630,12 @@ impl StemmaApp {
 /// user always sees whether anything was skipped.
 fn import_summary(report: &ImportReport) -> String {
     format!(
-        "Imported {} people, {} families, {} events, {} citations, {} warnings",
+        "Imported {} people, {} families, {} events, {} citations, {} witnesses, {} warnings",
         report.people,
         report.families,
         report.events,
         report.citations,
+        report.participants,
         report.warnings.len()
     )
 }
@@ -829,6 +830,7 @@ mod tests {
             child_links: 1,
             events: 0,
             citations: 0,
+            participants: 0,
             warnings: Vec::new(),
         }));
         assert!(app.poll(), "queued events must be applied");
@@ -853,6 +855,7 @@ mod tests {
                 child_links: 2,
                 events: 0,
                 citations: 0,
+                participants: 0,
                 warnings: Vec::new(),
             },
             path: PathBuf::from("/tmp/fresh.db"),
@@ -900,6 +903,7 @@ mod tests {
             child_links: 1,
             events: 0,
             citations: 0,
+            participants: 0,
             warnings: Vec::new(),
         }));
         assert!(!app.is_busy());
@@ -925,6 +929,7 @@ mod tests {
             child_links: 0,
             events: 3,
             citations: 1,
+            participants: 0,
             warnings: vec!["Line 6: ignored".to_string(), "Line 9: ignored".to_string()],
         }));
 

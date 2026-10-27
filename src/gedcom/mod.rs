@@ -19,6 +19,7 @@ pub struct ImportReport {
     pub child_links: usize,
     pub events: usize,
     pub citations: usize,
+    pub participants: usize,
     pub warnings: Vec<String>,
 }
 
