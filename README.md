@@ -20,7 +20,7 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (20 tables, 34
+- `db::init_db(&conn)` creates or upgrades the schema (21 tables, 35
   indexes) and records its version in `PRAGMA user_version` (currently 8):
   `people`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
