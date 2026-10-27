@@ -55,6 +55,7 @@ pub enum InspectorAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::facts::PersonFact;
     use crate::db::people::{ParentRole, VitalDates};
     use crate::db::{FamilyTree, MarriageInfo, Person};
     use crate::gui::citations::CitationsState;
@@ -245,6 +246,14 @@ mod tests {
         let ctx = Context::default();
         let mut form = InspectorForm::from_person(&person, &dates);
         let mut captured = Some(InspectorAction::AddParent);
+        let facts = [PersonFact {
+            event_id: "e1".to_string(),
+            event_type: "OCCUPATION".to_string(),
+            label: "Occupation".to_string(),
+            date: Some("1870".to_string()),
+            place: Some("Uppsala".to_string()),
+            value: Some("Teacher".to_string()),
+        }];
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
             captured = show(
                 ui,
@@ -252,6 +261,7 @@ mod tests {
                 &mut form,
                 Connections::default(),
                 &mut CitationsState::default(),
+                &facts,
             );
         });
         output.textures_delta.clear();

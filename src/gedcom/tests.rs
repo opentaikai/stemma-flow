@@ -1135,13 +1135,13 @@ fn import_logs_unknown_tags_without_dropping_records() -> Result<(), GedcomError
 #[test]
 fn unknown_tag_warnings_truncate_long_values() -> Result<(), GedcomError> {
     let payload = "a".repeat(150);
-    let sample = format!("0 HEAD\n0 @I1@ INDI\n1 NAME X /Y/\n1 OCCU {payload}\n0 TRLR\n");
+    let sample = format!("0 HEAD\n0 @I1@ INDI\n1 NAME X /Y/\n1 ZZZZ {payload}\n0 TRLR\n");
     let mut conn = setup_test_db().map_err(GedcomError::Db)?;
     let report = import_gedcom(&mut conn, Cursor::new(sample.as_str()))?;
 
     assert_eq!(report.people, 1);
     let warning = report.warnings.first().expect("the unmapped tag must warn");
-    assert!(warning.starts_with("Line 4: Tag recognized/unsupported or ignored [OCCU "));
+    assert!(warning.starts_with("Line 4: Tag recognized/unsupported or ignored [ZZZZ "));
     assert!(warning.ends_with("…]"), "{warning}");
     assert!(warning.contains(&"a".repeat(100)), "first 100 chars kept");
     assert!(!warning.contains(&"a".repeat(101)), "value is truncated");
@@ -1200,6 +1200,92 @@ fn import_creates_places_and_links_events() -> Result<(), GedcomError> {
         .query_row("SELECT COUNT(*) FROM places", [], |row| row.get(0))
         .map_err(GedcomError::Db)?;
     assert_eq!(places, 1, "one place row for the event");
+    Ok(())
+}
+
+#[test]
+fn built_in_facts_round_trip() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 OCCU Teacher
+2 DATE 1870
+2 PLAC Uppsala, Sweden
+3 MAP
+4 LATI N59.8586
+4 LONG E17.6389
+1 CENS
+2 DATE 1860
+2 PLAC Uppsala, Sweden
+1 BURI
+2 DATE 1900
+1 _MILI
+2 DATE 1863
+0 @I2@ INDI
+1 NAME Bo /King/
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 DIV
+2 DATE 1880
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(
+        report.warnings.is_empty(),
+        "built-in facts must not warn: {:?}",
+        report.warnings
+    );
+    assert_eq!(report.events, 5, "four person facts and one family fact");
+
+    let occupation: (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT description, date FROM events WHERE event_type = 'OCCUPATION'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(occupation.0.as_deref(), Some("Teacher"));
+    assert_eq!(occupation.1.as_deref(), Some("1870"));
+    let military: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE event_type = 'MILITARY'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(military, 1);
+    let divorce: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE event_type = 'DIVORCE' AND family_id IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(divorce, 1);
+
+    let exported = export_to_gedcom(&conn)?;
+    for expected in ["1 OCCU Teacher", "1 CENS", "1 BURI", "1 _MILI", "1 DIV"] {
+        assert!(
+            exported.contains(expected),
+            "export must contain {expected:?}: {exported:?}"
+        );
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert!(
+        report.warnings.is_empty(),
+        "fact export must re-import cleanly: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        export_to_gedcom(&fresh)?,
+        exported,
+        "built-in facts must round-trip byte for byte"
+    );
     Ok(())
 }
 

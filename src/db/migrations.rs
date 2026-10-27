@@ -6,9 +6,9 @@ use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use uuid::Uuid;
 
 use super::schema::{
-    CITATION_LINKS_INDEXES_SQL, CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL, FACT_SEED_SQL,
-    INDEXES_SQL, LINK_TABLES_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL,
-    V5_COLUMNS, ensure_column, seed_source_templates,
+    CITATION_LINKS_INDEXES_SQL, CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL, INDEXES_SQL,
+    LINK_TABLES_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS,
+    ensure_column, seed_source_templates,
 };
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
@@ -16,7 +16,7 @@ pub(super) fn migrate_v1_to_v2(conn: &Connection) -> rusqlite::Result<()> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
     tx.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
     tx.execute_batch(CORE_TABLES_SQL)?;
-    tx.execute_batch(FACT_SEED_SQL)?;
+    super::facts::seed_fact_types(&tx)?;
     migrate_places(&tx)?;
     rebuild_citations(&tx)?;
     tx.execute_batch(LINK_TABLES_SQL)?;
@@ -72,6 +72,26 @@ pub(super) fn migrate_v5_to_v6(conn: &Connection) -> rusqlite::Result<()> {
          UPDATE citations SET event_id = NULL WHERE event_id IS NOT NULL;",
     )?;
     tx.pragma_update(None, "user_version", 6)?;
+    tx.commit()
+}
+
+/// Adds fact scope/kind columns and refreshes the built-in catalogue.
+pub(super) fn migrate_v6_to_v7(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    ensure_column(
+        &tx,
+        "fact_types",
+        "scope",
+        "TEXT NOT NULL DEFAULT 'person' CHECK (scope IN ('person', 'family', 'both'))",
+    )?;
+    ensure_column(
+        &tx,
+        "fact_types",
+        "kind",
+        "TEXT NOT NULL DEFAULT 'event' CHECK (kind IN ('event', 'attribute'))",
+    )?;
+    super::facts::seed_fact_types(&tx)?;
+    tx.pragma_update(None, "user_version", 7)?;
     tx.commit()
 }
 

@@ -26,6 +26,7 @@ use crate::app::UiStatus;
 use crate::config::AppConfig;
 use crate::db::FamilyTree;
 use crate::db::MarriageInfo;
+use crate::db::facts::PersonFact;
 use crate::db::people::VitalDates;
 use crate::gedcom::ImportReport;
 use eframe::{App, Frame};
@@ -58,6 +59,7 @@ pub struct TreeWindow {
     pub(super) tree: FamilyTree,
     pub(super) dates: HashMap<String, VitalDates>,
     pub(super) marriages: HashMap<String, MarriageInfo>,
+    pub(super) person_facts: HashMap<String, Vec<PersonFact>>,
     pub(super) rows: Vec<PersonRow>,
     pub(super) inspector: InspectorForm,
     pub(super) inspected: Option<String>,
@@ -95,6 +97,7 @@ impl TreeWindow {
             tree: FamilyTree::default(),
             dates: HashMap::new(),
             marriages: HashMap::new(),
+            person_facts: HashMap::new(),
             rows: Vec::new(),
             inspector: InspectorForm::default(),
             inspected: None,
@@ -761,6 +764,31 @@ mod tests {
             window.citations.choices_source.as_deref(),
             Some(source_id.as_str())
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn imported_facts_load_for_the_inspector() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n1 OCCU Teacher\n2 DATE 1870\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+        let facts = window
+            .person_facts
+            .get(&person_id)
+            .expect("facts loaded for the person");
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].event_type, "OCCUPATION");
+        assert_eq!(facts[0].label, "Occupation");
+        assert_eq!(facts[0].date.as_deref(), Some("1870"));
+        assert_eq!(facts[0].value.as_deref(), Some("Teacher"));
 
         let _ = std::fs::remove_file(&db_file);
     }

@@ -410,12 +410,18 @@ impl TreeWindow {
         if self.config.reverse_place_names {
             inspector::reverse_marriage_places(&mut connections);
         }
+        let facts = self
+            .person_facts
+            .get(&person_id)
+            .cloned()
+            .unwrap_or_default();
         if let Some(action) = inspector::show(
             ui,
             person,
             &mut self.inspector,
             connections,
             &mut self.citations,
+            &facts,
         ) {
             self.apply_inspector_action(action, &person_id);
         }

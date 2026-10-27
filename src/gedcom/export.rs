@@ -6,6 +6,7 @@ use rusqlite::Connection;
 
 use crate::gedcom::GedcomError;
 use crate::model::date;
+use crate::model::fact::by_key;
 
 struct PersonRow {
     id: String,
@@ -30,6 +31,7 @@ struct EventRow {
     place: Option<String>,
     latitude: Option<f64>,
     longitude: Option<f64>,
+    description: Option<String>,
     person_id: Option<String>,
     family_id: Option<String>,
 }
@@ -70,14 +72,11 @@ struct CitationRow {
     event_id: Option<String>,
 }
 
-/// Maps a database event type back to its GEDCOM tag.
+/// Maps a database fact key back to its GEDCOM tag.
 fn gedcom_event_tag(event_type: &str) -> &str {
-    match event_type {
-        "BIRTH" => "BIRT",
-        "DEATH" => "DEAT",
-        "MARRIAGE" => "MARR",
-        other => other,
-    }
+    by_key(event_type)
+        .map(|fact| fact.gedcom_tag)
+        .unwrap_or(event_type)
 }
 
 type CitationsByEvent<'a> = HashMap<&'a str, Vec<&'a CitationRow>>;
@@ -128,7 +127,15 @@ fn push_event(
     citations: &CitationsByEvent<'_>,
     source_xrefs: &HashMap<&str, String>,
 ) {
-    out.push_str(&format!("1 {tag}\n"));
+    match event
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => out.push_str(&format!("1 {tag} {value}\n")),
+        None => out.push_str(&format!("1 {tag}\n")),
+    }
     if let Some(date) = &event.date
         && let Some(payload) = date_payload(date)
     {
@@ -239,7 +246,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
     let mut events = Vec::new();
     let mut stmt = conn.prepare(
         "SELECT e.id, e.event_type, e.date, p.name, p.latitude, p.longitude,
-                e.person_id, e.family_id
+                e.description, e.person_id, e.family_id
          FROM events e
          LEFT JOIN places p ON p.id = e.place_id
          ORDER BY e.rowid",
@@ -252,8 +259,9 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
             place: row.get(3)?,
             latitude: row.get(4)?,
             longitude: row.get(5)?,
-            person_id: row.get(6)?,
-            family_id: row.get(7)?,
+            description: row.get(6)?,
+            person_id: row.get(7)?,
+            family_id: row.get(8)?,
         })
     })?;
     for row in rows {

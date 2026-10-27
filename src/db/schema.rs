@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -80,6 +80,8 @@ CREATE TABLE IF NOT EXISTS fact_types (
     label TEXT NOT NULL,
     category TEXT,
     gedcom_tag TEXT,
+    scope TEXT NOT NULL DEFAULT 'person' CHECK (scope IN ('person', 'family', 'both')),
+    kind TEXT NOT NULL DEFAULT 'event' CHECK (kind IN ('event', 'attribute')),
     is_builtin INTEGER NOT NULL DEFAULT 1
 );
 
@@ -220,14 +222,6 @@ CREATE INDEX IF NOT EXISTS idx_task_links_media ON task_links(media_id);
 CREATE INDEX IF NOT EXISTS idx_group_members_person ON group_members(person_id);
 "#;
 
-/// Built-in fact types; custom types can be added later.
-pub(super) const FACT_SEED_SQL: &str = r#"
-INSERT OR IGNORE INTO fact_types (key, label, category, gedcom_tag, is_builtin) VALUES
-    ('BIRTH', 'Birth', 'Vital', 'BIRT', 1),
-    ('DEATH', 'Death', 'Vital', 'DEAT', 1),
-    ('MARRIAGE', 'Marriage', 'Family', 'MARR', 1);
-"#;
-
 /// Columns added in schema v3.
 pub(super) const V3_COLUMNS: [(&str, &str, &str); 7] = [
     ("sources", "abbreviation", "TEXT"),
@@ -352,7 +346,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v2_to_v3(conn)?;
         super::migrations::migrate_v3_to_v4(conn)?;
         super::migrations::migrate_v4_to_v5(conn)?;
-        return super::migrations::migrate_v5_to_v6(conn);
+        super::migrations::migrate_v5_to_v6(conn)?;
+        return super::migrations::migrate_v6_to_v7(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -371,9 +366,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 5 {
             super::migrations::migrate_v4_to_v5(conn)?;
         }
-        return super::migrations::migrate_v5_to_v6(conn);
+        if version < 6 {
+            super::migrations::migrate_v5_to_v6(conn)?;
+        }
+        return super::migrations::migrate_v6_to_v7(conn);
     }
-    ensure_v6(conn)
+    ensure_v7(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -382,12 +380,12 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.execute_batch(CITATIONS_TABLE_SQL)?;
     tx.execute_batch(LINK_TABLES_SQL)?;
     tx.execute_batch(INDEXES_SQL)?;
-    tx.execute_batch(FACT_SEED_SQL)?;
+    super::facts::seed_fact_types(&tx)?;
     tx.pragma_update(None, "user_version", 2)?;
     tx.commit()
 }
 
-fn ensure_v6(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v7(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
@@ -410,7 +408,19 @@ fn ensure_v6(conn: &Connection) -> rusqlite::Result<()> {
          SELECT id, event_id FROM citations WHERE event_id IS NOT NULL;
          UPDATE citations SET event_id = NULL WHERE event_id IS NOT NULL;",
     )?;
-    conn.execute_batch(FACT_SEED_SQL)?;
+    ensure_column(
+        conn,
+        "fact_types",
+        "scope",
+        "TEXT NOT NULL DEFAULT 'person' CHECK (scope IN ('person', 'family', 'both'))",
+    )?;
+    ensure_column(
+        conn,
+        "fact_types",
+        "kind",
+        "TEXT NOT NULL DEFAULT 'event' CHECK (kind IN ('event', 'attribute'))",
+    )?;
+    super::facts::seed_fact_types(conn)?;
     Ok(())
 }
 

@@ -21,7 +21,7 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
 - `db::init_db(&conn)` creates or upgrades the schema (20 tables, 34
-  indexes) and records its version in `PRAGMA user_version` (currently 6):
+  indexes) and records its version in `PRAGMA user_version` (currently 7):
   `people`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `events`, `citations`,
@@ -29,8 +29,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   and `group_members`. A v1 database is migrated in place: citation titles
   become `sources`, event places become `places`, and the new links are
   backfilled. v2 databases gain the v3 source/citation metadata, v4 the
-  source template catalogue, v5 the free-form citation outputs and v6 the
-  reusable citation links (existing attachments are backfilled).
+  source template catalogue, v5 the free-form citation outputs, v6 the
+  reusable citation links and v7 fact scope/kind with the 61-type built-in
+  fact catalogue.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -45,7 +46,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   repositories with a call number and media type; `source_fields` stores
   template values, `source_templates` and `source_template_fields` hold the
   built-in Evidence Explained style catalogue. Places carry notes,
-  latitude and longitude and are shared by every event that mentions them. Citations keep page, note,
+  latitude and longitude and are shared by every event that mentions them.
+  `fact_types` carries the 61 built-in person/family event and attribute
+  definitions, including their GEDCOM tags and scope. Citations keep page, note,
   certainty, media type and data date/text; `citation_links` attaches one
   canonical citation to any number of person or family events.
   `load_vital_dates` and
@@ -137,7 +140,9 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
   those columns from their fields when saved), then `INDI` and `FAM`
   records and finally `TRLR`. Events read their `2 PLAC` from the linked
   place record; stored coordinates are written as `3 MAP` with `4 LATI` and
-  `4 LONG`, while place notes remain app-only. Populated
+  `4 LONG`, while place notes remain app-only. Built-in fact types and
+  attributes such as `OCCU`, `CENS`, `BURI` and `DIV` round-trip; attribute
+  values are stored in `events.description`. Populated
   `people.notes` travel as `1 NOTE` + `2 CONT` lines after `1 SEX`, so
   notes round-trip losslessly. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
@@ -264,7 +269,9 @@ views (the app always launches on Graph View):
   person's name and gender, **Profile** (given name, middle name, surname,
   nickname, gender) and **Vital Facts** (birth/death dates *and places*)
   editors — the date fields accept GEDCOM or ISO input, and an invalid
-  date shows an inline message and disables saving — a **Citations** card
+  date shows an inline message and disables saving — an **Other Facts**
+  card listing imported non-vital facts with their labels, dates, places
+  and values (read-only for now), a **Citations** card
   that attaches a source to the birth, death or a family marriage event and
   records the page, the Evidence Explained source/information/evidence
   quality and the GEDCOM certainty (each optionally "Don't know"). It can

@@ -5,6 +5,7 @@ use crate::gui::citations::{self, CitationsEvent, CitationsState};
 use egui::{RichText, Ui};
 
 use crate::db::Person;
+use crate::db::facts::PersonFact;
 
 use super::ACCENT;
 use super::InspectorAction;
@@ -109,6 +110,7 @@ pub fn show(
     form: &mut InspectorForm,
     connections: Connections,
     citations: &mut CitationsState,
+    facts: &[PersonFact],
 ) -> Option<InspectorAction> {
     let Some(person) = person else {
         ui.label(RichText::new("Selected person not found.").weak());
@@ -145,6 +147,29 @@ pub fn show(
             });
             card(ui, "Profile", |ui| name_editors(ui, form));
             card(ui, "Vital Facts", |ui| vital_editors(ui, form));
+            card(ui, "Other Facts", |ui| {
+                if facts.is_empty() {
+                    ui.label(RichText::new("(none)").weak().size(12.0));
+                }
+                for fact in facts {
+                    ui.label(RichText::new(&fact.label).strong());
+                    let details = [
+                        fact.date.as_deref(),
+                        fact.place.as_deref(),
+                        fact.value.as_deref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .filter(|detail| !detail.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" \u{00b7} ");
+                    if details.is_empty() {
+                        ui.label(RichText::new("\u{2014}").weak().small());
+                    } else {
+                        ui.label(RichText::new(details).weak().small());
+                    }
+                }
+            });
             card(ui, "Citations", |ui| {
                 if let Some(event) = citations::show(ui, citations) {
                     action = Some(match event {
