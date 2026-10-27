@@ -35,7 +35,7 @@ impl TreeWindow {
                     .clicked()
                 {
                     ui.close();
-                    self.app.begin_export();
+                    self.show_export = true;
                 }
                 if !self.recent.is_empty() {
                     self.recent_menu(ui, frame);

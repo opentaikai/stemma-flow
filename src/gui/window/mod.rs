@@ -30,6 +30,7 @@ use crate::db::FamilyTree;
 use crate::db::MarriageInfo;
 use crate::db::facts::PersonFact;
 use crate::db::people::VitalDates;
+use crate::db::privacy::PersonPrivacy;
 use crate::gedcom::ImportReport;
 use eframe::{App, Frame};
 use egui::Color32;
@@ -63,6 +64,7 @@ pub struct TreeWindow {
     pub(super) dates: HashMap<String, VitalDates>,
     pub(super) marriages: HashMap<String, MarriageInfo>,
     pub(super) person_facts: HashMap<String, Vec<PersonFact>>,
+    pub(super) person_privacy: Option<PersonPrivacy>,
     pub(super) rows: Vec<PersonRow>,
     pub(super) inspector: InspectorForm,
     pub(super) inspected: Option<String>,
@@ -70,6 +72,8 @@ pub struct TreeWindow {
     pub(super) pending_participants: Option<ParticipantForm>,
     pub(super) config: AppConfig,
     pub(super) show_settings: bool,
+    pub(super) show_export: bool,
+    pub(super) export_options: crate::gedcom::ExportOptions,
     pub(super) pending_apply: bool,
     pub(super) import_report: Option<ImportReport>,
     pub(super) show_import_report: bool,
@@ -103,6 +107,7 @@ impl TreeWindow {
             dates: HashMap::new(),
             marriages: HashMap::new(),
             person_facts: HashMap::new(),
+            person_privacy: None,
             rows: Vec::new(),
             inspector: InspectorForm::default(),
             inspected: None,
@@ -110,6 +115,8 @@ impl TreeWindow {
             pending_participants: None,
             config: AppConfig::load(),
             show_settings: false,
+            show_export: false,
+            export_options: crate::gedcom::ExportOptions::default(),
             pending_apply: true,
             import_report: None,
             show_import_report: false,
@@ -167,6 +174,7 @@ impl App for TreeWindow {
         if self.app.active_db().is_some() {
             self.show_relation_window(ui.ctx());
             self.show_participant_window(ui.ctx());
+            self.show_export_dialog(ui.ctx());
         }
         if self.show_settings
             && let Some(error) = settings::show(ui.ctx(), &mut self.config, &mut self.show_settings)
@@ -833,6 +841,53 @@ mod tests {
         assert_eq!(window.fact_types.types.len(), 61);
         assert!(window.fact_types.selected.is_none());
         assert!(matches!(window.app.status(), UiStatus::Success(_)));
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn privacy_toggles_update_the_person_and_facts() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n1 BIRT\n2 DATE 2000\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+        window.app.set_selected_person(Some(person_id.clone()));
+        window.sync_inspector_form();
+        let privacy = window.person_privacy.as_ref().expect("privacy loads");
+        assert!(privacy.auto_living);
+        assert!(!privacy.private);
+        let event_id = privacy.events[0].event_id.clone();
+
+        window.apply_inspector_action(InspectorAction::SetPersonPrivate(true), &person_id);
+        assert!(window.person_privacy.as_ref().expect("privacy").private);
+        window.apply_inspector_action(InspectorAction::SetLivingOverride(Some(false)), &person_id);
+        let privacy = window.person_privacy.as_ref().expect("privacy");
+        assert!(privacy.auto_living);
+        assert!(!privacy.effective_living);
+        window.apply_inspector_action(
+            InspectorAction::SetEventPrivate {
+                event_id: event_id.clone(),
+                private: true,
+            },
+            &person_id,
+        );
+        assert!(
+            window
+                .person_privacy
+                .as_ref()
+                .expect("privacy")
+                .events
+                .iter()
+                .find(|event| event.event_id == event_id)
+                .expect("birth event")
+                .private
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }

@@ -6,6 +6,7 @@ use egui::{RichText, Ui};
 
 use crate::db::Person;
 use crate::db::facts::PersonFact;
+use crate::db::privacy::PersonPrivacy;
 use crate::model::age;
 
 use super::ACCENT;
@@ -119,6 +120,7 @@ pub fn show(
     connections: Connections,
     citations: &mut CitationsState,
     facts: &[PersonFact],
+    privacy: Option<&PersonPrivacy>,
 ) -> Option<InspectorAction> {
     let Some(person) = person else {
         ui.label(RichText::new("Selected person not found.").weak());
@@ -230,6 +232,104 @@ pub fn show(
                     ui.add_space(4.0);
                 }
             });
+            if let Some(privacy) = privacy {
+                card(ui, "Privacy", |ui| {
+                    let mut private = privacy.private;
+                    if ui.checkbox(&mut private, "Private person").changed() {
+                        action = Some(InspectorAction::SetPersonPrivate(private));
+                    }
+                    let current_override = match privacy.living_override {
+                        None => format!(
+                            "Auto ({})",
+                            if privacy.auto_living {
+                                "Living"
+                            } else {
+                                "Deceased"
+                            }
+                        ),
+                        Some(true) => "Living".to_string(),
+                        Some(false) => "Deceased".to_string(),
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label("Living status:");
+                        egui::ComboBox::from_id_salt("privacy_living_override")
+                            .selected_text(current_override)
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(
+                                        privacy.living_override.is_none(),
+                                        format!(
+                                            "Auto ({})",
+                                            if privacy.auto_living {
+                                                "Living"
+                                            } else {
+                                                "Deceased"
+                                            }
+                                        ),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(InspectorAction::SetLivingOverride(None));
+                                }
+                                if ui
+                                    .selectable_label(
+                                        privacy.living_override == Some(true),
+                                        "Living",
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(InspectorAction::SetLivingOverride(Some(true)));
+                                }
+                                if ui
+                                    .selectable_label(
+                                        privacy.living_override == Some(false),
+                                        "Deceased",
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(InspectorAction::SetLivingOverride(Some(false)));
+                                }
+                            });
+                    });
+                    ui.label(
+                        RichText::new(format!(
+                            "Effective status: {}",
+                            if privacy.effective_living {
+                                "Living"
+                            } else {
+                                "Deceased"
+                            }
+                        ))
+                        .weak()
+                        .small(),
+                    );
+                    ui.separator();
+                    ui.label(RichText::new("Private facts").strong());
+                    if privacy.events.is_empty() {
+                        ui.label(RichText::new("(none)").weak().small());
+                    }
+                    for event in &privacy.events {
+                        ui.push_id(&event.event_id, |ui| {
+                            ui.horizontal(|ui| {
+                                let mut private = event.private;
+                                let label = match event.date.as_deref() {
+                                    Some(date) => format!("{} ({date})", event.label),
+                                    None => event.label.clone(),
+                                };
+                                if ui.checkbox(&mut private, label).changed() {
+                                    action = Some(InspectorAction::SetEventPrivate {
+                                        event_id: event.event_id.clone(),
+                                        private,
+                                    });
+                                }
+                                if event.family_event {
+                                    ui.label(RichText::new("family").weak().small());
+                                }
+                            });
+                        });
+                    }
+                });
+            }
             card(ui, "Citations", |ui| {
                 if let Some(event) = citations::show(ui, citations) {
                     action = Some(match event {

@@ -54,6 +54,15 @@ pub enum InspectorAction {
     LoadCitationChoices(String),
     /// Open the witness editor for an event.
     EditParticipants(String),
+    /// Mark the person private.
+    SetPersonPrivate(bool),
+    /// Override living status.
+    SetLivingOverride(Option<bool>),
+    /// Mark an event private.
+    SetEventPrivate {
+        event_id: String,
+        private: bool,
+    },
 }
 
 #[cfg(test)]
@@ -61,6 +70,7 @@ mod tests {
     use super::*;
     use crate::db::facts::PersonFact;
     use crate::db::people::{ParentRole, VitalDates};
+    use crate::db::privacy::{EventPrivacy, PersonPrivacy};
     use crate::db::{FamilyTree, MarriageInfo, Person};
     use crate::gui::citations::CitationsState;
     use egui::{Context, RawInput};
@@ -271,6 +281,7 @@ mod tests {
                 Connections::default(),
                 &mut CitationsState::default(),
                 &facts,
+                None,
             );
         });
         output.textures_delta.clear();
@@ -292,6 +303,42 @@ mod tests {
         assert_eq!(outcome, None, "no input keeps the window open");
         assert_eq!(relation.role, ParentRole::Father);
         assert_eq!(relation.details.gender, "M", "father presets male");
+    }
+
+    #[test]
+    fn privacy_card_renders_headless() {
+        let (person, dates) = person_with_dates();
+        let ctx = Context::default();
+        let mut form = InspectorForm::from_person(&person, &dates);
+        let privacy = PersonPrivacy {
+            private: true,
+            living_override: Some(true),
+            auto_living: false,
+            effective_living: true,
+            events: vec![EventPrivacy {
+                event_id: "e1".to_string(),
+                event_type: "BIRTH".to_string(),
+                label: "Birth".to_string(),
+                date: Some("1815".to_string()),
+                private: false,
+                family_event: false,
+            }],
+        };
+        let mut captured = Some(InspectorAction::Close);
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            captured = show(
+                ui,
+                Some(&person),
+                &mut form,
+                Connections::default(),
+                &mut CitationsState::default(),
+                &[],
+                Some(&privacy),
+            );
+        });
+        output.textures_delta.clear();
+        assert!(!output.shapes.is_empty(), "the privacy card paints");
+        assert!(captured.is_none(), "no input emits no action");
     }
 
     #[test]
