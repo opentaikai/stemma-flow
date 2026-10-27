@@ -253,6 +253,9 @@ mod tests {
             date: Some("1870".to_string()),
             place: Some("Uppsala".to_string()),
             value: Some("Teacher".to_string()),
+            role: None,
+            principal: None,
+            participants: Vec::new(),
         }];
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
             captured = show(

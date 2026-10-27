@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::db::participants::EventParticipant;
 use crate::model::fact::{FactKind, FactScope, builtin_facts};
 
 /// A stored fact type.
@@ -95,6 +96,11 @@ pub struct PersonFact {
     pub date: Option<String>,
     pub place: Option<String>,
     pub value: Option<String>,
+    /// Set when the person is a participant rather than the event principal.
+    pub role: Option<String>,
+    /// Principal person or couple for a shared event.
+    pub principal: Option<String>,
+    pub participants: Vec<EventParticipant>,
 }
 
 /// The stored catalogue used by GEDCOM import and export.
@@ -323,6 +329,34 @@ fn save_roles_tx(
         final_roles.push((role_key, label));
     }
 
+    let final_keys: HashSet<&str> = final_roles.iter().map(|(key, _)| key.as_str()).collect();
+    let mut stmt = conn
+        .prepare("SELECT role_key FROM fact_type_roles WHERE fact_type_key = ?1")
+        .map_err(|error| error.to_string())?;
+    let existing = stmt
+        .query_map(params![fact_type_key], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    drop(stmt);
+    for key in existing {
+        if final_keys.contains(key.as_str()) {
+            continue;
+        }
+        let used: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event_participants ep
+                 JOIN events e ON e.id = ep.event_id
+                 WHERE e.event_type = ?1 AND ep.role_key = ?2",
+                params![fact_type_key, key],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if used > 0 {
+            return Err(format!("role {key} is used by {used} participants"));
+        }
+    }
+
     conn.execute(
         "DELETE FROM fact_type_roles WHERE fact_type_key = ?1",
         params![fact_type_key],
@@ -547,6 +581,9 @@ pub fn delete_fact_type(conn: &mut Connection, key: &str) -> Result<(), String> 
 
 /// Loads the non-vital facts for every person, grouped by person id.
 pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<PersonFact>>, String> {
+    let participants = load_participants_map(conn)?;
+    let mut facts: HashMap<String, Vec<PersonFact>> = HashMap::new();
+
     let mut stmt = conn
         .prepare(
             "SELECT e.person_id, e.id, e.event_type,
@@ -555,7 +592,9 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
              LEFT JOIN fact_types f ON f.key = e.event_type
              LEFT JOIN places p ON p.id = e.place_id
              WHERE e.person_id IS NOT NULL
-               AND e.event_type NOT IN ('BIRTH', 'DEATH')
+               AND (e.event_type NOT IN ('BIRTH', 'DEATH')
+                    OR EXISTS (SELECT 1 FROM event_participants ep
+                               WHERE ep.event_id = e.id))
              ORDER BY e.person_id, e.event_type, e.date, e.rowid",
         )
         .map_err(|error| error.to_string())?;
@@ -570,16 +609,149 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
                     date: row.get(4)?,
                     place: row.get(5)?,
                     value: row.get(6)?,
+                    role: None,
+                    principal: None,
+                    participants: Vec::new(),
                 },
             ))
         })
         .map_err(|error| error.to_string())?;
-    let mut facts: HashMap<String, Vec<PersonFact>> = HashMap::new();
     for row in rows {
-        let (person_id, fact) = row.map_err(|error| error.to_string())?;
+        let (person_id, mut fact) = row.map_err(|error| error.to_string())?;
+        if let Some(event_participants) = participants.get(&fact.event_id) {
+            fact.participants = event_participants.clone();
+        }
         facts.entry(person_id).or_default().push(fact);
     }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT ep.person_id, e.id, e.event_type,
+                    COALESCE(f.label, e.event_type), e.date, pl.name, e.description,
+                    COALESCE(r.label, ep.role_key),
+                    e.person_id, person.given_name, person.middle_name, person.surname,
+                    e.family_id,
+                    fam.husband_id, h.given_name, h.middle_name, h.surname,
+                    fam.wife_id, w.given_name, w.middle_name, w.surname
+             FROM event_participants ep
+             JOIN events e ON e.id = ep.event_id
+             LEFT JOIN fact_types f ON f.key = e.event_type
+             LEFT JOIN places pl ON pl.id = e.place_id
+             LEFT JOIN fact_type_roles r
+                 ON r.fact_type_key = e.event_type AND r.role_key = ep.role_key
+             LEFT JOIN people person ON person.id = e.person_id
+             LEFT JOIN families fam ON fam.id = e.family_id
+             LEFT JOIN people h ON h.id = fam.husband_id
+             LEFT JOIN people w ON w.id = fam.wife_id
+             WHERE ep.person_id IS NOT NULL
+               AND (e.person_id IS NULL OR e.person_id <> ep.person_id)
+             ORDER BY ep.person_id, e.event_type, e.date, e.rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            let event_person = display_name(row.get(9)?, row.get(10)?, row.get(11)?);
+            let husband = display_name(row.get(14)?, row.get(15)?, row.get(16)?);
+            let wife = display_name(row.get(18)?, row.get(19)?, row.get(20)?);
+            let principal = if event_person.is_some() {
+                event_person
+            } else {
+                match (husband.as_deref(), wife.as_deref()) {
+                    (Some(husband), Some(wife)) => Some(format!("{husband} & {wife}")),
+                    (Some(name), None) | (None, Some(name)) => Some(name.to_string()),
+                    (None, None) => Some("Family".to_string()),
+                }
+            };
+            Ok((
+                row.get::<_, String>(0)?,
+                PersonFact {
+                    event_id: row.get(1)?,
+                    event_type: row.get(2)?,
+                    label: row.get(3)?,
+                    date: row.get(4)?,
+                    place: row.get(5)?,
+                    value: row.get(6)?,
+                    role: row.get(7)?,
+                    principal,
+                    participants: Vec::new(),
+                },
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (person_id, mut fact) = row.map_err(|error| error.to_string())?;
+        if let Some(event_participants) = participants.get(&fact.event_id) {
+            fact.participants = event_participants.clone();
+        }
+        facts.entry(person_id).or_default().push(fact);
+    }
+
+    for list in facts.values_mut() {
+        list.sort_by(|left, right| {
+            left.event_type
+                .cmp(&right.event_type)
+                .then_with(|| left.date.cmp(&right.date))
+                .then_with(|| left.event_id.cmp(&right.event_id))
+        });
+    }
     Ok(facts)
+}
+
+fn load_participants_map(
+    conn: &Connection,
+) -> Result<HashMap<String, Vec<EventParticipant>>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT ep.event_id, ep.person_id, p.given_name, p.middle_name, p.surname,
+                    ep.role_key, COALESCE(r.label, ep.role_key), ep.sort_order
+             FROM event_participants ep
+             JOIN events e ON e.id = ep.event_id
+             JOIN people p ON p.id = ep.person_id
+             LEFT JOIN fact_type_roles r
+                 ON r.fact_type_key = e.event_type AND r.role_key = ep.role_key
+             ORDER BY ep.event_id, ep.sort_order, p.surname COLLATE NOCASE,
+                      p.given_name COLLATE NOCASE, ep.person_id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                EventParticipant {
+                    person_id: row.get(1)?,
+                    person_name: display_name(row.get(2)?, row.get(3)?, row.get(4)?)
+                        .unwrap_or_else(|| "(unnamed)".to_string()),
+                    role_key: row.get(5)?,
+                    role_label: row.get(6)?,
+                    sort_order: row.get(7)?,
+                },
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut participants: HashMap<String, Vec<EventParticipant>> = HashMap::new();
+    for row in rows {
+        let (event_id, participant) = row.map_err(|error| error.to_string())?;
+        participants.entry(event_id).or_default().push(participant);
+    }
+    Ok(participants)
+}
+
+fn display_name(
+    given: Option<String>,
+    middle: Option<String>,
+    surname: Option<String>,
+) -> Option<String> {
+    let parts = [given, middle, surname]
+        .into_iter()
+        .flatten()
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" "))
+    }
 }
 
 #[cfg(test)]
@@ -819,6 +991,120 @@ mod tests {
         assert_eq!(lookup.tag_for("HEIRLOOM"), Some("_HEIR"));
         assert_eq!(lookup.tag_for("BIRTH"), Some("BIRT"));
         assert!(lookup.by_tag("_HEIR", FactScope::Family).is_none());
+    }
+
+    #[test]
+    fn blocks_removing_roles_used_by_participants() {
+        use crate::db::participants::{ParticipantDraft, save_event_participants};
+
+        let mut conn = connection();
+        save_fact_roles(
+            &mut conn,
+            "BIRTH",
+            &[FactRoleDraft {
+                key: None,
+                label: "Witness".to_string(),
+            }],
+        )
+        .expect("role saves");
+        conn.execute(
+            "INSERT INTO people (id, given_name, surname, gender) VALUES
+                ('p1', 'Ada', 'King', 'F'),
+                ('p2', 'Bo', 'King', 'M')",
+            [],
+        )
+        .expect("people insert");
+        conn.execute(
+            "INSERT INTO events (id, event_type, person_id) VALUES ('e1', 'BIRTH', 'p1')",
+            [],
+        )
+        .expect("event insert");
+        save_event_participants(
+            &mut conn,
+            "e1",
+            &[ParticipantDraft {
+                person_id: "p2".to_string(),
+                role_key: "WITNESS".to_string(),
+            }],
+        )
+        .expect("participant saves");
+
+        let error = save_fact_roles(&mut conn, "BIRTH", &[]).expect_err("used role blocked");
+        assert!(error.contains("1 participants"), "{error}");
+        save_fact_roles(
+            &mut conn,
+            "BIRTH",
+            &[FactRoleDraft {
+                key: Some("WITNESS".to_string()),
+                label: "Witness".to_string(),
+            }],
+        )
+        .expect("retaining the role works");
+    }
+
+    #[test]
+    fn loads_shared_and_principal_facts() {
+        use crate::db::participants::{ParticipantDraft, save_event_participants};
+
+        let mut conn = connection();
+        save_fact_roles(
+            &mut conn,
+            "BIRTH",
+            &[FactRoleDraft {
+                key: None,
+                label: "Godparent".to_string(),
+            }],
+        )
+        .expect("role saves");
+        conn.execute(
+            "INSERT INTO people (id, given_name, surname, gender) VALUES
+                ('p1', 'Ada', 'King', 'F'),
+                ('p2', 'Bo', 'King', 'M')",
+            [],
+        )
+        .expect("people insert");
+        conn.execute(
+            "INSERT INTO events (id, event_type, date, person_id) VALUES
+                ('e1', 'BIRTH', '1850', 'p1')
+        ",
+            [],
+        )
+        .expect("event insert");
+        conn.execute(
+            "INSERT INTO events (id, event_type, date, person_id) VALUES
+                ('e2', 'CENSUS', '1860', 'p1')",
+            [],
+        )
+        .expect("census insert");
+        save_event_participants(
+            &mut conn,
+            "e1",
+            &[ParticipantDraft {
+                person_id: "p2".to_string(),
+                role_key: "GODPARENT".to_string(),
+            }],
+        )
+        .expect("participant saves");
+
+        let facts = load_person_facts(&conn).expect("facts");
+        let ada = facts.get("p1").expect("ada facts");
+        let birth = ada
+            .iter()
+            .find(|fact| fact.event_id == "e1")
+            .expect("birth fact");
+        assert_eq!(birth.participants.len(), 1);
+        assert_eq!(birth.participants[0].person_name, "Bo King");
+        let census = ada
+            .iter()
+            .find(|fact| fact.event_id == "e2")
+            .expect("census fact");
+        assert!(census.participants.is_empty());
+
+        let bo = facts.get("p2").expect("bo shared facts");
+        assert_eq!(bo.len(), 1);
+        assert_eq!(bo[0].event_type, "BIRTH");
+        assert_eq!(bo[0].role.as_deref(), Some("Godparent"));
+        assert_eq!(bo[0].principal.as_deref(), Some("Ada King"));
     }
 
     #[test]

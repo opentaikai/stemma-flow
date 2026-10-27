@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -274,6 +274,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_types_gedcom_tag
     WHERE gedcom_tag IS NOT NULL AND trim(gedcom_tag) <> '';
 "#;
 
+/// Additional people sharing an event, each with a role.
+pub(super) const EVENT_PARTICIPANTS_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS event_participants (
+    event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    role_key TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (event_id, person_id)
+);
+"#;
+
+pub(super) const EVENT_PARTICIPANTS_INDEX_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_event_participants_person
+    ON event_participants(person_id);
+"#;
+
 /// Source templates and their fields.
 pub(super) const V4_TABLES_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS source_templates (
@@ -366,7 +382,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v4_to_v5(conn)?;
         super::migrations::migrate_v5_to_v6(conn)?;
         super::migrations::migrate_v6_to_v7(conn)?;
-        return super::migrations::migrate_v7_to_v8(conn);
+        super::migrations::migrate_v7_to_v8(conn)?;
+        return super::migrations::migrate_v8_to_v9(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -391,9 +408,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 7 {
             super::migrations::migrate_v6_to_v7(conn)?;
         }
-        return super::migrations::migrate_v7_to_v8(conn);
+        if version < 8 {
+            super::migrations::migrate_v7_to_v8(conn)?;
+        }
+        return super::migrations::migrate_v8_to_v9(conn);
     }
-    ensure_v8(conn)
+    ensure_v9(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -407,7 +427,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v8(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v9(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
@@ -445,6 +465,8 @@ fn ensure_v8(conn: &Connection) -> rusqlite::Result<()> {
     super::facts::seed_fact_types(conn)?;
     conn.execute_batch(FACT_ROLES_TABLE_SQL)?;
     conn.execute_batch(FACT_TAG_INDEX_SQL)?;
+    conn.execute_batch(EVENT_PARTICIPANTS_TABLE_SQL)?;
+    conn.execute_batch(EVENT_PARTICIPANTS_INDEX_SQL)?;
     Ok(())
 }
 

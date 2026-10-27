@@ -4,6 +4,7 @@ pub mod citations;
 pub mod facts;
 mod migrations;
 pub mod models;
+pub mod participants;
 pub mod people;
 pub mod places;
 pub mod repositories;

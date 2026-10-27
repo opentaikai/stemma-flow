@@ -15,6 +15,7 @@ use crate::db::citations::{
 use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
+use crate::db::participants::{self as participant_store, EventContext, ParticipantDraft};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
 use crate::db::repositories::{
@@ -429,6 +430,26 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
+        Ok(())
+    }
+
+    /// Loads an event with its roles and participants.
+    pub fn load_event_context(&self, event_id: &str) -> Result<Option<EventContext>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        participant_store::load_event_context(&conn, event_id)
+    }
+
+    /// Replaces an event's participants.
+    pub fn save_event_participants(
+        &mut self,
+        event_id: &str,
+        participants: &[ParticipantDraft],
+    ) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        participant_store::save_event_participants(&mut conn, event_id, participants)?;
+        self.set_status(UiStatus::Success("Witnesses saved".to_string()));
         Ok(())
     }
 
