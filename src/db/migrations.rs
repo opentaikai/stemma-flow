@@ -123,6 +123,31 @@ pub(super) fn migrate_v8_to_v9(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// Adds person/event privacy flags and the living override.
+pub(super) fn migrate_v9_to_v10(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    ensure_column(
+        &tx,
+        "people",
+        "private",
+        "INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1))",
+    )?;
+    ensure_column(
+        &tx,
+        "people",
+        "living_override",
+        "INTEGER CHECK (living_override IN (0, 1))",
+    )?;
+    ensure_column(
+        &tx,
+        "events",
+        "private",
+        "INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1))",
+    )?;
+    tx.pragma_update(None, "user_version", 10)?;
+    tx.commit()
+}
+
 /// Copies distinct event places into `places` and links the events.
 fn migrate_places(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut stmt = tx.prepare(
