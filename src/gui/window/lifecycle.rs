@@ -97,6 +97,7 @@ impl TreeWindow {
             self.places.loaded = false;
             self.fact_types.loaded = false;
             self.repositories.loaded = false;
+            self.reload_person_privacy();
         }
     }
 
