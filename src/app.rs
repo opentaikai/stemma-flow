@@ -18,13 +18,14 @@ use crate::db::facts::{
 use crate::db::participants::{self as participant_store, EventContext, ParticipantDraft};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
+use crate::db::privacy::{self as privacy_store, DEFAULT_LIVING_AGE, PersonPrivacy};
 use crate::db::repositories::{
     self as repository_store, RepositoryDraft, RepositoryRecord, RepositorySummary,
 };
 use crate::db::sources::{
     self as source_store, SourceDraft, SourceMergeReport, SourceRecord, SourceSummary,
 };
-use crate::gedcom::{ImportReport, export_to_gedcom, import_gedcom};
+use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options, import_gedcom};
 use crate::gui::dialogs;
 use crate::model::source_template::SourceTemplate;
 
@@ -61,7 +62,7 @@ enum Job {
     Import,
     /// Pick a source file and a fresh target database, then import into it.
     ImportNew,
-    Export,
+    Export(ExportOptions),
 }
 
 /// Application state shared between the UI shell and job workers.
@@ -152,12 +153,17 @@ impl StemmaApp {
         self.begin(Job::ImportNew, None);
     }
 
-    /// Writes the active database as GEDCOM on a worker thread.
+    /// Writes the active database as GEDCOM with default privacy options.
     pub fn begin_export(&mut self) {
+        self.begin_export_with_options(ExportOptions::default());
+    }
+
+    /// Writes the active database as GEDCOM with explicit privacy options.
+    pub fn begin_export_with_options(&mut self, options: ExportOptions) {
         if self.active_db.is_none() {
             return;
         }
-        self.begin(Job::Export, self.active_db.clone());
+        self.begin(Job::Export(options), self.active_db.clone());
     }
 
     /// Inserts an unlinked person into the active tree.
@@ -433,6 +439,45 @@ impl StemmaApp {
         Ok(())
     }
 
+    /// Loads the selected person's privacy flags and event list.
+    pub fn person_privacy(&self, person_id: &str) -> Result<Option<PersonPrivacy>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let year = privacy_store::current_year(&conn)?;
+        privacy_store::load_person_privacy(&conn, person_id, year, DEFAULT_LIVING_AGE)
+    }
+
+    /// Updates a person's private flag.
+    pub fn set_person_private(&mut self, person_id: &str, private: bool) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        privacy_store::set_person_private(&conn, person_id, private)?;
+        self.set_status(UiStatus::Success("Privacy updated".to_string()));
+        Ok(())
+    }
+
+    /// Updates the Auto/Living/Deceased override.
+    pub fn set_living_override(
+        &mut self,
+        person_id: &str,
+        override_value: Option<bool>,
+    ) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        privacy_store::set_living_override(&conn, person_id, override_value)?;
+        self.set_status(UiStatus::Success("Living status updated".to_string()));
+        Ok(())
+    }
+
+    /// Updates an event's private flag.
+    pub fn set_event_private(&mut self, event_id: &str, private: bool) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        privacy_store::set_event_private(&conn, event_id, private)?;
+        self.set_status(UiStatus::Success("Fact privacy updated".to_string()));
+        Ok(())
+    }
+
     /// Loads an event with its roles and participants.
     pub fn load_event_context(&self, event_id: &str) -> Result<Option<EventContext>, String> {
         let path = self.require_active_db()?;
@@ -572,7 +617,7 @@ impl StemmaApp {
         self.busy = true;
         self.status = UiStatus::Running(match job {
             Job::Import | Job::ImportNew => "Choosing file to import\u{2026}",
-            Job::Export => "Choosing export destination\u{2026}",
+            Job::Export(_) => "Choosing export destination\u{2026}",
         });
         let (tx, rx) = channel();
         self.rx = Some(rx);
@@ -679,13 +724,13 @@ impl Job {
                     },
                 },
             },
-            Job::Export => {
+            Job::Export(options) => {
                 let Some(db_path) = db_path else {
                     return JobEvent::Failed("No tree is open".to_string());
                 };
                 match dialogs::prompt_gedcom_export_path() {
                     None => JobEvent::Cancelled,
-                    Some(dest) => match perform_export(&db_path, &dest) {
+                    Some(dest) => match perform_export(&db_path, &dest, &options) {
                         Ok(bytes) => JobEvent::Exported { bytes, path: dest },
                         Err(message) => JobEvent::Failed(message),
                     },
@@ -714,10 +759,15 @@ pub fn perform_import(db_path: &Path, source: &Path) -> Result<ImportReport, Str
 /// Serializes the database at `db_path` into a UTF-8 GEDCOM file at `dest`.
 ///
 /// Returns the number of bytes written.
-pub fn perform_export(db_path: &Path, dest: &Path) -> Result<usize, String> {
+pub fn perform_export(
+    db_path: &Path,
+    dest: &Path,
+    options: &ExportOptions,
+) -> Result<usize, String> {
     let conn = db::open_connection(db_path).map_err(|error| error.to_string())?;
     db::init_db(&conn).map_err(|error| error.to_string())?;
-    let gedcom = export_to_gedcom(&conn).map_err(|error| error.to_string())?;
+    let gedcom =
+        export_to_gedcom_with_options(&conn, options).map_err(|error| error.to_string())?;
     std::fs::write(dest, gedcom.as_bytes()).map_err(|error| error.to_string())?;
     Ok(gedcom.len())
 }
@@ -767,7 +817,16 @@ mod tests {
         let report = perform_import(&seed_db, &source)?;
         assert_eq!((report.people, report.families), (3, 1));
 
-        perform_export(&seed_db, &export_file)?;
+        perform_export(
+            &seed_db,
+            &export_file,
+            &ExportOptions {
+                include_living: true,
+                include_private: true,
+                write_markers: false,
+                ..ExportOptions::default()
+            },
+        )?;
         let reimported = perform_import(&export_db, &export_file)?;
         assert_eq!(
             (
@@ -787,7 +846,16 @@ mod tests {
         );
 
         let second_export = temp_path("ged");
-        perform_export(&export_db, &second_export)?;
+        perform_export(
+            &export_db,
+            &second_export,
+            &ExportOptions {
+                include_living: true,
+                include_private: true,
+                write_markers: false,
+                ..ExportOptions::default()
+            },
+        )?;
         let first = std::fs::read(&export_file).map_err(|error| error.to_string())?;
         let again = std::fs::read(&second_export).map_err(|error| error.to_string())?;
         assert_eq!(first, again, "re-export must be byte identical");

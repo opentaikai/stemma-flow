@@ -1,6 +1,6 @@
 //! Serializes the SQLite state back into GEDCOM 5.5.1.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::Connection;
 
@@ -16,6 +16,8 @@ struct PersonRow {
     nickname: String,
     gender: String,
     notes: String,
+    private: bool,
+    living: bool,
 }
 
 struct FamilyRow {
@@ -32,8 +34,32 @@ struct EventRow {
     latitude: Option<f64>,
     longitude: Option<f64>,
     description: Option<String>,
+    private: bool,
     person_id: Option<String>,
     family_id: Option<String>,
+}
+
+/// Options controlling privacy filtering and GEDCOM privacy markers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExportOptions {
+    pub include_living: bool,
+    pub include_private: bool,
+    pub living_age: u32,
+    /// 0 asks the exporter to read the current year from SQLite.
+    pub current_year: i32,
+    pub write_markers: bool,
+}
+
+impl Default for ExportOptions {
+    fn default() -> Self {
+        Self {
+            include_living: false,
+            include_private: false,
+            living_age: crate::db::privacy::DEFAULT_LIVING_AGE,
+            current_year: 0,
+            write_markers: true,
+        }
+    }
 }
 
 struct ParticipantRow {
@@ -126,6 +152,7 @@ fn push_event(
     citations: &CitationsByEvent<'_>,
     source_xrefs: &HashMap<&str, String>,
     participants: &HashMap<&str, Vec<(&str, &str)>>,
+    write_markers: bool,
 ) {
     let tag = facts
         .tag_for(&event.event_type)
@@ -190,6 +217,9 @@ fn push_event(
             out.push_str(&format!("2 _WITN {xref}\n3 _ROLE {role}\n"));
         }
     }
+    if write_markers && event.private {
+        out.push_str("2 _PRIV Y\n");
+    }
 }
 
 /// Serializes people, families, sources, repositories, events and
@@ -198,6 +228,22 @@ fn push_event(
 /// Row order (`ORDER BY rowid`) makes the output deterministic: exporting the
 /// same database twice yields identical text.
 pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
+    export_to_gedcom_with_options(
+        conn,
+        &ExportOptions {
+            include_living: true,
+            include_private: true,
+            write_markers: false,
+            ..ExportOptions::default()
+        },
+    )
+}
+
+/// Serializes the database with the requested living/private filtering.
+pub fn export_to_gedcom_with_options(
+    conn: &Connection,
+    options: &ExportOptions,
+) -> Result<String, GedcomError> {
     let facts = crate::db::facts::load_fact_lookup(conn)
         .map_err(|error| GedcomError::Db(rusqlite::Error::InvalidParameterName(error)))?;
     let mut out = String::new();
@@ -212,7 +258,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 
     let mut people = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT id, given_name, middle_name, surname, nickname, gender, notes
+        "SELECT id, given_name, middle_name, surname, nickname, gender, notes, private
          FROM people ORDER BY rowid",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -224,11 +270,38 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
             nickname: row.get(4)?,
             gender: row.get(5)?,
             notes: row.get(6)?,
+            private: row.get::<_, i64>(7)? != 0,
+            living: false,
         })
     })?;
     for row in rows {
         people.push(row?);
     }
+    let current_year = if options.current_year != 0 {
+        options.current_year
+    } else {
+        crate::db::privacy::current_year(conn)
+            .map_err(|error| GedcomError::Db(rusqlite::Error::InvalidParameterName(error)))?
+    };
+    for person in &mut people {
+        person.living = if !options.include_living || options.write_markers {
+            crate::db::privacy::is_living(conn, &person.id, current_year, options.living_age)
+                .map_err(|error| GedcomError::Db(rusqlite::Error::InvalidParameterName(error)))?
+        } else {
+            false
+        };
+    }
+    let visible_people: Vec<&PersonRow> = people
+        .iter()
+        .filter(|person| {
+            (options.include_private || !person.private)
+                && (options.include_living || !person.living)
+        })
+        .collect();
+    let visible_people_ids: HashSet<&str> = visible_people
+        .iter()
+        .map(|person| person.id.as_str())
+        .collect();
 
     let mut families = Vec::new();
     let mut stmt = conn.prepare("SELECT id, husband_id, wife_id FROM families ORDER BY rowid")?;
@@ -252,11 +325,34 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
     for row in rows {
         junction.push(row?);
     }
+    let mut family_ids: HashSet<&str> = HashSet::new();
+    for family in &families {
+        if [family.husband_id.as_deref(), family.wife_id.as_deref()]
+            .into_iter()
+            .flatten()
+            .any(|id| visible_people_ids.contains(id))
+        {
+            family_ids.insert(family.id.as_str());
+        }
+    }
+    for (family_id, child_id) in &junction {
+        if visible_people_ids.contains(child_id.as_str()) {
+            family_ids.insert(family_id.as_str());
+        }
+    }
+    let visible_families: Vec<&FamilyRow> = families
+        .iter()
+        .filter(|family| family_ids.contains(family.id.as_str()))
+        .collect();
+    let visible_family_ids: HashSet<&str> = visible_families
+        .iter()
+        .map(|family| family.id.as_str())
+        .collect();
 
     let mut events = Vec::new();
     let mut stmt = conn.prepare(
         "SELECT e.id, e.event_type, e.date, p.name, p.latitude, p.longitude,
-                e.description, e.person_id, e.family_id
+                e.description, e.private, e.person_id, e.family_id
          FROM events e
          LEFT JOIN places p ON p.id = e.place_id
          ORDER BY e.rowid",
@@ -270,13 +366,30 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
             latitude: row.get(4)?,
             longitude: row.get(5)?,
             description: row.get(6)?,
-            person_id: row.get(7)?,
-            family_id: row.get(8)?,
+            private: row.get::<_, i64>(7)? != 0,
+            person_id: row.get(8)?,
+            family_id: row.get(9)?,
         })
     })?;
     for row in rows {
         events.push(row?);
     }
+    let visible_event_ids: HashSet<&str> = events
+        .iter()
+        .filter(|event| {
+            if event.private && !options.include_private {
+                return false;
+            }
+            if let Some(person_id) = &event.person_id {
+                visible_people_ids.contains(person_id.as_str())
+            } else if let Some(family_id) = &event.family_id {
+                visible_family_ids.contains(family_id.as_str())
+            } else {
+                false
+            }
+        })
+        .map(|event| event.id.as_str())
+        .collect();
 
     let mut repositories = Vec::new();
     let mut stmt =
@@ -376,11 +489,14 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
     }
 
     let mut person_xref: HashMap<&str, String> = HashMap::new();
-    for (index, person) in people.iter().enumerate() {
+    for (index, person) in visible_people.iter().enumerate() {
         person_xref.insert(&person.id, format!("@I{}@", index + 1));
     }
     let mut participants_by_event: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
     for participant in &participants {
+        if !visible_event_ids.contains(participant.event_id.as_str()) {
+            continue;
+        }
         let Some(xref) = person_xref.get(participant.person_id.as_str()) else {
             continue;
         };
@@ -391,7 +507,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
     }
 
     let mut family_xref: HashMap<&str, String> = HashMap::new();
-    for (index, family) in families.iter().enumerate() {
+    for (index, family) in visible_families.iter().enumerate() {
         family_xref.insert(&family.id, format!("@F{}@", index + 1));
     }
     let mut repository_xref: HashMap<&str, String> = HashMap::new();
@@ -414,6 +530,11 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
     let mut famc_by_child: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut children_by_family: HashMap<&str, Vec<&str>> = HashMap::new();
     for (family_id, child_id) in &junction {
+        if !visible_family_ids.contains(family_id.as_str())
+            || !visible_people_ids.contains(child_id.as_str())
+        {
+            continue;
+        }
         famc_by_child.entry(child_id).or_default().push(family_id);
         children_by_family
             .entry(family_id)
@@ -421,7 +542,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
             .push(child_id);
     }
     let mut families_by_spouse: HashMap<&str, Vec<&str>> = HashMap::new();
-    for family in &families {
+    for family in &visible_families {
         if let Some(husband) = &family.husband_id {
             families_by_spouse
                 .entry(husband)
@@ -435,6 +556,9 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
     let mut events_by_person: HashMap<&str, Vec<&EventRow>> = HashMap::new();
     let mut events_by_family: HashMap<&str, Vec<&EventRow>> = HashMap::new();
     for event in &events {
+        if !visible_event_ids.contains(event.id.as_str()) {
+            continue;
+        }
         if let Some(person_id) = &event.person_id {
             events_by_person.entry(person_id).or_default().push(event);
         } else if let Some(family_id) = &event.family_id {
@@ -504,7 +628,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         }
     }
 
-    for (index, person) in people.iter().enumerate() {
+    for (index, person) in visible_people.iter().enumerate() {
         out.push_str(&format!("0 @I{}@ INDI\n", index + 1));
         let given_part = [person.given_name.as_str(), person.middle_name.as_str()]
             .into_iter()
@@ -524,6 +648,9 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
             out.push_str(&format!("2 SURN {}\n", person.surname));
         }
         out.push_str(&format!("1 SEX {}\n", person.gender));
+        if options.write_markers && (person.private || person.living) {
+            out.push_str("1 RESN privacy\n");
+        }
         if !person.notes.is_empty() {
             push_text(&mut out, 1, "NOTE", &person.notes);
         }
@@ -537,6 +664,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
                     &citations_by_event,
                     &source_xref,
                     &participants_by_event,
+                    options.write_markers,
                 );
             }
         }
@@ -556,7 +684,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         }
     }
 
-    for (index, family) in families.iter().enumerate() {
+    for (index, family) in visible_families.iter().enumerate() {
         out.push_str(&format!("0 @F{}@ FAM\n", index + 1));
         if let Some(husband) = &family.husband_id
             && let Some(xref) = person_xref.get(husband.as_str())
@@ -584,6 +712,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
                     &citations_by_event,
                     &source_xref,
                     &participants_by_event,
+                    options.write_markers,
                 );
             }
         }
