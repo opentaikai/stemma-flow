@@ -13,8 +13,9 @@ use std::io::BufRead;
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
+use crate::db::facts::FactLookup;
 use crate::gedcom::{GedcomError, ImportReport};
-use crate::model::fact::{FactScope, by_tag};
+use crate::model::fact::FactScope;
 
 /// A parsed GEDCOM line: `[level] [@XREF@] tag [payload]`.
 #[derive(Debug, Clone, Copy)]
@@ -427,6 +428,7 @@ pub(crate) struct RecordReader<R: BufRead> {
     decoder: Option<Charset>,
     current: Option<Current>,
     pending: Option<String>,
+    facts: FactLookup,
     warnings: Vec<String>,
     saw_trlr: bool,
     warned_eof: bool,
@@ -434,9 +436,10 @@ pub(crate) struct RecordReader<R: BufRead> {
 }
 
 impl<R: BufRead> RecordReader<R> {
-    pub(crate) fn new(reader: R) -> Self {
+    pub(crate) fn new(reader: R, facts: FactLookup) -> Self {
         Self {
             reader,
+            facts,
             line_buf: Vec::new(),
             peeked: None,
             physical_line: 0,
@@ -799,7 +802,7 @@ impl<R: BufRead> RecordReader<R> {
                             }
                         }
                         other => {
-                            if let Some(fact) = by_tag(other, FactScope::Person) {
+                            if let Some(fact) = self.facts.by_tag(other, FactScope::Person) {
                                 rec.events.push(ParsedEvent {
                                     event_type: fact.key.to_string(),
                                     date: None,
@@ -850,7 +853,7 @@ impl<R: BufRead> RecordReader<R> {
                             push_pointer(&mut rec.children, line, "CHIL", line_no, &mut warning)
                         }
                         other => {
-                            if let Some(fact) = by_tag(other, FactScope::Family) {
+                            if let Some(fact) = self.facts.by_tag(other, FactScope::Family) {
                                 rec.events.push(ParsedEvent {
                                     event_type: fact.key.to_string(),
                                     date: None,
@@ -1067,7 +1070,9 @@ pub fn import_gedcom<R: BufRead>(
     conn: &mut Connection,
     reader: R,
 ) -> Result<ImportReport, GedcomError> {
-    let mut reader = RecordReader::new(reader);
+    let facts = crate::db::facts::load_fact_lookup(conn)
+        .map_err(|error| GedcomError::Db(rusqlite::Error::InvalidParameterName(error)))?;
+    let mut reader = RecordReader::new(reader, facts);
     let tx = conn.transaction()?;
     let mut report = ImportReport::default();
     let mut id_map: HashMap<String, String> = HashMap::new();

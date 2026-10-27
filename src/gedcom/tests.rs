@@ -1290,6 +1290,66 @@ fn built_in_facts_round_trip() -> Result<(), GedcomError> {
 }
 
 #[test]
+fn custom_fact_tags_round_trip() -> Result<(), GedcomError> {
+    use crate::db::facts::{FactTypeDraft, save_fact_type};
+
+    let draft = FactTypeDraft {
+        label: "Heirloom".to_string(),
+        category: "Other".to_string(),
+        gedcom_tag: "_HEIR".to_string(),
+        ..FactTypeDraft::default()
+    };
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 _HEIR Family Bible
+2 DATE 1900
+0 TRLR
+";
+
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    save_fact_type(&mut conn, &draft).expect("custom fact type saves");
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(
+        report.warnings.is_empty(),
+        "custom tag must be recognised: {:?}",
+        report.warnings
+    );
+    let fact: (String, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT event_type, description, date FROM events WHERE event_type = 'HEIRLOOM'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(fact.0, "HEIRLOOM");
+    assert_eq!(fact.1.as_deref(), Some("Family Bible"));
+    assert_eq!(fact.2.as_deref(), Some("1900"));
+
+    let exported = export_to_gedcom(&conn)?;
+    assert!(
+        exported.contains("1 _HEIR Family Bible"),
+        "custom tag must export: {exported:?}"
+    );
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    save_fact_type(&mut fresh, &draft).expect("custom fact type saves");
+    let report = import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert!(
+        report.warnings.is_empty(),
+        "custom export must re-import cleanly: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        export_to_gedcom(&fresh)?,
+        exported,
+        "custom facts must round-trip byte for byte"
+    );
+    Ok(())
+}
+
+#[test]
 fn place_coordinates_round_trip() -> Result<(), GedcomError> {
     let sample = "\
 0 HEAD

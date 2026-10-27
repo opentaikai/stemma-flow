@@ -4,9 +4,9 @@ use std::collections::HashMap;
 
 use rusqlite::Connection;
 
+use crate::db::facts::FactLookup;
 use crate::gedcom::GedcomError;
 use crate::model::date;
-use crate::model::fact::by_key;
 
 struct PersonRow {
     id: String,
@@ -72,13 +72,6 @@ struct CitationRow {
     event_id: Option<String>,
 }
 
-/// Maps a database fact key back to its GEDCOM tag.
-fn gedcom_event_tag(event_type: &str) -> &str {
-    by_key(event_type)
-        .map(|fact| fact.gedcom_tag)
-        .unwrap_or(event_type)
-}
-
 type CitationsByEvent<'a> = HashMap<&'a str, Vec<&'a CitationRow>>;
 
 /// Canonicalises a stored date for export. Unparseable legacy text is
@@ -123,10 +116,13 @@ fn format_hemisphere(value: f64, positive: char, negative: char) -> String {
 fn push_event(
     out: &mut String,
     event: &EventRow,
-    tag: &str,
+    facts: &FactLookup,
     citations: &CitationsByEvent<'_>,
     source_xrefs: &HashMap<&str, String>,
 ) {
+    let tag = facts
+        .tag_for(&event.event_type)
+        .unwrap_or(&event.event_type);
     match event
         .description
         .as_deref()
@@ -190,6 +186,8 @@ fn push_event(
 /// Row order (`ORDER BY rowid`) makes the output deterministic: exporting the
 /// same database twice yields identical text.
 pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
+    let facts = crate::db::facts::load_fact_lookup(conn)
+        .map_err(|error| GedcomError::Db(rusqlite::Error::InvalidParameterName(error)))?;
     let mut out = String::new();
     out.push_str("0 HEAD\n");
     out.push_str("1 SOUR STEMMA_FLOW\n");
@@ -489,13 +487,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 
         if let Some(person_events) = events_by_person.get(person.id.as_str()) {
             for event in person_events {
-                push_event(
-                    &mut out,
-                    event,
-                    gedcom_event_tag(&event.event_type),
-                    &citations_by_event,
-                    &source_xref,
-                );
+                push_event(&mut out, event, &facts, &citations_by_event, &source_xref);
             }
         }
         if let Some(families) = famc_by_child.get(person.id.as_str()) {
@@ -535,13 +527,7 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
         }
         if let Some(family_events) = events_by_family.get(family.id.as_str()) {
             for event in family_events {
-                push_event(
-                    &mut out,
-                    event,
-                    gedcom_event_tag(&event.event_type),
-                    &citations_by_event,
-                    &source_xref,
-                );
+                push_event(&mut out, event, &facts, &citations_by_event, &source_xref);
             }
         }
     }
