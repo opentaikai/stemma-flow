@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use egui::{RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
-use crate::db::places::{PlaceDraft, PlaceRecord, PlaceSummary, reverse_name};
+use crate::db::places::{PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage, reverse_name};
 
 /// What the user asked the shell to do from the places tab.
 #[derive(Debug, Clone, PartialEq)]
@@ -14,6 +14,7 @@ pub enum PlacesEvent {
     Select(String),
     Save(Box<PlaceDraft>),
     Delete(String),
+    SelectPerson(String),
 }
 
 /// Columns the grid header can sort by.
@@ -54,6 +55,7 @@ pub struct PlacesState {
     pub places: Vec<PlaceSummary>,
     pub selected: Option<String>,
     pub draft: PlaceEdit,
+    pub usage: Vec<PlaceUsage>,
     pub filter: String,
     pub sort: Option<(SortColumn, bool)>,
     pub editing: bool,
@@ -386,7 +388,77 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
                     longitude,
                 })));
             }
+
+            ui.separator();
+            ui.label(RichText::new(format!("Used by {} events", state.usage.len())).strong());
+            if state.usage.is_empty() {
+                ui.label(RichText::new("No events use this place.").weak().small());
+            } else {
+                ui.label(
+                    RichText::new("Select a person to edit them.")
+                        .weak()
+                        .small(),
+                );
+                for usage in &state.usage {
+                    usage_row(ui, usage, event);
+                }
+            }
         });
+}
+
+fn usage_row(ui: &mut Ui, usage: &PlaceUsage, event: &mut Option<PlacesEvent>) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(event_label(&usage.event_type)).strong());
+        if let Some(date) = usage
+            .date
+            .as_deref()
+            .map(str::trim)
+            .filter(|date| !date.is_empty())
+        {
+            ui.label(RichText::new(date).weak().small());
+        }
+        if let Some(person_id) = &usage.person_id {
+            let name = usage.person_name.as_deref().unwrap_or("(unnamed)");
+            if ui.button(name).on_hover_text("Edit this person").clicked() {
+                *event = Some(PlacesEvent::SelectPerson(person_id.clone()));
+            }
+            return;
+        }
+        if usage.family_id.is_none() {
+            ui.label(RichText::new("Unlinked event").weak().small());
+            return;
+        }
+        let mut shown = false;
+        if let Some(husband_id) = &usage.husband_id {
+            let name = usage.husband_name.as_deref().unwrap_or("(unnamed)");
+            if ui.button(name).on_hover_text("Edit this person").clicked() {
+                *event = Some(PlacesEvent::SelectPerson(husband_id.clone()));
+            }
+            shown = true;
+        }
+        if usage.husband_id.is_some() && usage.wife_id.is_some() {
+            ui.label("&");
+        }
+        if let Some(wife_id) = &usage.wife_id {
+            let name = usage.wife_name.as_deref().unwrap_or("(unnamed)");
+            if ui.button(name).on_hover_text("Edit this person").clicked() {
+                *event = Some(PlacesEvent::SelectPerson(wife_id.clone()));
+            }
+            shown = true;
+        }
+        if !shown {
+            ui.label(RichText::new("Unnamed couple").weak().small());
+        }
+    });
+}
+
+fn event_label(event_type: &str) -> &str {
+    match event_type {
+        "BIRTH" => "Birth",
+        "DEATH" => "Death",
+        "MARRIAGE" => "Marriage",
+        other => other,
+    }
 }
 
 fn coordinate_cell(ui: &mut Ui, value: Option<f64>, id: &str, event: &mut Option<PlacesEvent>) {
@@ -574,6 +646,50 @@ mod tests {
         });
         output.textures_delta.clear();
         assert!(fills, "the places tab must fill the available height");
+    }
+
+    #[test]
+    fn usage_rows_render_person_and_couple_buttons() {
+        let ctx = Context::default();
+        let mut state = PlacesState {
+            places: vec![summary("p1", "Uppsala", 2)],
+            selected: Some("p1".to_string()),
+            draft: draft_from_record(&record()),
+            usage: vec![
+                PlaceUsage {
+                    event_id: "e1".to_string(),
+                    event_type: "BIRTH".to_string(),
+                    date: Some("1850".to_string()),
+                    person_id: Some("s1".to_string()),
+                    person_name: Some("Ada King".to_string()),
+                    family_id: None,
+                    husband_id: None,
+                    husband_name: None,
+                    wife_id: None,
+                    wife_name: None,
+                },
+                PlaceUsage {
+                    event_id: "e2".to_string(),
+                    event_type: "MARRIAGE".to_string(),
+                    date: Some("1875".to_string()),
+                    person_id: None,
+                    person_name: None,
+                    family_id: Some("f1".to_string()),
+                    husband_id: Some("s2".to_string()),
+                    husband_name: Some("Otto King".to_string()),
+                    wife_id: Some("s1".to_string()),
+                    wife_name: Some("Ada King".to_string()),
+                },
+            ],
+            editing: true,
+            ..PlacesState::default()
+        };
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            show(ui, &mut state, false);
+        });
+        output.textures_delta.clear();
+        assert!(!output.shapes.is_empty(), "usage rows paint");
+        assert_eq!(state.usage.len(), 2);
     }
 
     #[test]

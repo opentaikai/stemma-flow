@@ -13,7 +13,7 @@ use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
 use crate::db::people::{self, ParentRole, PersonDetails};
-use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary};
+use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
 use crate::db::repositories::{
     self as repository_store, RepositoryDraft, RepositoryRecord, RepositorySummary,
 };
@@ -441,6 +441,13 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         place_store::load_place(&conn, id)
+    }
+
+    /// Lists the events that use a place.
+    pub fn place_usage(&self, id: &str) -> Result<Vec<PlaceUsage>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        place_store::list_place_usage(&conn, id)
     }
 
     /// Inserts or updates a place.
