@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v9: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants |
+| Schema v2-v10: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
