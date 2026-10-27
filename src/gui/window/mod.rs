@@ -10,6 +10,7 @@ use loading::{empty_scene, loadable};
 
 use super::canvas::ViewportState;
 use super::citations;
+use super::fact_types;
 use super::import_report;
 use super::inspector::InspectorForm;
 use super::inspector::RelationForm;
@@ -53,6 +54,7 @@ pub struct TreeWindow {
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
     pub(super) places: places::PlacesState,
+    pub(super) fact_types: fact_types::FactTypesState,
     pub(super) sources: sources::SourcesState,
     pub(super) citations: citations::CitationsState,
     pub(super) repositories: repositories::RepositoriesState,
@@ -91,6 +93,7 @@ impl TreeWindow {
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
             places: places::PlacesState::default(),
+            fact_types: fact_types::FactTypesState::default(),
             sources: sources::SourcesState::default(),
             citations: citations::CitationsState::default(),
             repositories: repositories::RepositoriesState::default(),
@@ -151,6 +154,7 @@ impl App for TreeWindow {
                 tabs::AppTab::Graph => self.canvas(ui),
                 tabs::AppTab::WatchList => self.watch_list(ui),
                 tabs::AppTab::Places => self.places_tab(ui),
+                tabs::AppTab::FactTypes => self.fact_types_tab(ui),
                 tabs::AppTab::Sources => self.sources_tab(ui),
                 tabs::AppTab::Repositories => self.repositories_tab(ui),
             });
@@ -185,6 +189,7 @@ mod tests {
     use crate::db;
     use crate::db::people::ParentRole;
     use crate::db::sources::SourceDraft;
+    use crate::gui::fact_types::FactTypesEvent;
     use crate::gui::inspector;
     use crate::gui::inspector::InspectorAction;
     use crate::gui::inspector::RelationKind;
@@ -764,6 +769,65 @@ mod tests {
             window.citations.choices_source.as_deref(),
             Some(source_id.as_str())
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn fact_type_events_save_custom_types_and_roles() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.reload_fact_types();
+        assert_eq!(window.fact_types.types.len(), 61);
+
+        window.apply_fact_types_event(FactTypesEvent::New);
+        window.fact_types.draft.label = "Heirloom".to_string();
+        window.fact_types.draft.category = "Other".to_string();
+        window.fact_types.draft.gedcom_tag = "_HEIR".to_string();
+        window.fact_types.draft.scope = crate::model::fact::FactScope::Person;
+        window.fact_types.draft.kind = crate::model::fact::FactKind::Attribute;
+        window.fact_types.draft.roles = vec![crate::db::facts::FactRoleDraft {
+            key: None,
+            label: "Owner".to_string(),
+        }];
+        window.places.loaded = true;
+        let draft = window.fact_types.draft.clone();
+        window.apply_fact_types_event(FactTypesEvent::Save(Box::new(draft)));
+
+        assert_eq!(window.fact_types.types.len(), 62);
+        assert_eq!(window.fact_types.selected.as_deref(), Some("HEIRLOOM"));
+        assert!(!window.places.loaded, "place labels refresh");
+        let custom = window
+            .app
+            .load_fact_type("HEIRLOOM")
+            .expect("load")
+            .expect("custom fact exists");
+        assert!(!custom.is_builtin);
+        assert_eq!(custom.roles[0].role_key, "OWNER");
+
+        window.apply_fact_types_event(FactTypesEvent::Select("BIRTH".to_string()));
+        window.fact_types.draft.roles = vec![crate::db::facts::FactRoleDraft {
+            key: None,
+            label: "Witness".to_string(),
+        }];
+        let draft = window.fact_types.draft.clone();
+        window.apply_fact_types_event(FactTypesEvent::Save(Box::new(draft)));
+        let birth = window
+            .app
+            .load_fact_type("BIRTH")
+            .expect("load")
+            .expect("birth exists");
+        assert!(birth.is_builtin);
+        assert_eq!(birth.roles[0].role_key, "WITNESS");
+
+        window.apply_fact_types_event(FactTypesEvent::Delete("HEIRLOOM".to_string()));
+        assert_eq!(window.fact_types.types.len(), 61);
+        assert!(window.fact_types.selected.is_none());
+        assert!(matches!(window.app.status(), UiStatus::Success(_)));
 
         let _ = std::fs::remove_file(&db_file);
     }
