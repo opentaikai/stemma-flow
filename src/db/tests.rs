@@ -651,6 +651,7 @@ fn load_marriage_details_reads_the_first_marriage_per_family() -> rusqlite::Resu
     let mut first = Event::new("MARRIAGE", None, Some(fixture.family.id.clone()));
     first.date = Some("1861-06-12".to_string());
     first.place_id = Some("place-uppsala".to_string());
+    let first_id = first.id.clone();
     conn.execute(
         "INSERT INTO events (id, event_type, date, place_id, family_id)
          VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -680,6 +681,7 @@ fn load_marriage_details_reads_the_first_marriage_per_family() -> rusqlite::Resu
         .expect("the family has a marriage");
     assert_eq!(info.date.as_deref(), Some("1861-06-12"), "first event wins");
     assert_eq!(info.place.as_deref(), Some("Uppsala"));
+    assert_eq!(info.event_id.as_deref(), Some(first_id.as_str()));
     Ok(())
 }
 

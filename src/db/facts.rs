@@ -100,6 +100,8 @@ pub struct PersonFact {
     pub role: Option<String>,
     /// Principal person or couple for a shared event.
     pub principal: Option<String>,
+    /// Principal person id when the event belongs to one person.
+    pub principal_id: Option<String>,
     pub participants: Vec<EventParticipant>,
 }
 
@@ -678,6 +680,7 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
                     value: row.get(6)?,
                     role: None,
                     principal: None,
+                    principal_id: None,
                     participants: Vec::new(),
                 },
             ))
@@ -740,6 +743,7 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
                     value: row.get(6)?,
                     role: row.get(7)?,
                     principal,
+                    principal_id: row.get(8)?,
                     participants: Vec::new(),
                 },
             ))
@@ -1188,6 +1192,7 @@ mod tests {
         assert_eq!(bo[0].event_type, "BIRTH");
         assert_eq!(bo[0].role.as_deref(), Some("Godparent"));
         assert_eq!(bo[0].principal.as_deref(), Some("Ada King"));
+        assert_eq!(bo[0].principal_id.as_deref(), Some("p1"));
     }
 
     #[test]

@@ -152,22 +152,70 @@ pub fn show(
                     ui.label(RichText::new("(none)").weak().size(12.0));
                 }
                 for fact in facts {
-                    ui.label(RichText::new(&fact.label).strong());
-                    let details = [
-                        fact.date.as_deref(),
-                        fact.place.as_deref(),
-                        fact.value.as_deref(),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .filter(|detail| !detail.trim().is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" \u{00b7} ");
-                    if details.is_empty() {
-                        ui.label(RichText::new("\u{2014}").weak().small());
-                    } else {
-                        ui.label(RichText::new(details).weak().small());
-                    }
+                    ui.push_id(&fact.event_id, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new(&fact.label).strong());
+                            if let Some(role) = &fact.role {
+                                ui.label(RichText::new(format!("as {role} for")).weak().small());
+                                if let Some(principal) = &fact.principal {
+                                    if let Some(principal_id) = &fact.principal_id {
+                                        if ui
+                                            .link(principal)
+                                            .on_hover_text("Focus this person")
+                                            .clicked()
+                                        {
+                                            action =
+                                                Some(InspectorAction::Focus(principal_id.clone()));
+                                        }
+                                    } else {
+                                        ui.label(RichText::new(principal).weak().small());
+                                    }
+                                }
+                            }
+                        });
+                        let details = [
+                            fact.date.as_deref(),
+                            fact.place.as_deref(),
+                            fact.value.as_deref(),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .filter(|detail| !detail.trim().is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" \u{00b7} ");
+                        if details.is_empty() {
+                            ui.label(RichText::new("\u{2014}").weak().small());
+                        } else {
+                            ui.label(RichText::new(details).weak().small());
+                        }
+                        if fact.role.is_none() && !fact.participants.is_empty() {
+                            let witnesses = fact
+                                .participants
+                                .iter()
+                                .map(|participant| {
+                                    format!(
+                                        "{} ({})",
+                                        participant.person_name, participant.role_label
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            ui.label(
+                                RichText::new(format!("Witnesses: {witnesses}"))
+                                    .weak()
+                                    .small(),
+                            );
+                        }
+                        let label = if fact.participants.is_empty() {
+                            "Add witnesses"
+                        } else {
+                            "Edit witnesses"
+                        };
+                        if ui.small_button(label).clicked() {
+                            action = Some(InspectorAction::EditParticipants(fact.event_id.clone()));
+                        }
+                    });
+                    ui.add_space(4.0);
                 }
             });
             card(ui, "Citations", |ui| {
@@ -229,15 +277,31 @@ pub fn show(
                                 text.push_str(&format!(" \u{00b7} {facts}"));
                             }
                         }
+                        let event_id = relative
+                            .marriage
+                            .as_ref()
+                            .and_then(|marriage| marriage.event_id.clone());
                         let row = egui::Label::new(RichText::new(text).strong())
                             .sense(egui::Sense::click())
                             .truncate();
-                        if ui
-                            .add_sized([ui.available_width(), ui.spacing().interact_size.y], row)
-                            .clicked()
-                        {
-                            action = Some(InspectorAction::Focus(relative.id.clone()));
-                        }
+                        ui.horizontal(|ui| {
+                            let width = if event_id.is_some() {
+                                (ui.available_width() - 86.0).max(80.0)
+                            } else {
+                                ui.available_width()
+                            };
+                            if ui
+                                .add_sized([width, ui.spacing().interact_size.y], row)
+                                .clicked()
+                            {
+                                action = Some(InspectorAction::Focus(relative.id.clone()));
+                            }
+                            if let Some(event_id) = event_id
+                                && ui.small_button("Witnesses").clicked()
+                            {
+                                action = Some(InspectorAction::EditParticipants(event_id));
+                            }
+                        });
                     }
                 }
                 ui.horizontal(|ui| {

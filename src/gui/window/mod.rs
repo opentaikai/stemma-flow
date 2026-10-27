@@ -13,6 +13,7 @@ use super::citations;
 use super::fact_types;
 use super::import_report;
 use super::inspector::InspectorForm;
+use super::inspector::ParticipantForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
 use super::places;
@@ -66,6 +67,7 @@ pub struct TreeWindow {
     pub(super) inspector: InspectorForm,
     pub(super) inspected: Option<String>,
     pub(super) pending_relation: Option<RelationForm>,
+    pub(super) pending_participants: Option<ParticipantForm>,
     pub(super) config: AppConfig,
     pub(super) show_settings: bool,
     pub(super) pending_apply: bool,
@@ -105,6 +107,7 @@ impl TreeWindow {
             inspector: InspectorForm::default(),
             inspected: None,
             pending_relation: None,
+            pending_participants: None,
             config: AppConfig::load(),
             show_settings: false,
             pending_apply: true,
@@ -163,6 +166,7 @@ impl App for TreeWindow {
         }
         if self.app.active_db().is_some() {
             self.show_relation_window(ui.ctx());
+            self.show_participant_window(ui.ctx());
         }
         if self.show_settings
             && let Some(error) = settings::show(ui.ctx(), &mut self.config, &mut self.show_settings)
@@ -829,6 +833,57 @@ mod tests {
         assert_eq!(window.fact_types.types.len(), 61);
         assert!(window.fact_types.selected.is_none());
         assert!(matches!(window.app.status(), UiStatus::Success(_)));
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn witness_facts_and_the_participant_editor_load() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n1 BIRT\n2 DATE 1850\n2 _WITN @I2@\n3 _ROLE Godparent\n0 @I2@ INDI\n1 NAME Bo /King/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let ada = window
+            .rows
+            .iter()
+            .find(|row| row.given_name == "Ada")
+            .expect("Ada")
+            .id
+            .clone();
+        let bo = window
+            .rows
+            .iter()
+            .find(|row| row.given_name == "Bo")
+            .expect("Bo")
+            .id
+            .clone();
+        let ada_facts = window.person_facts.get(&ada).expect("Ada facts");
+        let birth = ada_facts
+            .iter()
+            .find(|fact| fact.event_type == "BIRTH")
+            .expect("birth with witness");
+        assert_eq!(birth.participants.len(), 1);
+        assert_eq!(birth.participants[0].role_label, "Godparent");
+        let bo_facts = window.person_facts.get(&bo).expect("Bo facts");
+        assert_eq!(bo_facts.len(), 1);
+        assert_eq!(bo_facts[0].role.as_deref(), Some("Godparent"));
+        assert_eq!(bo_facts[0].principal.as_deref(), Some("Ada King"));
+
+        let event_id = birth.event_id.clone();
+        window.app.set_selected_person(Some(ada.clone()));
+        window.apply_inspector_action(InspectorAction::EditParticipants(event_id.clone()), &ada);
+        let form = window
+            .pending_participants
+            .as_ref()
+            .expect("participant editor opens");
+        assert_eq!(form.event_id, event_id);
+        assert_eq!(form.roles[0].label, "Godparent");
+        assert_eq!(form.participants.len(), 1);
 
         let _ = std::fs::remove_file(&db_file);
     }

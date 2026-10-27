@@ -99,6 +99,7 @@ pub fn load_family_tree(conn: &Connection) -> rusqlite::Result<FamilyTree> {
 /// Date and place of a family's marriage, when a `MARRIAGE` event exists.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MarriageInfo {
+    pub event_id: Option<String>,
     pub date: Option<String>,
     pub place: Option<String>,
 }
@@ -108,7 +109,7 @@ pub struct MarriageInfo {
 pub fn load_marriage_details(conn: &Connection) -> rusqlite::Result<HashMap<String, MarriageInfo>> {
     let mut marriages = HashMap::new();
     let mut stmt = conn.prepare(
-        "SELECT e.family_id, e.date, p.name
+        "SELECT e.family_id, e.id, e.date, p.name
          FROM events e
          LEFT JOIN places p ON p.id = e.place_id
          WHERE e.event_type = 'MARRIAGE' AND e.family_id IS NOT NULL
@@ -117,15 +118,18 @@ pub fn load_marriage_details(conn: &Connection) -> rusqlite::Result<HashMap<Stri
     let rows = stmt.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
-            row.get::<_, Option<String>>(1)?,
+            row.get::<_, String>(1)?,
             row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
         ))
     })?;
     for row in rows {
-        let (family_id, date, place) = row?;
-        marriages
-            .entry(family_id)
-            .or_insert(MarriageInfo { date, place });
+        let (family_id, event_id, date, place) = row?;
+        marriages.entry(family_id).or_insert(MarriageInfo {
+            event_id: Some(event_id),
+            date,
+            place,
+        });
     }
     Ok(marriages)
 }

@@ -91,6 +91,7 @@ impl TreeWindow {
             self.sources = crate::gui::sources::SourcesState::default();
             self.citations = crate::gui::citations::CitationsState::default();
             self.repositories = crate::gui::repositories::RepositoriesState::default();
+            self.pending_participants = None;
         } else if generation_changed {
             self.places.loaded = false;
             self.repositories.loaded = false;

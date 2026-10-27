@@ -586,6 +586,39 @@ impl TreeWindow {
                 self.citations.add_source = Some(source_id);
                 self.load_citation_choices();
             }
+            InspectorAction::EditParticipants(event_id) => self.open_participants(&event_id),
+        }
+    }
+
+    pub(super) fn open_participants(&mut self, event_id: &str) {
+        match self.app.load_event_context(event_id) {
+            Ok(Some(context)) => {
+                self.pending_participants = Some(inspector::ParticipantForm::from_context(context));
+            }
+            Ok(None) => self
+                .app
+                .set_status(UiStatus::Error(format!("no event with id {event_id}"))),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn show_participant_window(&mut self, ctx: &egui::Context) {
+        let Some(mut form) = self.pending_participants.take() else {
+            return;
+        };
+        match inspector::participant_window(ctx, &mut form, &self.tree) {
+            None => self.pending_participants = Some(form),
+            Some(inspector::ParticipantOutcome::Cancel) => {}
+            Some(inspector::ParticipantOutcome::Save {
+                event_id,
+                participants,
+            }) => match self.app.save_event_participants(&event_id, &participants) {
+                Ok(()) => self.reload_scene_quiet(),
+                Err(message) => {
+                    form.error = Some(message);
+                    self.pending_participants = Some(form);
+                }
+            },
         }
     }
 
