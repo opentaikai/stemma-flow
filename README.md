@@ -21,17 +21,17 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
 - `db::init_db(&conn)` creates or upgrades the schema (20 tables, 34
-  indexes) and records its version in `PRAGMA user_version` (currently 7):
+  indexes) and records its version in `PRAGMA user_version` (currently 8):
   `people`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
-  `source_template_fields`, `places`, `fact_types`, `events`, `citations`,
-  `citation_links`, `media`, `media_links`, `tasks`, `task_links`, `groups`
-  and `group_members`. A v1 database is migrated in place: citation titles
+  `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
+  `events`, `citations`, `citation_links`, `media`, `media_links`, `tasks`,
+  `task_links`, `groups` and `group_members`. A v1 database is migrated in place: citation titles
   become `sources`, event places become `places`, and the new links are
   backfilled. v2 databases gain the v3 source/citation metadata, v4 the
   source template catalogue, v5 the free-form citation outputs, v6 the
-  reusable citation links and v7 fact scope/kind with the 61-type built-in
-  fact catalogue.
+  reusable citation links, v7 fact scope/kind with the 61-type built-in
+  catalogue and v8 per-fact-type roles plus unique GEDCOM tags.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -48,7 +48,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   built-in Evidence Explained style catalogue. Places carry notes,
   latitude and longitude and are shared by every event that mentions them.
   `fact_types` carries the 61 built-in person/family event and attribute
-  definitions, including their GEDCOM tags and scope. Citations keep page, note,
+  definitions, including their GEDCOM tags and scope; `fact_type_roles`
+  holds user-defined roles for each type. Custom types use the same tables
+  with `is_builtin = 0`. Citations keep page, note,
   certainty, media type and data date/text; `citation_links` attaches one
   canonical citation to any number of person or family events.
   `load_vital_dates` and
@@ -140,9 +142,10 @@ impossible calendar days (`31 FEB 1850`) with a field-named error.
   those columns from their fields when saved), then `INDI` and `FAM`
   records and finally `TRLR`. Events read their `2 PLAC` from the linked
   place record; stored coordinates are written as `3 MAP` with `4 LATI` and
-  `4 LONG`, while place notes remain app-only. Built-in fact types and
-  attributes such as `OCCU`, `CENS`, `BURI` and `DIV` round-trip; attribute
-  values are stored in `events.description`. Populated
+  `4 LONG`, while place notes remain app-only. Fact types and attributes such
+  as `OCCU`, `CENS`, `BURI` and `DIV` round-trip, including custom types with
+  their stored GEDCOM tags; attribute values are stored in
+  `events.description`. Populated
   `people.notes` travel as `1 NOTE` + `2 CONT` lines after `1 SEX`, so
   notes round-trip losslessly. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
@@ -209,9 +212,9 @@ a tree becomes usable:
   **Active Tree: &lt;file&gt;** label on its right edge whenever a database
   is loaded.
 
-## Graph View, Watch List, Places, Sources & inspector
+## Graph View, Watch List, Places, Fact Types, Sources & inspector
 
-With a tree open the `eframe` window (1200x800) shows a tab bar with five
+With a tree open the `eframe` window (1200x800) shows a tab bar with six
 views (the app always launches on Graph View):
 
 - **Graph View** — the interactive canvas: opening (or reloading) a tree
@@ -240,6 +243,13 @@ views (the app always launches on Graph View):
   place displays can show comma components in reverse order; the stored
   name and GEDCOM output keep the canonical order. Coordinates round-trip through
   `MAP`/`LATI`/`LONG`; place notes remain local to the tree.
+- **Fact Types** — a filterable, sortable grid of the built-in and custom
+  fact types with category, scope, kind, GEDCOM tag, role count and event
+  usage, plus an editor. Custom types get an immutable generated key and a
+  unique GEDCOM tag; built-in metadata is read-only. Roles are defined per
+  fact type (for example Owner or Witness) and are ready to feed shared
+  events; deleting a custom type is blocked while events use it. Custom tags
+  round-trip through GEDCOM.
 - **Sources** — a searchable list of the tree's sources with citation
   counts, plus an editor beside it. A source is either free-form or uses one
   of five built-in Evidence Explained style templates (book, census,
