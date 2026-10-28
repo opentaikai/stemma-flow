@@ -28,6 +28,7 @@ pub(super) struct LayoutBuilder<'a> {
     pub(super) place_active: HashSet<usize>,
     pub(super) placed: HashSet<usize>,
     pub(super) bounds_by_id: HashMap<&'a str, Rect>,
+    pub(super) surname_first: bool,
     /// Family id -> union x, recorded while its chain is placed.
     pub(super) union_x: HashMap<&'a str, f32>,
     /// Compounds without parents, in compound order.
@@ -39,7 +40,7 @@ pub(super) struct LayoutBuilder<'a> {
 }
 
 impl<'a> LayoutBuilder<'a> {
-    pub(super) fn new(tree: &'a FamilyTree) -> Self {
+    pub(super) fn new(tree: &'a FamilyTree, surname_first: bool) -> Self {
         let node_ids: Vec<&str> = tree
             .people
             .iter()
@@ -80,6 +81,7 @@ impl<'a> LayoutBuilder<'a> {
             })
             .collect();
         let mut builder = Self {
+            surname_first,
             tree,
             node_ids,
             index,
@@ -196,7 +198,7 @@ impl<'a> LayoutBuilder<'a> {
             };
             nodes.push(NodeGeom {
                 person_id: person.id.clone(),
-                display_name: person_display_name(person),
+                display_name: person_display_name(person, self.surname_first),
                 bounds: *bounds,
             });
         }

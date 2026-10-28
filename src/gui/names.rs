@@ -37,7 +37,7 @@ pub fn draft_from_name(name: &AlternateName) -> AlternateNameDraft {
 }
 
 /// Draws the alternate-name card.
-pub fn show(ui: &mut Ui, state: &mut NamesState) -> Option<NamesEvent> {
+pub fn show(ui: &mut Ui, state: &mut NamesState, surname_first: bool) -> Option<NamesEvent> {
     let mut event = None;
     ui.horizontal(|ui| {
         if ui.small_button("+ Add name").clicked() {
@@ -55,7 +55,7 @@ pub fn show(ui: &mut Ui, state: &mut NamesState) -> Option<NamesEvent> {
     let mut delete = None;
     for name in &state.names {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(name.display_name()).strong());
+            ui.label(RichText::new(name.display_name(surname_first)).strong());
             ui.label(RichText::new(&name.name_type).weak().small());
             if ui.small_button("Edit").clicked() {
                 state.draft = draft_from_name(name);
@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(draft.name_type, "married");
         assert_eq!(draft.prefix, "Dr.");
         assert_eq!(draft.suffix, "Jr.");
-        assert_eq!(name().display_name(), "Dr. Ada Lynn Lovelace Jr.");
+        assert_eq!(name().display_name(false), "Dr. Ada Lynn Lovelace Jr.");
     }
 
     #[test]
@@ -177,7 +177,7 @@ mod tests {
             ..NamesState::default()
         };
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            show(ui, &mut state);
+            show(ui, &mut state, false);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the names card paints");

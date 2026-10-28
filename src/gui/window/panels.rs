@@ -59,6 +59,21 @@ impl TreeWindow {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
+            if self.app.active_db().is_some() {
+                let mut surname_first = self.tree_settings.surname_first;
+                let mut changed = None;
+                ui.menu_button("View", |ui| {
+                    if ui
+                        .checkbox(&mut surname_first, "Surname-first names")
+                        .changed()
+                    {
+                        changed = Some(surname_first);
+                    }
+                });
+                if let Some(value) = changed {
+                    self.set_surname_first(value);
+                }
+            }
             if let Some(path) = self.app.active_db() {
                 let label = format!("Active Tree: {}", welcome::display_name(path));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

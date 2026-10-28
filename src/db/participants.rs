@@ -43,24 +43,24 @@ fn display_name(
     middle: Option<String>,
     surname: Option<String>,
     suffix: Option<String>,
+    surname_first: bool,
 ) -> Option<String> {
-    let parts = [prefix, given, middle, surname, suffix]
-        .into_iter()
-        .flatten()
-        .map(|part| part.trim().to_string())
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" "))
-    }
+    let name = crate::model::name::format_name(
+        prefix.as_deref().unwrap_or(""),
+        given.as_deref().unwrap_or(""),
+        middle.as_deref().unwrap_or(""),
+        surname.as_deref().unwrap_or(""),
+        suffix.as_deref().unwrap_or(""),
+        surname_first,
+    );
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// Loads an event with its fact-type roles and current participants.
 pub fn load_event_context(
     conn: &Connection,
     event_id: &str,
+    surname_first: bool,
 ) -> Result<Option<EventContext>, String> {
     let row = conn
         .query_row(
@@ -94,6 +94,7 @@ pub fn load_event_context(
                         row.get(7)?,
                         row.get(8)?,
                         row.get(9)?,
+                        surname_first,
                     ),
                     row.get::<_, Option<String>>(10)?,
                     row.get::<_, Option<String>>(11)?,
@@ -103,6 +104,7 @@ pub fn load_event_context(
                         row.get(14)?,
                         row.get(15)?,
                         row.get(16)?,
+                        surname_first,
                     ),
                     row.get::<_, Option<String>>(17)?,
                     display_name(
@@ -111,6 +113,7 @@ pub fn load_event_context(
                         row.get(20)?,
                         row.get(21)?,
                         row.get(22)?,
+                        surname_first,
                     ),
                 ))
             },
@@ -181,6 +184,7 @@ pub fn load_event_context(
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    surname_first,
                 )
                 .unwrap_or_else(|| "(unnamed)".to_string()),
                 role_key: row.get(6)?,
@@ -214,8 +218,8 @@ pub fn save_event_participants(
     participants: &[ParticipantDraft],
 ) -> Result<(), String> {
     let tx = conn.transaction().map_err(|error| error.to_string())?;
-    let context =
-        load_event_context(&tx, event_id)?.ok_or_else(|| format!("no event with id {event_id}"))?;
+    let context = load_event_context(&tx, event_id, false)?
+        .ok_or_else(|| format!("no event with id {event_id}"))?;
     let roles: std::collections::HashSet<&str> = context
         .roles
         .iter()
@@ -322,7 +326,7 @@ mod tests {
         let mut conn = connection();
         people(&conn);
         birth_roles(&mut conn);
-        let context = load_event_context(&conn, "e1")
+        let context = load_event_context(&conn, "e1", false)
             .expect("context")
             .expect("event");
         assert_eq!(context.event_type, "BIRTH");
@@ -339,7 +343,7 @@ mod tests {
             }],
         )
         .expect("participants save");
-        let context = load_event_context(&conn, "e1")
+        let context = load_event_context(&conn, "e1", false)
             .expect("context")
             .expect("event");
         assert_eq!(context.participants.len(), 1);
@@ -351,7 +355,7 @@ mod tests {
     fn family_context_excludes_spouses_and_allows_witnesses() {
         let mut conn = connection();
         people(&conn);
-        let context = load_event_context(&conn, "e2")
+        let context = load_event_context(&conn, "e2", false)
             .expect("context")
             .expect("event");
         assert_eq!(
@@ -387,7 +391,7 @@ mod tests {
             }],
         )
         .expect("family witness saves");
-        let context = load_event_context(&conn, "e2")
+        let context = load_event_context(&conn, "e2", false)
             .expect("context")
             .expect("event");
         assert_eq!(context.participants.len(), 1);

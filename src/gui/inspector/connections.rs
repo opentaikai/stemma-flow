@@ -30,6 +30,7 @@ pub fn connections(
     tree: &FamilyTree,
     person_id: &str,
     marriages: &HashMap<String, MarriageInfo>,
+    surname_first: bool,
 ) -> Connections {
     let mut parent_ids: Vec<String> = Vec::new();
     for (family_id, child_id) in &tree.child_links {
@@ -94,31 +95,36 @@ pub fn connections(
     }
 
     Connections {
-        parents: by_label(relatives(tree, parent_ids)),
-        siblings: by_label(relatives(tree, sibling_ids)),
+        parents: by_label(relatives(tree, parent_ids, surname_first)),
+        siblings: by_label(relatives(tree, sibling_ids, surname_first)),
         spouses: by_label(
             spouse_ids
                 .into_iter()
-                .filter_map(|(id, marriage)| relative(tree, &id, marriage))
+                .filter_map(|(id, marriage)| relative(tree, &id, marriage, surname_first))
                 .collect(),
         ),
-        children: by_label(relatives(tree, child_ids)),
+        children: by_label(relatives(tree, child_ids, surname_first)),
     }
 }
 
 /// Builds a labelled relative, skipping ids with no stored person.
-fn relative(tree: &FamilyTree, id: &str, marriage: Option<MarriageInfo>) -> Option<Relative> {
+fn relative(
+    tree: &FamilyTree,
+    id: &str,
+    marriage: Option<MarriageInfo>,
+    surname_first: bool,
+) -> Option<Relative> {
     let person = tree.people.iter().find(|person| person.id == id)?;
     Some(Relative {
         id: person.id.clone(),
-        label: person_label(person),
+        label: person_label(person, surname_first),
         marriage,
     })
 }
 
-fn relatives(tree: &FamilyTree, ids: Vec<String>) -> Vec<Relative> {
+fn relatives(tree: &FamilyTree, ids: Vec<String>, surname_first: bool) -> Vec<Relative> {
     ids.iter()
-        .filter_map(|id| relative(tree, id, None))
+        .filter_map(|id| relative(tree, id, None, surname_first))
         .collect()
 }
 
@@ -150,13 +156,14 @@ pub fn reverse_marriage_places(connections: &mut Connections) {
 }
 
 /// Display label for a stored person; blank names fall back gracefully.
-pub fn person_label(person: &Person) -> String {
-    let combined = crate::model::name::full_name(
+pub fn person_label(person: &Person, surname_first: bool) -> String {
+    let combined = crate::model::name::format_name(
         &person.name_prefix,
         &person.given_name,
         &person.middle_name,
         &person.surname,
         &person.name_suffix,
+        surname_first,
     );
     if combined.is_empty() {
         "(unnamed)".to_string()

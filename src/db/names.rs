@@ -3,7 +3,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
-use crate::model::name::full_name;
+use crate::model::name::format_name;
 
 /// One stored alternate name.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,13 +21,14 @@ pub struct AlternateName {
 }
 
 impl AlternateName {
-    pub fn display_name(&self) -> String {
-        full_name(
+    pub fn display_name(&self, surname_first: bool) -> String {
+        format_name(
             &self.prefix,
             &self.given_name,
             &self.middle_name,
             &self.surname,
             &self.suffix,
+            surname_first,
         )
     }
 }
@@ -220,7 +221,7 @@ mod tests {
         assert_eq!(names.len(), 1);
         assert_eq!(names[0].id, id);
         assert_eq!(names[0].name_type, "married");
-        assert_eq!(names[0].display_name(), "Ada Lovelace");
+        assert_eq!(names[0].display_name(false), "Ada Lovelace");
     }
 
     #[test]
@@ -246,7 +247,8 @@ mod tests {
         save_alternate_name(&mut conn, "p1", &draft).expect("name updates");
         let names = list_alternate_names(&conn, "p1").expect("names");
         assert_eq!(names[0].name_type, "aka");
-        assert_eq!(names[0].display_name(), "Dr. Ada Byron Jr.");
+        assert_eq!(names[0].display_name(false), "Dr. Ada Byron Jr.");
+        assert_eq!(names[0].display_name(true), "Byron, Dr. Ada Jr.");
         delete_alternate_name(&conn, &id).expect("name deletes");
         assert!(list_alternate_names(&conn, "p1").expect("names").is_empty());
         draft.given_name.clear();

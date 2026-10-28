@@ -52,15 +52,14 @@ pub fn truncate_name(name: &str, max_chars: usize) -> String {
     out
 }
 
-pub(super) fn person_display_name(person: &Person) -> String {
-    let full = [
-        person.given_name.as_str(),
-        person.middle_name.as_str(),
-        person.surname.as_str(),
-    ]
-    .into_iter()
-    .filter(|part| !part.is_empty())
-    .collect::<Vec<_>>()
-    .join(" ");
+pub(super) fn person_display_name(person: &Person, surname_first: bool) -> String {
+    let full = crate::model::name::format_name(
+        &person.name_prefix,
+        &person.given_name,
+        &person.middle_name,
+        &person.surname,
+        &person.name_suffix,
+        surname_first,
+    );
     truncate_name(full.trim(), NAME_MAX_CHARS)
 }

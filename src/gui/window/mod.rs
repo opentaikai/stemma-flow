@@ -32,6 +32,7 @@ use crate::db::MarriageInfo;
 use crate::db::facts::PersonFact;
 use crate::db::people::VitalDates;
 use crate::db::privacy::PersonPrivacy;
+use crate::db::settings::TreeSettings;
 use crate::gedcom::ImportReport;
 use eframe::{App, Frame};
 use egui::Color32;
@@ -66,6 +67,7 @@ pub struct TreeWindow {
     pub(super) dates: HashMap<String, VitalDates>,
     pub(super) marriages: HashMap<String, MarriageInfo>,
     pub(super) person_facts: HashMap<String, Vec<PersonFact>>,
+    pub(super) tree_settings: TreeSettings,
     pub(super) person_privacy: Option<PersonPrivacy>,
     pub(super) rows: Vec<PersonRow>,
     pub(super) inspector: InspectorForm,
@@ -110,6 +112,7 @@ impl TreeWindow {
             dates: HashMap::new(),
             marriages: HashMap::new(),
             person_facts: HashMap::new(),
+            tree_settings: TreeSettings::default(),
             person_privacy: None,
             rows: Vec::new(),
             inspector: InspectorForm::default(),
@@ -875,12 +878,55 @@ mod tests {
         window.sync_alternate_names();
         assert_eq!(window.names.names.len(), 1);
         assert_eq!(window.names.names[0].name_type, "married");
-        assert_eq!(window.names.names[0].display_name(), "Ada Lovelace");
+        assert_eq!(window.names.names[0].display_name(false), "Ada Lovelace");
 
         let id = window.names.names[0].id.clone();
         window.apply_inspector_action(InspectorAction::DeleteAlternateName(id), &person_id);
         window.sync_alternate_names();
         assert!(window.names.names.is_empty());
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn surname_first_toggle_persists_and_relabels_views() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada Lynn /King/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        assert_eq!(
+            window.rows.first().expect("one person").display_name(),
+            "Ada Lynn King"
+        );
+
+        window.set_surname_first(true);
+
+        assert!(
+            window
+                .app
+                .tree_settings()
+                .expect("settings load")
+                .surname_first
+        );
+        assert_eq!(
+            window.rows.first().expect("one person").display_name(),
+            "King, Ada Lynn"
+        );
+        assert_eq!(
+            window.scene.nodes.first().expect("one node").display_name,
+            "King, Ada Lynn"
+        );
+
+        window.set_surname_first(false);
+        assert_eq!(
+            window.rows.first().expect("one person").display_name(),
+            "Ada Lynn King"
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }
@@ -1307,7 +1353,7 @@ mod tests {
 
         assert_eq!(window.tree.people.len(), 2, "the parent joined the tree");
         assert_eq!(
-            inspector::connections(&window.tree, &person_id, &window.marriages)
+            inspector::connections(&window.tree, &person_id, &window.marriages, false)
                 .parents
                 .len(),
             1,

@@ -71,6 +71,7 @@ pub fn show(
     ctx: &Context,
     form: &mut ParticipantForm,
     tree: &FamilyTree,
+    surname_first: bool,
 ) -> Option<ParticipantOutcome> {
     let mut open = true;
     let mut outcome = None;
@@ -125,7 +126,7 @@ pub fn show(
             } else {
                 ui.label(RichText::new("Add person").strong());
                 ui.add(egui::TextEdit::singleline(&mut form.search).hint_text("Search people…"));
-                let candidates = candidate_people(form, tree);
+                let candidates = candidate_people(form, tree, surname_first);
                 if candidates.is_empty() {
                     ui.label(RichText::new("No matching people.").weak().small());
                 } else {
@@ -137,7 +138,7 @@ pub fn show(
                                 let selected =
                                     form.selected_person.as_deref() == Some(person.id.as_str());
                                 if ui
-                                    .selectable_label(selected, person_label(person))
+                                    .selectable_label(selected, person_label(person, surname_first))
                                     .clicked()
                                 {
                                     form.selected_person = Some(person.id.clone());
@@ -170,7 +171,7 @@ pub fn show(
                         });
                     let enabled = form.selected_person.is_some() && form.selected_role.is_some();
                     if ui.add_enabled(enabled, egui::Button::new("Add")).clicked() {
-                        add_selected(form, tree);
+                        add_selected(form, tree, surname_first);
                     }
                 });
             }
@@ -208,6 +209,7 @@ pub fn show(
 fn candidate_people<'a>(
     form: &ParticipantForm,
     tree: &'a FamilyTree,
+    surname_first: bool,
 ) -> Vec<&'a crate::db::Person> {
     let needle = form.search.trim().to_lowercase();
     tree.people
@@ -218,12 +220,15 @@ fn candidate_people<'a>(
                     .participants
                     .iter()
                     .any(|participant| participant.person_id == person.id)
-                && (needle.is_empty() || person_label(person).to_lowercase().contains(&needle))
+                && (needle.is_empty()
+                    || person_label(person, surname_first)
+                        .to_lowercase()
+                        .contains(&needle))
         })
         .collect()
 }
 
-fn add_selected(form: &mut ParticipantForm, tree: &FamilyTree) {
+fn add_selected(form: &mut ParticipantForm, tree: &FamilyTree, surname_first: bool) {
     let Some(person_id) = form.selected_person.clone() else {
         return;
     };
@@ -246,7 +251,7 @@ fn add_selected(form: &mut ParticipantForm, tree: &FamilyTree) {
     }
     form.participants.push(EventParticipant {
         person_id,
-        person_name: person_label(person),
+        person_name: person_label(person, surname_first),
         role_label: role.label.clone(),
         role_key,
         sort_order: form.participants.len() as i64,
@@ -298,7 +303,7 @@ mod tests {
         form.selected_person = Some(tree.people[1].id.clone());
         form.selected_role = Some("GODPARENT".to_string());
 
-        add_selected(&mut form, &tree);
+        add_selected(&mut form, &tree, false);
 
         assert_eq!(form.participants.len(), 1);
         assert_eq!(form.participants[0].person_name, "Bo King");
@@ -313,9 +318,9 @@ mod tests {
         let mut form = ParticipantForm::from_context(context());
         form.excluded = vec![tree.people[0].id.clone()];
         form.selected_person = Some(tree.people[0].id.clone());
-        add_selected(&mut form, &tree);
+        add_selected(&mut form, &tree, false);
         assert!(form.participants.is_empty(), "the principal is excluded");
-        let candidates = candidate_people(&form, &tree);
+        let candidates = candidate_people(&form, &tree, false);
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].given_name, "Bo");
     }
@@ -327,7 +332,7 @@ mod tests {
         let mut form = ParticipantForm::from_context(context());
         let mut outcome = Some(ParticipantOutcome::Cancel);
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            outcome = show(ui.ctx(), &mut form, &tree);
+            outcome = show(ui.ctx(), &mut form, &tree, false);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the window paints");
