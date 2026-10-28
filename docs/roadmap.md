@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v13: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes |
+| Schema v2-v14: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes, v14 associations |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
@@ -95,7 +95,7 @@ places, facts, alternate names and notes as first-class records.
 | Alternate names and name pieces (prefix, suffix) | done | P1 | Primary pieces, typed alternates and married names |
 | Surname-first display option | done | P2 | Per-tree View toggle across composed names |
 | Notes on person, family, fact, citation and place | done | P0 | First-class notes table; legacy person, citation and place notes migrate |
-| Associations (friends, associates, neighbours) | planned | P2 | With relationship labels |
+| Associations (friends, associates, neighbours) | done | P2 | Directed links, relationship labels and person ASSO/RELA GEDCOM |
 | Media records and links to people, families, facts, sources and places | partial | P1 | Schema and cascading link tables; UI in M4 |
 | Task and group tables | done | P1 | Schema and link tables; UI in M3 |
 | Migrations and GEDCOM mapping for every new entity | planned | P0 | Fidelity tests required |
