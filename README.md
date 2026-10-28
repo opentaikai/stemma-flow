@@ -449,6 +449,8 @@ each module's `mod.rs`:
 
 `File > Settings…` opens a modal dialog with an **Appearance** section:
 
+- **Language** — English (default) or Deutsch, applied live and persisted
+  in `config.toml`.
 - **Theme** — Light, Dark or System; System follows the OS dark/light
   preference through egui's `ThemePreference`.
 - **Font size** — a 10–24pt slider driving `ctx.set_zoom_factor` (14pt
@@ -456,6 +458,18 @@ each module's `mod.rs`:
 - **Places** — **Reverse place-name order** shows comma-separated place
   components largest-first in read-only displays; editors and GEDCOM keep
   the stored order.
+
+## Translations
+
+Interface strings live in external `locales/*.toml` catalogs. `build.rs`
+discovers every catalog and embeds it in the binary, so adding a language
+only requires a new file with the same key set as `locales/en.toml`.
+Catalogs use nested tables flattened to namespaced keys, `{name}`
+placeholders and `_one`/`_other` plural variants. The active catalog is
+process-wide and read every frame, which makes the Settings language
+selector update all windows without a restart. Missing keys and unsupported
+config codes fall back to English. Tests enforce key and placeholder parity
+between English and German.
 
 Theme changes apply to the context immediately and persist to
 `<config_dir>/stemma-flow/config.toml` resolved with `dirs::config_dir()`
