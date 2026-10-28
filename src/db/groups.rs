@@ -184,6 +184,35 @@ pub fn list_members(
     Ok(rows)
 }
 
+/// Lists groups containing one person.
+pub fn list_groups_for_person(
+    conn: &Connection,
+    person_id: &str,
+) -> Result<Vec<GroupSummary>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT g.id, g.name, g.description,
+                    (SELECT COUNT(*) FROM group_members c WHERE c.group_id = g.id)
+             FROM groups g JOIN group_members m ON m.group_id = g.id
+             WHERE m.person_id = ?1
+             ORDER BY g.name COLLATE NOCASE, g.rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![person_id], |row| {
+            Ok(GroupSummary {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                member_count: row.get(3)?,
+            })
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    Ok(rows)
+}
+
 /// Adds a person to a group.
 pub fn add_member(conn: &Connection, group_id: &str, person_id: &str) -> Result<(), String> {
     ensure_exists(conn, "groups", group_id)?;

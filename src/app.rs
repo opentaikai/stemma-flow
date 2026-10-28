@@ -457,6 +457,13 @@ impl StemmaApp {
         group_store::list_groups(&conn)
     }
 
+    /// Lists groups containing one person.
+    pub fn list_groups_for_person(&self, person_id: &str) -> Result<Vec<GroupSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        group_store::list_groups_for_person(&conn, person_id)
+    }
+
     /// Loads one group for editing.
     pub fn load_group(&self, id: &str) -> Result<Option<GroupRecord>, String> {
         let path = self.require_active_db()?;
