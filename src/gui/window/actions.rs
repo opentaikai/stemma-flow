@@ -817,6 +817,7 @@ impl TreeWindow {
             EditorPrompt::Switch(person_id) => match self.build_person_editor(&person_id) {
                 Some(next) => {
                     *editor = next;
+                    self.app.set_selected_person(Some(person_id));
                     true
                 }
                 None => false,
@@ -841,6 +842,16 @@ impl TreeWindow {
             },
             InspectorAction::Close => editor.prompt = Some(EditorPrompt::Close),
             InspectorAction::OpenEditor => {}
+            InspectorAction::SwitchEditor(target) => {
+                if target != person_id {
+                    if editor.is_dirty() {
+                        editor.prompt = Some(EditorPrompt::Switch(target));
+                    } else if let Some(next) = self.build_person_editor(&target) {
+                        *editor = next;
+                        self.app.set_selected_person(Some(target));
+                    }
+                }
+            }
             InspectorAction::OpenGroups => {
                 self.tab = crate::gui::tabs::AppTab::Research;
                 self.research.tab = crate::gui::research::ResearchTab::Groups;
@@ -1475,6 +1486,7 @@ impl TreeWindow {
             InspectorAction::AddSpouse => self.open_relation(person_id, RelationKind::Spouse),
             InspectorAction::AddChild => self.open_relation(person_id, RelationKind::Child),
             InspectorAction::OpenEditor => self.open_person_editor(person_id),
+            InspectorAction::SwitchEditor(target) => self.open_person_editor(&target),
             InspectorAction::OpenGroups => {
                 self.tab = tabs::AppTab::Research;
                 self.research.tab = crate::gui::research::ResearchTab::Groups;

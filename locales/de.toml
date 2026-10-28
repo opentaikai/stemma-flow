@@ -172,6 +172,10 @@ unsaved_hint = "Änderungen an dieser Person vor dem Schließen speichern?"
 save = "Speichern"
 discard = "Verwerfen"
 
+focus = "Fokus"
+switch_hint = "Editor auf diese Person umschalten"
+focus_hint = "Im Graphen anzeigen"
+
 [inspector]
 parents = "Eltern"
 siblings = "Geschwister"

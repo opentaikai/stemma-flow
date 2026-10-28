@@ -1094,6 +1094,70 @@ mod tests {
     }
 
     #[test]
+    fn editor_family_switch_follows_selection_and_respects_dirty_drafts() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n\
+             0 @I2@ INDI\n1 NAME Charles /Babbage/\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let ada = window
+            .rows
+            .iter()
+            .find(|row| row.surname == "King")
+            .expect("Ada")
+            .id
+            .clone();
+        let charles = window
+            .rows
+            .iter()
+            .find(|row| row.surname == "Babbage")
+            .expect("Charles")
+            .id
+            .clone();
+
+        window.app.set_selected_person(Some(ada.clone()));
+        window.open_person_editor(&ada);
+        let mut editor = window.person_editor.take().expect("editor");
+        window.apply_editor_action(
+            &mut editor,
+            crate::gui::inspector::InspectorAction::SwitchEditor(charles.clone()),
+        );
+        window.person_editor = Some(editor);
+        assert_eq!(
+            window.person_editor.as_ref().expect("editor").person_id,
+            charles
+        );
+        assert_eq!(window.app.selected_person_id(), Some(charles.as_str()));
+
+        let mut editor = window.person_editor.take().expect("editor");
+        editor.form.given_name = "Changed".to_string();
+        window.apply_editor_action(
+            &mut editor,
+            crate::gui::inspector::InspectorAction::SwitchEditor(ada.clone()),
+        );
+        assert_eq!(
+            editor.person_id, charles,
+            "dirty editor does not switch yet"
+        );
+        assert_eq!(
+            editor.prompt,
+            Some(crate::gui::person_editor::EditorPrompt::Switch(ada.clone()))
+        );
+        assert_eq!(
+            window.app.selected_person_id(),
+            Some(charles.as_str()),
+            "selection follows only committed switches"
+        );
+        window.person_editor = Some(editor);
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn dirty_editor_prompts_before_switching_people() {
         let db_file = temp_path("db");
         import_people(
