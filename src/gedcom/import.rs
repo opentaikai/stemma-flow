@@ -36,8 +36,8 @@ pub(crate) struct SourceRef {
     pub page: Option<String>,
     /// GEDCOM certainty (`QUAY`).
     pub quality: Option<String>,
-    /// Citation-level note (`3 NOTE`).
-    pub note: Option<String>,
+    /// Citation-level notes (`3 NOTE`).
+    pub notes: Vec<String>,
     pub media_type: Option<String>,
     pub data_date: Option<String>,
     pub data_text: Option<String>,
@@ -57,6 +57,7 @@ pub(crate) struct ParsedEvent {
     pub private: bool,
     pub participants: Vec<ParsedParticipant>,
     pub source_refs: Vec<SourceRef>,
+    pub notes: Vec<String>,
 }
 
 /// A `_WITN @X@` participant reference on an event.
@@ -80,9 +81,8 @@ pub(crate) struct IndiRecord {
     pub name_suffix: String,
     pub alternate_names: Vec<ParsedAlternateName>,
     pub gender: String,
-    /// First `1 NOTE` block, including `2 CONT`/`2 CONC` continuations;
-    /// later note blocks on the same person are ignored.
-    pub note: Option<String>,
+    /// Every `1 NOTE` block, including `2 CONT`/`2 CONC` continuations.
+    pub notes: Vec<String>,
     pub events: Vec<ParsedEvent>,
     pub famc: Vec<String>,
     pub fams: Vec<String>,
@@ -109,6 +109,7 @@ pub(crate) struct FamRecord {
     pub wife: Option<String>,
     pub children: Vec<String>,
     pub events: Vec<ParsedEvent>,
+    pub notes: Vec<String>,
 }
 
 /// One `1 REPO @R@` link on a source.
@@ -190,7 +191,7 @@ impl IndiRecord {
             name_suffix: String::new(),
             alternate_names: Vec::new(),
             gender: "U".to_string(),
-            note: None,
+            notes: Vec::new(),
             events: Vec::new(),
             famc: Vec::new(),
             fams: Vec::new(),
@@ -207,6 +208,7 @@ impl FamRecord {
             wife: None,
             children: Vec::new(),
             events: Vec::new(),
+            notes: Vec::new(),
         }
     }
 }
@@ -278,8 +280,8 @@ fn is_pointer(payload: &str) -> bool {
 
 /// Appends a `2 CONT` (new line) or `2 CONC` (same line) segment to the
 /// person's first note; an empty note starts with the segment itself.
-fn append_note_continuation(rec: &mut IndiRecord, payload: &str, new_line: bool) {
-    let Some(note) = rec.note.as_mut() else {
+fn append_note(notes: &mut [String], slot: usize, payload: &str, new_line: bool) {
+    let Some(note) = notes.get_mut(slot) else {
         return;
     };
     if note.is_empty() {
@@ -322,8 +324,8 @@ enum Current {
     Indi {
         rec: Box<IndiRecord>,
         event_slot: Option<usize>,
-        /// True while level-2 lines belong to the person's first `1 NOTE`.
-        in_note: bool,
+        /// Index of the person note receiving `CONT`/`CONC` lines.
+        note_slot: Option<usize>,
         name_seen: bool,
         alternate_slot: Option<usize>,
         in_name: bool,
@@ -331,6 +333,8 @@ enum Current {
     Fam {
         rec: Box<FamRecord>,
         event_slot: Option<usize>,
+        /// Index of the family note receiving `CONT`/`CONC` lines.
+        note_slot: Option<usize>,
     },
     Sour {
         rec: SourRecord,
@@ -646,7 +650,7 @@ impl<R: BufRead> RecordReader<R> {
                     Some(xref) => Some(Current::Indi {
                         rec: Box::new(IndiRecord::new(xref)),
                         event_slot: None,
-                        in_note: false,
+                        note_slot: None,
                         name_seen: false,
                         alternate_slot: None,
                         in_name: false,
@@ -664,6 +668,7 @@ impl<R: BufRead> RecordReader<R> {
                     Some(xref) => Some(Current::Fam {
                         rec: Box::new(FamRecord::new(xref)),
                         event_slot: None,
+                        note_slot: None,
                     }),
                     None => {
                         let message =
@@ -814,14 +819,14 @@ impl<R: BufRead> RecordReader<R> {
             Some(Current::Indi {
                 rec,
                 event_slot,
-                in_note,
+                note_slot,
                 name_seen,
                 alternate_slot,
                 in_name,
             }) => {
                 if line.level == 1 {
                     *event_slot = None;
-                    *in_note = false;
+                    *note_slot = None;
                     *in_name = line.tag == "NAME";
                     match line.tag {
                         "NAME" => {
@@ -849,12 +854,8 @@ impl<R: BufRead> RecordReader<R> {
                         "FAMC" => push_pointer(&mut rec.famc, line, "FAMC", line_no, &mut warning),
                         "FAMS" => push_pointer(&mut rec.fams, line, "FAMS", line_no, &mut warning),
                         "NOTE" => {
-                            // First note wins; later blocks are swallowed
-                            // so their continuations stay silent too.
-                            *in_note = rec.note.is_none();
-                            if *in_note {
-                                rec.note = Some(line.payload.to_string());
-                            }
+                            rec.notes.push(line.payload.to_string());
+                            *note_slot = Some(rec.notes.len() - 1);
                         }
                         other => {
                             if let Some(fact) = self.facts.by_tag(other, FactScope::Person) {
@@ -868,6 +869,7 @@ impl<R: BufRead> RecordReader<R> {
                                     private: false,
                                     participants: Vec::new(),
                                     source_refs: Vec::new(),
+                                    notes: Vec::new(),
                                 });
                                 *event_slot = Some(rec.events.len() - 1);
                             } else {
@@ -875,12 +877,12 @@ impl<R: BufRead> RecordReader<R> {
                             }
                         }
                     }
-                } else if *in_note {
+                } else if let Some(slot) = *note_slot {
                     match line.tag {
-                        "CONT" => append_note_continuation(rec, line.payload, true),
-                        "CONC" => append_note_continuation(rec, line.payload, false),
+                        "CONT" => append_note(&mut rec.notes, slot, line.payload, true),
+                        "CONC" => append_note(&mut rec.notes, slot, line.payload, false),
                         _ => {
-                            *in_note = false;
+                            *note_slot = None;
                             warning = Some(unknown_tag_warning(line_no, &line));
                         }
                     }
@@ -925,9 +927,14 @@ impl<R: BufRead> RecordReader<R> {
                     fill_event(&mut rec.events, *slot, line, line_no, &mut warning);
                 }
             }
-            Some(Current::Fam { rec, event_slot }) => {
+            Some(Current::Fam {
+                rec,
+                event_slot,
+                note_slot,
+            }) => {
                 if line.level == 1 {
                     *event_slot = None;
+                    *note_slot = None;
                     match line.tag {
                         "HUSB" => {
                             rec.husband = optional_pointer(line, "HUSB", line_no, &mut warning)
@@ -935,6 +942,10 @@ impl<R: BufRead> RecordReader<R> {
                         "WIFE" => rec.wife = optional_pointer(line, "WIFE", line_no, &mut warning),
                         "CHIL" => {
                             push_pointer(&mut rec.children, line, "CHIL", line_no, &mut warning)
+                        }
+                        "NOTE" => {
+                            rec.notes.push(line.payload.to_string());
+                            *note_slot = Some(rec.notes.len() - 1);
                         }
                         other => {
                             if let Some(fact) = self.facts.by_tag(other, FactScope::Family) {
@@ -948,11 +959,21 @@ impl<R: BufRead> RecordReader<R> {
                                     private: false,
                                     participants: Vec::new(),
                                     source_refs: Vec::new(),
+                                    notes: Vec::new(),
                                 });
                                 *event_slot = Some(rec.events.len() - 1);
                             } else {
                                 warning = Some(unknown_tag_warning(line_no, &line));
                             }
+                        }
+                    }
+                } else if let Some(slot) = *note_slot {
+                    match line.tag {
+                        "CONT" => append_note(&mut rec.notes, slot, line.payload, true),
+                        "CONC" => append_note(&mut rec.notes, slot, line.payload, false),
+                        _ => {
+                            *note_slot = None;
+                            warning = Some(unknown_tag_warning(line_no, &line));
                         }
                     }
                 } else if event_slot.is_none() {
@@ -1036,6 +1057,7 @@ fn fill_event(
         2 => match line.tag {
             "DATE" => event.date = optional_payload(line.payload),
             "PLAC" => event.place = optional_payload(line.payload),
+            "NOTE" => event.notes.push(line.payload.to_string()),
             "_PRIV" => {
                 event.private = !matches!(
                     line.payload.trim().to_ascii_uppercase().as_str(),
@@ -1058,7 +1080,7 @@ fn fill_event(
                     text: None,
                     page: None,
                     quality: None,
-                    note: None,
+                    notes: Vec::new(),
                     media_type: None,
                     data_date: None,
                     data_text: None,
@@ -1079,6 +1101,24 @@ fn fill_event(
         },
         3 => match line.tag {
             "DATA" | "MAP" => {}
+            "CONT" | "CONC" => {
+                let new_line = line.tag == "CONT";
+                if let Some(note) = event.notes.last_mut() {
+                    if note.is_empty() {
+                        note.push_str(line.payload);
+                    } else {
+                        if new_line {
+                            note.push('\n');
+                        }
+                        note.push_str(line.payload);
+                    }
+                } else {
+                    *warning = Some(format!(
+                        "line {line_no}: {} without a preceding NOTE ignored",
+                        line.tag
+                    ));
+                }
+            }
             "_ROLE" => {
                 if let Some(participant) = event.participants.last_mut() {
                     participant.role = optional_payload(line.payload);
@@ -1093,7 +1133,7 @@ fn fill_event(
                     match line.tag {
                         "PAGE" => source.page = optional_payload(line.payload),
                         "QUAY" => source.quality = optional_payload(line.payload),
-                        "NOTE" => source.note = optional_payload(line.payload),
+                        "NOTE" => source.notes.push(line.payload.to_string()),
                         _ => source.media_type = optional_payload(line.payload),
                     }
                 } else {
@@ -1106,6 +1146,28 @@ fn fill_event(
             _ => *warning = Some(unknown_tag_warning(line_no, &line)),
         },
         4 => match line.tag {
+            "CONT" | "CONC" => {
+                let new_line = line.tag == "CONT";
+                if let Some(note) = event
+                    .source_refs
+                    .last_mut()
+                    .and_then(|source| source.notes.last_mut())
+                {
+                    if note.is_empty() {
+                        note.push_str(line.payload);
+                    } else {
+                        if new_line {
+                            note.push('\n');
+                        }
+                        note.push_str(line.payload);
+                    }
+                } else {
+                    *warning = Some(format!(
+                        "line {line_no}: {} without a preceding NOTE ignored",
+                        line.tag
+                    ));
+                }
+            }
             "DATE" | "TEXT" => {
                 if let Some(source) = event.source_refs.last_mut() {
                     if line.tag == "DATE" {
@@ -1165,7 +1227,7 @@ struct PendingCitation {
     xref: String,
     page: Option<String>,
     quality: Option<String>,
-    note: Option<String>,
+    notes: Vec<String>,
     media_type: Option<String>,
     data_date: Option<String>,
     data_text: Option<String>,
@@ -1216,8 +1278,8 @@ pub fn import_gedcom<R: BufRead>(
                 tx.execute(
                     "INSERT INTO people
                      (id, given_name, middle_name, surname, nickname, name_prefix,
-                      name_suffix, gender, notes, private)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                      name_suffix, gender, private)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                     params![
                         id,
                         indi.given_name,
@@ -1227,10 +1289,10 @@ pub fn import_gedcom<R: BufRead>(
                         indi.name_prefix,
                         indi.name_suffix,
                         indi.gender,
-                        indi.note.unwrap_or_default(),
                         indi.private as i64
                     ],
                 )?;
+                insert_notes(&tx, "person_id", &id, &indi.notes)?;
                 report.people += 1;
                 for (index, name) in indi.alternate_names.iter().enumerate() {
                     tx.execute(
@@ -1282,6 +1344,7 @@ pub fn import_gedcom<R: BufRead>(
                 }
                 let id = Uuid::new_v4().to_string();
                 tx.execute("INSERT INTO families (id) VALUES (?1)", [&id])?;
+                insert_notes(&tx, "family_id", &id, &fam.notes)?;
                 report.families += 1;
                 for event in &fam.events {
                     let event_id =
@@ -1474,7 +1537,7 @@ pub fn import_gedcom<R: BufRead>(
                 source_id,
                 citation.page.as_deref(),
                 citation.quality.as_deref(),
-                citation.note.as_deref(),
+                &citation.notes,
                 citation.media_type.as_deref(),
                 citation.data_date.as_deref(),
                 citation.data_text.as_deref(),
@@ -1522,7 +1585,7 @@ fn collect_source_refs(
                 xref: xref.clone(),
                 page: source.page.clone(),
                 quality: source.quality.clone(),
-                note: source.note.clone(),
+                notes: source.notes.clone(),
                 media_type: source.media_type.clone(),
                 data_date: source.data_date.clone(),
                 data_text: source.data_text.clone(),
@@ -1534,7 +1597,7 @@ fn collect_source_refs(
                 &source_id,
                 source.page.as_deref(),
                 source.quality.as_deref(),
-                source.note.as_deref(),
+                &source.notes,
                 source.media_type.as_deref(),
                 source.data_date.as_deref(),
                 source.data_text.as_deref(),
@@ -1552,7 +1615,7 @@ fn insert_citation(
     source_id: &str,
     page_or_reference: Option<&str>,
     quality: Option<&str>,
-    note: Option<&str>,
+    notes: &[String],
     media_type: Option<&str>,
     data_date: Option<&str>,
     data_text: Option<&str>,
@@ -1561,20 +1624,20 @@ fn insert_citation(
 ) -> rusqlite::Result<()> {
     let citation_id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO citations (id, source_id, page_or_reference, notes,
+        "INSERT INTO citations (id, source_id, page_or_reference,
              quality_certainty, media_type, data_date, data_text)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             citation_id,
             source_id,
             page_or_reference,
-            note,
             quality,
             media_type,
             data_date,
             data_text
         ],
     )?;
+    insert_notes(conn, "citation_id", &citation_id, notes)?;
     if let Some(event_id) = event_id {
         conn.execute(
             "INSERT INTO citation_links (citation_id, event_id) VALUES (?1, ?2)",
@@ -1678,8 +1741,29 @@ fn insert_event(
             event.private as i64
         ],
     )?;
+    insert_notes(conn, "event_id", &id, &event.notes)?;
     report.events += 1;
     Ok(id)
+}
+
+/// Inserts ordered notes for one owner.
+fn insert_notes(
+    conn: &Connection,
+    column: &str,
+    owner_id: &str,
+    notes: &[String],
+) -> rusqlite::Result<()> {
+    let sql = format!("INSERT INTO notes (id, body, sort_order, {column}) VALUES (?1, ?2, ?3, ?4)");
+    for (index, body) in notes.iter().enumerate() {
+        if body.trim().is_empty() {
+            continue;
+        }
+        conn.execute(
+            &sql,
+            params![Uuid::new_v4().to_string(), body, index as i64, owner_id],
+        )?;
+    }
+    Ok(())
 }
 
 /// Finds or creates a place for a trimmed non-empty name.

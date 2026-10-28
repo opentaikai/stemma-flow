@@ -9,8 +9,8 @@ use super::schema::{
     ALTERNATE_NAMES_INDEX_SQL, ALTERNATE_NAMES_TABLE_SQL, CITATION_LINKS_INDEXES_SQL,
     CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL, EVENT_PARTICIPANTS_INDEX_SQL,
     EVENT_PARTICIPANTS_TABLE_SQL, FACT_ROLES_TABLE_SQL, FACT_TAG_INDEX_SQL, INDEXES_SQL,
-    LINK_TABLES_SQL, TREE_SETTINGS_TABLE_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL,
-    V4_TABLES_SQL, V5_COLUMNS, ensure_column, seed_source_templates,
+    LINK_TABLES_SQL, NOTES_INDEXES_SQL, NOTES_TABLE_SQL, TREE_SETTINGS_TABLE_SQL, V3_COLUMNS,
+    V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS, ensure_column, seed_source_templates,
 };
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
@@ -168,6 +168,42 @@ pub(super) fn migrate_v11_to_v12(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// Adds first-class notes and moves the legacy note columns into them.
+pub(super) fn migrate_v12_to_v13(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let people_notes = has_column(conn, "people", "notes")?;
+    let citation_notes = has_column(conn, "citations", "notes")?;
+    let place_notes = has_column(conn, "places", "notes")?;
+    tx.execute_batch(NOTES_TABLE_SQL)?;
+    tx.execute_batch(NOTES_INDEXES_SQL)?;
+    if people_notes {
+        tx.execute_batch(
+            "INSERT INTO notes (id, body, sort_order, person_id)
+             SELECT lower(hex(randomblob(16))), notes, 0, id
+             FROM people WHERE trim(notes) <> '';
+             ALTER TABLE people DROP COLUMN notes;",
+        )?;
+    }
+    if citation_notes {
+        tx.execute_batch(
+            "INSERT INTO notes (id, body, sort_order, citation_id)
+             SELECT lower(hex(randomblob(16))), notes, 0, id
+             FROM citations WHERE notes IS NOT NULL AND trim(notes) <> '';
+             ALTER TABLE citations DROP COLUMN notes;",
+        )?;
+    }
+    if place_notes {
+        tx.execute_batch(
+            "INSERT INTO notes (id, body, sort_order, place_id)
+             SELECT lower(hex(randomblob(16))), notes, 0, id
+             FROM places WHERE notes IS NOT NULL AND trim(notes) <> '';
+             ALTER TABLE places DROP COLUMN notes;",
+        )?;
+    }
+    tx.pragma_update(None, "user_version", 13)?;
+    tx.commit()
+}
+
 /// Copies distinct event places into `places` and links the events.
 fn migrate_places(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut stmt = tx.prepare(
@@ -261,4 +297,17 @@ fn rebuild_citations(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     }
     tx.execute_batch("DROP TABLE citations; ALTER TABLE citations_v2 RENAME TO citations;")?;
     Ok(())
+}
+
+/// Whether a table currently has a column.
+fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut present = false;
+    for name in stmt.query_map([], |row| row.get::<_, String>(1))? {
+        if name? == column {
+            present = true;
+            break;
+        }
+    }
+    Ok(present)
 }

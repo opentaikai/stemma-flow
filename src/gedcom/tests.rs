@@ -973,11 +973,13 @@ fn imports_the_local_test_data_sample_when_present() -> Result<(), GedcomError> 
         "WikiTree _MIDN patronymics must land in middle_name"
     );
     let noted: i64 = conn
-        .query_row("SELECT COUNT(*) FROM people WHERE notes <> ''", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT COUNT(*) FROM notes WHERE person_id IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
         .map_err(GedcomError::Db)?;
-    assert!(noted > 0, "INDI notes must land in people.notes");
+    assert!(noted > 0, "INDI notes must land in the notes table");
     assert_eq!(
         report.warnings.len(),
         2324,
@@ -1110,7 +1112,7 @@ fn middle_name_and_nickname_round_trip_through_export() -> Result<(), GedcomErro
 }
 
 #[test]
-fn import_keeps_only_the_first_indi_note() -> Result<(), GedcomError> {
+fn import_keeps_every_indi_note() -> Result<(), GedcomError> {
     let sample = "\
 0 HEAD
 0 @I1@ INDI
@@ -1130,19 +1132,31 @@ fn import_keeps_only_the_first_indi_note() -> Result<(), GedcomError> {
         "notes are supported now: {:?}",
         report.warnings
     );
-    let notes: String = conn
-        .query_row("SELECT notes FROM people", [], |row| row.get(0))
+    let notes: Vec<String> = conn
+        .prepare("SELECT body FROM notes ORDER BY sort_order")
+        .map_err(GedcomError::Db)?
+        .query_map([], |row| row.get(0))
+        .map_err(GedcomError::Db)?
+        .collect::<rusqlite::Result<_>>()
         .map_err(GedcomError::Db)?;
-    assert_eq!(notes, "First line\nsecond line joined");
+    assert_eq!(notes, ["First line\nsecond line joined", "Ignored note"]);
     Ok(())
 }
 
 #[test]
 fn person_notes_round_trip_through_export() -> Result<(), GedcomError> {
     let mut conn = setup_test_db().map_err(GedcomError::Db)?;
-    let mut profile = crate::db::people::PersonDetails::new("Ann", "", "Lee", "", "F", None, None);
-    profile.notes = "Line one\nLine two".to_string();
+    let profile = crate::db::people::PersonDetails::new("Ann", "", "Lee", "", "F", None, None);
     crate::db::people::insert_person(&mut conn, &profile).expect("insert succeeds");
+    let person_id: String = conn
+        .query_row("SELECT id FROM people", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    crate::db::notes::add_note(
+        &conn,
+        &crate::db::notes::NoteOwner::Person(person_id),
+        "Line one\nLine two",
+    )
+    .expect("note saves");
 
     let ged = export_to_gedcom(&conn)?;
     assert!(ged.contains("1 NOTE Line one\n2 CONT Line two\n"), "{ged}");
@@ -1150,7 +1164,7 @@ fn person_notes_round_trip_through_export() -> Result<(), GedcomError> {
     let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
     let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
     let notes: String = fresh
-        .query_row("SELECT notes FROM people", [], |row| row.get(0))
+        .query_row("SELECT body FROM notes", [], |row| row.get(0))
         .map_err(GedcomError::Db)?;
     assert_eq!(notes, "Line one\nLine two");
     assert!(
@@ -1158,6 +1172,72 @@ fn person_notes_round_trip_through_export() -> Result<(), GedcomError> {
         "round trip must stay warning-free: {:?}",
         report.warnings
     );
+    Ok(())
+}
+
+#[test]
+fn family_fact_and_citation_notes_round_trip() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ann /Lee/
+1 BIRT
+2 DATE 1 JAN 1900
+2 NOTE Event line
+3 CONT event continued
+2 SOUR @S1@
+3 PAGE 1
+3 NOTE Citation line
+4 CONT citation continued
+0 @F1@ FAM
+1 HUSB @I1@
+1 NOTE Family line
+2 CONT family continued
+0 @S1@ SOUR
+1 TITL Source
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+
+    let bodies = |column: &str| -> Result<Vec<String>, GedcomError> {
+        let sql = format!("SELECT body FROM notes WHERE {column} IS NOT NULL ORDER BY sort_order");
+        let mut stmt = conn.prepare(&sql).map_err(GedcomError::Db)?;
+        stmt.query_map([], |row| row.get(0))
+            .map_err(GedcomError::Db)?
+            .collect::<rusqlite::Result<_>>()
+            .map_err(GedcomError::Db)
+    };
+    assert_eq!(
+        bodies("family_id")?,
+        ["Family line\nfamily continued"],
+        "family notes round-trip"
+    );
+    assert_eq!(
+        bodies("event_id")?,
+        ["Event line\nevent continued"],
+        "fact notes round-trip"
+    );
+    assert_eq!(
+        bodies("citation_id")?,
+        ["Citation line\ncitation continued"],
+        "citation notes round-trip"
+    );
+
+    let ged = export_to_gedcom(&conn)?;
+    for expected in [
+        "1 NOTE Family line\n2 CONT family continued\n",
+        "2 NOTE Event line\n3 CONT event continued\n",
+        "3 NOTE Citation line\n4 CONT citation continued\n",
+    ] {
+        assert!(ged.contains(expected), "missing {expected:?} in {ged}");
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(export_to_gedcom(&fresh)?, ged, "notes stay deterministic");
     Ok(())
 }
 
@@ -1298,7 +1378,7 @@ fn import_logs_unknown_tags_without_dropping_records() -> Result<(), GedcomError
 
     assert_eq!(report.people, 1, "the person still imports");
     assert_eq!(report.families, 1, "the family still imports");
-    assert_eq!(report.warnings.len(), 6, "{:?}", report.warnings);
+    assert_eq!(report.warnings.len(), 5, "{:?}", report.warnings);
     assert_eq!(
         report.warnings[0],
         "Line 6: Tag recognized/unsupported or ignored [REFN 42]"
@@ -1310,7 +1390,6 @@ fn import_logs_unknown_tags_without_dropping_records() -> Result<(), GedcomError
     );
     assert!(report.warnings[3].contains("[AUTH WikiTree]"));
     assert!(report.warnings[4].contains("[TEXT https://example.com/genealogy/king]"));
-    assert!(report.warnings[5].contains("[NOTE no license]"));
     Ok(())
 }
 
@@ -1879,28 +1958,26 @@ fn citation_data_does_not_overwrite_the_event_date() -> Result<(), GedcomError> 
         Option<String>,
         Option<String>,
         Option<String>,
-        Option<String>,
     ) = conn
         .query_row(
-            "SELECT page_or_reference, quality_certainty, notes, data_date, data_text
+            "SELECT page_or_reference, quality_certainty, data_date, data_text
              FROM citations",
             [],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            },
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .map_err(GedcomError::Db)?;
     assert_eq!(citation.0.as_deref(), Some("12"));
     assert_eq!(citation.1.as_deref(), Some("3"));
-    assert_eq!(citation.2.as_deref(), Some("Citation note"));
-    assert_eq!(citation.3.as_deref(), Some("1900"));
-    assert_eq!(citation.4.as_deref(), Some("Transcript"));
+    assert_eq!(citation.2.as_deref(), Some("1900"));
+    assert_eq!(citation.3.as_deref(), Some("Transcript"));
+    let citation_note: String = conn
+        .query_row(
+            "SELECT body FROM notes WHERE citation_id IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(citation_note, "Citation note");
 
     let source: (
         String,

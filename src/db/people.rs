@@ -30,8 +30,6 @@ pub struct PersonDetails {
     pub birth_place: Option<String>,
     pub death_date: Option<String>,
     pub death_place: Option<String>,
-    /// Free-form research notes; callers normalise blanks to `""`.
-    pub notes: String,
 }
 
 impl PersonDetails {
@@ -56,7 +54,6 @@ impl PersonDetails {
             birth_place: None,
             death_date: clean(death_date),
             death_place: None,
-            notes: String::new(),
         }
     }
 
@@ -128,8 +125,10 @@ impl ParentRole {
 pub struct VitalDates {
     pub birth: Option<String>,
     pub birth_place: Option<String>,
+    pub birth_event_id: Option<String>,
     pub death: Option<String>,
     pub death_place: Option<String>,
+    pub death_event_id: Option<String>,
 }
 
 fn normalize(details: &PersonDetails) -> Result<PersonDetails, String> {
@@ -191,8 +190,8 @@ pub fn update_person(
         .execute(
             "UPDATE people SET given_name = ?1, middle_name = ?2, surname = ?3,
              nickname = ?4, name_prefix = ?5, name_suffix = ?6, gender = ?7,
-             notes = ?8, updated_at = datetime('now')
-             WHERE id = ?9",
+             updated_at = datetime('now')
+             WHERE id = ?8",
             params![
                 details.given_name,
                 details.middle_name,
@@ -201,7 +200,6 @@ pub fn update_person(
                 details.name_prefix,
                 details.name_suffix,
                 details.gender,
-                details.notes,
                 person_id
             ],
         )
@@ -568,7 +566,7 @@ fn is_descendant(conn: &Connection, ancestor_id: &str, person_id: &str) -> Resul
 pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>, rusqlite::Error> {
     let mut dates: HashMap<String, VitalDates> = HashMap::new();
     let mut stmt = conn.prepare(
-        "SELECT e.person_id, e.event_type, e.date, p.name
+        "SELECT e.person_id, e.event_type, e.date, p.name, e.id
          FROM events e
          LEFT JOIN places p ON p.id = e.place_id
          WHERE e.person_id IS NOT NULL AND e.event_type IN ('BIRTH', 'DEATH')
@@ -580,10 +578,11 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
             row.get::<_, String>(1)?,
             row.get::<_, Option<String>>(2)?,
             row.get::<_, Option<String>>(3)?,
+            row.get::<_, String>(4)?,
         ))
     })?;
     for row in rows {
-        let (person_id, event_type, date, place) = row?;
+        let (person_id, event_type, date, place, event_id) = row?;
         let entry = dates.entry(person_id).or_default();
         match event_type.as_str() {
             "BIRTH" => {
@@ -593,6 +592,9 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
                 if entry.birth_place.is_none() {
                     entry.birth_place = place;
                 }
+                if entry.birth_event_id.is_none() {
+                    entry.birth_event_id = Some(event_id);
+                }
             }
             "DEATH" => {
                 if entry.death.is_none() {
@@ -600,6 +602,9 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
                 }
                 if entry.death_place.is_none() {
                     entry.death_place = place;
+                }
+                if entry.death_event_id.is_none() {
+                    entry.death_event_id = Some(event_id);
                 }
             }
             _ => {}
@@ -613,8 +618,8 @@ fn write_person(conn: &Connection, details: &PersonDetails) -> Result<String, St
     conn.execute(
         "INSERT INTO people
          (id, given_name, middle_name, surname, nickname, name_prefix, name_suffix,
-          gender, notes)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+          gender)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             id,
             details.given_name,
@@ -623,8 +628,7 @@ fn write_person(conn: &Connection, details: &PersonDetails) -> Result<String, St
             details.nickname,
             details.name_prefix,
             details.name_suffix,
-            details.gender,
-            details.notes
+            details.gender
         ],
     )
     .map_err(to_err)?;
@@ -1273,12 +1277,11 @@ mod tests {
     }
 
     #[test]
-    fn places_and_notes_round_trip_through_insert_and_update() {
+    fn places_round_trip_through_insert_and_update() {
         let mut conn = connection();
         let mut profile = details("Ada", "F");
         profile.birth_place = Some("London".to_string());
         profile.death_place = Some("Cuckfield".to_string());
-        profile.notes = "Frequent correspondent.".to_string();
         let id = insert_person(&mut conn, &profile).expect("insert succeeds");
 
         let dates = load_vital_dates(&conn).expect("dates load");
@@ -1287,30 +1290,13 @@ mod tests {
         assert_eq!(vitals.birth_place.as_deref(), Some("London"));
         assert_eq!(vitals.death.as_deref(), None, "no death date stored");
         assert_eq!(vitals.death_place.as_deref(), Some("Cuckfield"));
-        let stored: String = conn
-            .query_row(
-                "SELECT notes FROM people WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )
-            .expect("notes column readable");
-        assert_eq!(stored, "Frequent correspondent.");
-
-        let mut cleared = details("Ada", "F");
+        let cleared = details("Ada", "F");
         update_person(&mut conn, &id, &cleared).expect("clear update");
 
         let dates = load_vital_dates(&conn).expect("dates reload");
         let vitals = dates.get(&id).expect("person still has vitals");
         assert_eq!(vitals.birth_place, None, "blank places clear the columns");
         assert_eq!(vitals.death_place, None);
-        let stored: String = conn
-            .query_row(
-                "SELECT notes FROM people WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )
-            .expect("notes column readable");
-        assert_eq!(stored, "", "blank notes clear the column");
         let death_rows: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM events WHERE person_id = ?1 AND event_type = 'DEATH'",
@@ -1320,16 +1306,7 @@ mod tests {
             .expect("death count runs");
         assert_eq!(death_rows, 1, "clearing keeps the event row");
 
-        cleared.notes = "Edited later.".to_string();
         update_person(&mut conn, &id, &cleared).expect("second update succeeds");
-        let stored: String = conn
-            .query_row(
-                "SELECT notes FROM people WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )
-            .expect("notes column readable");
-        assert_eq!(stored, "Edited later.");
     }
     fn family_count(conn: &Connection) -> i64 {
         count(conn, "SELECT COUNT(*) FROM families")

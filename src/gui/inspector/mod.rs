@@ -6,7 +6,9 @@ mod panel;
 mod participants;
 mod relation;
 
-pub use connections::{Connections, Relative, connections, person_label, reverse_marriage_places};
+pub use connections::{
+    Connections, FamilyLink, Relative, connections, person_label, reverse_marriage_places,
+};
 pub use form::InspectorForm;
 pub use panel::{field_editors, show};
 pub use participants::{ParticipantForm, ParticipantOutcome, show as participant_window};
@@ -16,6 +18,7 @@ use egui::Color32;
 
 use crate::db::citations::CitationEdit;
 use crate::db::names::AlternateNameDraft;
+use crate::db::notes::NoteOwner;
 use crate::db::people::PersonDetails;
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
@@ -64,6 +67,11 @@ pub enum InspectorAction {
         event_id: String,
         private: bool,
     },
+    /// Open the shared notes dialog for one record.
+    OpenNotes {
+        owner: NoteOwner,
+        title: String,
+    },
     /// Save an alternate name.
     SaveAlternateName(Box<AlternateNameDraft>),
     /// Delete an alternate name.
@@ -85,15 +93,16 @@ mod tests {
         let mut person = Person::new("Ada", "King", "F");
         person.middle_name = "Lynn".to_string();
         person.nickname = "Addy".to_string();
-        person.notes = "Nearest relation of the mayor.".to_string();
         let mut dates = HashMap::new();
         dates.insert(
             person.id.clone(),
             VitalDates {
                 birth: Some("1815".to_string()),
                 birth_place: Some("London".to_string()),
+                birth_event_id: Some("e-birth".to_string()),
                 death: Some("1852".to_string()),
                 death_place: Some("Cuckfield".to_string()),
+                death_event_id: Some("e-death".to_string()),
             },
         );
         (person, dates)
@@ -112,13 +121,11 @@ mod tests {
         assert_eq!(form.birth_place, "London");
         assert_eq!(form.death, "1852");
         assert_eq!(form.death_place, "Cuckfield");
-        assert_eq!(form.notes, "Nearest relation of the mayor.");
 
         let mut edited = form.clone();
         edited.given_name = "Augusta".to_string();
         edited.birth = "  ".to_string();
         edited.birth_place = " ".to_string();
-        edited.notes = "  Edited.  ".to_string();
         let details = edited.to_details();
         assert_eq!(details.given_name, "Augusta");
         assert_eq!(details.middle_name, "Lynn", "middle name survives saves");
@@ -127,7 +134,6 @@ mod tests {
         assert_eq!(details.birth_place, None, "blank places clear the event");
         assert_eq!(details.death_date.as_deref(), Some("1852"));
         assert_eq!(details.death_place.as_deref(), Some("Cuckfield"));
-        assert_eq!(details.notes, "Edited.", "notes are trimmed");
         assert_eq!(details.display_name(), "Augusta Lynn King");
     }
 
@@ -283,6 +289,7 @@ mod tests {
                 ui,
                 Some(&person),
                 &mut form,
+                None,
                 Connections::default(),
                 &mut CitationsState::default(),
                 &facts,
@@ -337,6 +344,7 @@ mod tests {
                 ui,
                 Some(&person),
                 &mut form,
+                None,
                 Connections::default(),
                 &mut CitationsState::default(),
                 &[],

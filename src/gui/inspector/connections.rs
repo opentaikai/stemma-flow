@@ -13,6 +13,13 @@ pub struct Relative {
     pub marriage: Option<MarriageInfo>,
 }
 
+/// One family record the person belongs to, with a display label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FamilyLink {
+    pub id: String,
+    pub label: String,
+}
+
 /// The selected person's existing family ties, ready to render.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Connections {
@@ -20,6 +27,7 @@ pub struct Connections {
     pub siblings: Vec<Relative>,
     pub spouses: Vec<Relative>,
     pub children: Vec<Relative>,
+    pub families: Vec<FamilyLink>,
 }
 
 /// Lists parents, siblings, spouses and children straight off the loaded
@@ -94,6 +102,46 @@ pub fn connections(
         }
     }
 
+    let mut families = Vec::new();
+    for family in &tree.families {
+        let is_spouse = family.husband_id.as_deref() == Some(person_id)
+            || family.wife_id.as_deref() == Some(person_id);
+        let is_child = tree
+            .child_links
+            .iter()
+            .any(|(family_id, child_id)| family_id == &family.id && child_id == person_id);
+        if !is_spouse && !is_child {
+            continue;
+        }
+        let label = if is_spouse {
+            let other = if family.husband_id.as_deref() == Some(person_id) {
+                family.wife_id.as_deref()
+            } else {
+                family.husband_id.as_deref()
+            };
+            match other.and_then(|id| tree.people.iter().find(|person| person.id == id)) {
+                Some(person) => format!("Family with {}", person_label(person, surname_first)),
+                None => "Family".to_string(),
+            }
+        } else {
+            let parents = [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                .into_iter()
+                .flatten()
+                .filter_map(|id| tree.people.iter().find(|person| person.id == id))
+                .map(|person| person_label(person, surname_first))
+                .collect::<Vec<_>>();
+            if parents.is_empty() {
+                "Family of origin".to_string()
+            } else {
+                format!("Child of {}", parents.join(" & "))
+            }
+        };
+        families.push(FamilyLink {
+            id: family.id.clone(),
+            label,
+        });
+    }
+
     Connections {
         parents: by_label(relatives(tree, parent_ids, surname_first)),
         siblings: by_label(relatives(tree, sibling_ids, surname_first)),
@@ -104,6 +152,7 @@ pub fn connections(
                 .collect(),
         ),
         children: by_label(relatives(tree, child_ids, surname_first)),
+        families,
     }
 }
 

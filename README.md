@@ -20,9 +20,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (24 tables, 37
-  indexes) and records its version in `PRAGMA user_version` (currently 12):
-  `people`, `alternate_names`, `tree_settings`, `families`, `family_children`, `repositories`, `sources`,
+- `db::init_db(&conn)` creates or upgrades the schema (25 tables, 42
+  indexes) and records its version in `PRAGMA user_version` (currently 13):
+  `people`, `alternate_names`, `tree_settings`, `notes`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
   `events`, `event_participants`, `citations`, `citation_links`, `media`,
@@ -33,8 +33,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   reusable citation links, v7 fact scope/kind with the 61-type built-in
   catalogue, v8 per-fact-type roles plus unique GEDCOM tags, v9 shared
   event participants, v10 person/event privacy with living overrides,
-  v11 primary name pieces plus alternate names, and v12 per-tree display
-  settings.
+  v11 primary name pieces plus alternate names, v12 per-tree display
+  settings, and v13 first-class notes migrated out of the person, place and
+  citation columns.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -48,8 +49,10 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   `template_id`; `source_repositories` links a source to one or more
   repositories with a call number and media type; `source_fields` stores
   template values, `source_templates` and `source_template_fields` hold the
-  built-in Evidence Explained style catalogue. Places carry notes,
-  latitude and longitude and are shared by every event that mentions them.
+  built-in Evidence Explained style catalogue. Places carry latitude and
+  longitude and are shared by every event that mentions them. `notes` stores
+  ordered plain-text notes for people, families, events/facts, citations and
+  places; each note has exactly one owner and cascades with it.
   `fact_types` carries the 61 built-in person/family event and attribute
   definitions, including their GEDCOM tags and scope; `fact_type_roles`
   holds user-defined roles for each type. `event_participants` links
@@ -58,8 +61,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   Auto/Living/Deceased override. `people.name_prefix`/`name_suffix` hold the
   primary GEDCOM name pieces; `alternate_names` stores additional typed
   names, including married names. Custom types use the same tables with
-  `is_builtin = 0`. Citations keep page, note,
-  certainty, media type and data date/text; `citation_links` attaches one
+  `is_builtin = 0`. Citations keep page, certainty, media type and data
+  date/text; `citation_links` attaches one
   canonical citation to any number of person or family events.
   `load_vital_dates` and
   `load_marriage_details` join the place name for the existing inspector
@@ -122,11 +125,12 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   given/surname split of `1 NAME`, `2 _MIDN` fills `people.middle_name`
   and `2 _PGVN`/`2 NICK` fill `people.nickname` (export writes those
   children back only when the columns are populated, so plain exports stay
-  byte-identical). The first `1 NOTE` under an `INDI` — including its
-  `2 CONT`/`2 CONC` continuations — fills `people.notes`; later note
-  blocks on the same person are ignored silently. Every other tag the
-  importer recognises but does not model — `REFN`, `OBJE`, FAM-level
-  `NOTE`, unknown level-0 records — is logged as a
+  byte-identical). Every inline `NOTE` on an `INDI`, `FAM`, event/fact or
+  citation — including its `CONT`/`CONC` continuations — becomes an ordered
+  row in `notes`; multiple notes are kept. Place notes remain app-only.
+  Shared `0 @N@ NOTE` records and every other tag the importer recognises
+  but does not model — `REFN`, `OBJE`, unknown level-0 records — are
+  logged as a
   non-fatal `Line N: Tag recognized/unsupported or ignored [TAG value]`
   warning (payload truncated to 100 characters) and the import continues.
 - Source records are first class: every `0 @S@ SOUR` keeps its own
@@ -162,9 +166,10 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   `3 _ROLE <label>` lines; imported role labels are added to the fact type
   when missing. Privacy filtering happens before serialisation: hidden
   people and private facts are omitted, `RESN`/`_PRIV` markers are written
-  when included, and family links are limited to visible people. Populated
-  `people.notes` travel as `1 NOTE` + `2 CONT` lines after `1 SEX`, so
-  notes round-trip losslessly. Dates are canonicalised on the way out
+  when included, and family links are limited to visible people. Stored
+  notes travel as inline `NOTE` lines with `CONT` continuations on
+  people, families, facts and citations, so notes round-trip losslessly;
+  place notes remain local to the tree. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
   written as a single-line `(date phrase)` instead, so a dirty date can
   never corrupt a record.
@@ -265,16 +270,22 @@ views (the app always launches on Graph View):
   names. The separate Given Name and Surname columns keep their normal
   order, and GEDCOM output stays canonical. The preference lives in the
   tree database, so reopening the file restores it.
+- **Notes** — one reusable dialog lists a record's notes and supports
+  adding, editing and deleting them. It opens from the person **Notes**
+  card, the **Families** card, vital and other fact rows, each citation and
+  the place editor. Notes are plain text and save independently of the
+  person form.
 - **Places** — a filterable, sortable grid of the tree's shared place
   records with event counts, notes, latitude and longitude. The editor
-  changes the canonical name, notes and decimal-degree coordinates; renaming
+  changes the canonical name and decimal-degree coordinates; renaming
   a place updates every event that references it. Deleting a place asks for
   confirmation and clears the place from its events. The editor also lists
   every event that uses the place; clicking a person or either marriage
   spouse opens their inspector without leaving the Places tab. Read-only
   place displays can show comma components in reverse order; the stored
   name and GEDCOM output keep the canonical order. Coordinates round-trip through
-  `MAP`/`LATI`/`LONG`; place notes remain local to the tree.
+  `MAP`/`LATI`/`LONG`; place notes open in the shared notes dialog and
+  remain local to the tree.
 - **Fact Types** — a filterable, sortable grid of the built-in and custom
   fact types with category, scope, kind, GEDCOM tag, role count and event
   usage, plus an editor. Custom types get an immutable generated key and a
@@ -337,8 +348,11 @@ views (the app always launches on Graph View):
   **+ Add Child** buttons whose pop-up can **search and link an existing
   person** (filtered by role; duplicates, self links and cycles are
   rejected) or create a new one in one step (parents choose a
-  Father/Mother role that presets the gender), and a **Notes** card with a
-  multi-line research-notes editor. All fields commit together on save.
+  Father/Mother role that presets the gender). A **Families** card lists
+  every family the person belongs to, **Vital Facts** and **Other Facts**
+  expose their event notes, and the **Notes** card opens a shared dialog
+  for adding, editing and deleting notes. Profile and vital fields still
+  commit together on save; notes save independently.
 
 `src/gui` builds it from straight SQLite data each time an import or person
 mutation finishes; the three largest areas — `gui::layout`, `gui::window`

@@ -17,6 +17,7 @@ use super::inspector::ParticipantForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
 use super::names;
+use super::notes as notes_dialog;
 use super::places;
 use super::repositories;
 use super::settings;
@@ -59,6 +60,7 @@ pub struct TreeWindow {
     pub(super) watch: watchlist::WatchState,
     pub(super) places: places::PlacesState,
     pub(super) names: names::NamesState,
+    pub(super) notes: notes_dialog::NotesState,
     pub(super) fact_types: fact_types::FactTypesState,
     pub(super) sources: sources::SourcesState,
     pub(super) citations: citations::CitationsState,
@@ -104,6 +106,7 @@ impl TreeWindow {
             watch: watchlist::WatchState::default(),
             places: places::PlacesState::default(),
             names: names::NamesState::default(),
+            notes: notes_dialog::NotesState::default(),
             fact_types: fact_types::FactTypesState::default(),
             sources: sources::SourcesState::default(),
             citations: citations::CitationsState::default(),
@@ -180,6 +183,7 @@ impl App for TreeWindow {
         if self.app.active_db().is_some() {
             self.show_relation_window(ui.ctx());
             self.show_participant_window(ui.ctx());
+            self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
         }
         if self.show_settings
@@ -439,12 +443,12 @@ mod tests {
         );
         {
             let conn = db::open_connection(&db_file).expect("connection opens");
-            conn.execute_batch("ALTER TABLE people DROP COLUMN notes")
-                .expect("simulated legacy schema must be writable");
-            assert!(
-                db::load_family_tree(&conn).is_err(),
-                "a pre-notes database fails to load before migration"
-            );
+            conn.execute_batch(
+                "ALTER TABLE people ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+                 UPDATE people SET notes = 'Legacy note';
+                 PRAGMA user_version = 12;",
+            )
+            .expect("simulated legacy schema must be writable");
         }
 
         assert!(loadable(&db_file), "opening migrates the schema in place");
@@ -457,11 +461,15 @@ mod tests {
                 |_| Ok(()),
             )
             .is_ok();
-        assert!(has_notes, "the notes column comes back on open");
+        assert!(!has_notes, "the legacy notes column is dropped");
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))
             .expect("rows must be countable");
         assert_eq!(count, 1, "rows survive the migration");
+        let note: String = conn
+            .query_row("SELECT body FROM notes", [], |row| row.get(0))
+            .expect("legacy note migrates");
+        assert_eq!(note, "Legacy note");
 
         let _ = std::fs::remove_file(&db_file);
     }
@@ -932,6 +940,36 @@ mod tests {
     }
 
     #[test]
+    fn notes_open_for_people_and_reload_after_changes() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+        let owner = crate::db::notes::NoteOwner::Person(person_id.clone());
+
+        window.open_notes(owner.clone(), "Notes — Ada King".to_string());
+        assert!(window.notes.notes.is_empty());
+        assert_eq!(window.notes.target.as_ref(), Some(&owner));
+
+        window
+            .app
+            .add_note(&owner, "First line\nSecond line")
+            .expect("note saves");
+        window.open_notes(owner.clone(), "Notes — Ada King".to_string());
+        assert_eq!(window.notes.notes.len(), 1);
+        assert_eq!(window.notes.notes[0].body, "First line\nSecond line");
+
+        let note_id = window.notes.notes[0].id.clone();
+        window.app.delete_note(&note_id).expect("note deletes");
+        assert!(window.app.list_notes(&owner).expect("list").is_empty());
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn privacy_toggles_update_the_person_and_facts() {
         let db_file = temp_path("db");
         import_people(
@@ -1307,7 +1345,6 @@ mod tests {
         window.inspector.given_name = "Hans".to_string();
         window.inspector.birth = "1870".to_string();
         window.inspector.birth_place = "Cuckfield".to_string();
-        window.inspector.notes = "Emigrated in 1870.".to_string();
         let details = window.inspector.to_details();
         window.edit_person(&details);
 
@@ -1320,13 +1357,6 @@ mod tests {
             Some("Cuckfield"),
             "places reload with the dates"
         );
-        let person = window
-            .tree
-            .people
-            .iter()
-            .find(|person| person.id == person_id)
-            .expect("person reloaded");
-        assert_eq!(person.notes, "Emigrated in 1870.", "notes persist");
         assert!(matches!(window.app.status(), UiStatus::Success(_)));
 
         let _ = std::fs::remove_file(&db_file);

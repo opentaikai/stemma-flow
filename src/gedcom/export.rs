@@ -15,7 +15,6 @@ struct PersonRow {
     surname: String,
     nickname: String,
     gender: String,
-    notes: String,
     name_prefix: String,
     name_suffix: String,
     private: bool,
@@ -107,10 +106,10 @@ struct RepoLink {
 }
 
 struct CitationRow {
+    id: String,
     source_id: String,
     page_or_reference: Option<String>,
     quality: Option<String>,
-    note: Option<String>,
     media_type: Option<String>,
     data_date: Option<String>,
     data_text: Option<String>,
@@ -131,6 +130,28 @@ fn date_payload(raw: &str) -> Option<String> {
         Ok(canonical) => canonical,
         Err(_) => format!("({cleaned})"),
     })
+}
+
+/// Loads ordered notes for one nullable owner column.
+fn load_notes(
+    conn: &Connection,
+    column: &str,
+) -> Result<HashMap<String, Vec<String>>, GedcomError> {
+    let sql = format!(
+        "SELECT {column}, body FROM notes
+         WHERE {column} IS NOT NULL
+         ORDER BY {column}, sort_order, rowid"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut notes: HashMap<String, Vec<String>> = HashMap::new();
+    for row in rows {
+        let (owner, body) = row?;
+        notes.entry(owner).or_default().push(body);
+    }
+    Ok(notes)
 }
 
 /// Writes a level/tag line, turning embedded newlines into CONT lines.
@@ -158,6 +179,7 @@ fn format_hemisphere(value: f64, positive: char, negative: char) -> String {
     format!("{hemisphere}{}", value.abs())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_event(
     out: &mut String,
     event: &EventRow,
@@ -165,6 +187,8 @@ fn push_event(
     citations: &CitationsByEvent<'_>,
     source_xrefs: &HashMap<&str, String>,
     participants: &HashMap<&str, Vec<(&str, &str)>>,
+    notes: &HashMap<String, Vec<String>>,
+    citation_notes: &HashMap<String, Vec<String>>,
     write_markers: bool,
 ) {
     let tag = facts
@@ -208,8 +232,10 @@ fn push_event(
             if let Some(quality) = &citation.quality {
                 out.push_str(&format!("3 QUAY {quality}\n"));
             }
-            if let Some(note) = &citation.note {
-                push_text(out, 3, "NOTE", note);
+            if let Some(citation_notes) = citation_notes.get(&citation.id) {
+                for note in citation_notes {
+                    push_text(out, 3, "NOTE", note);
+                }
             }
             if let Some(media) = &citation.media_type {
                 out.push_str(&format!("3 MEDI {media}\n"));
@@ -223,6 +249,11 @@ fn push_event(
                     push_text(out, 4, "TEXT", text);
                 }
             }
+        }
+    }
+    if let Some(event_notes) = notes.get(&event.id) {
+        for note in event_notes {
+            push_text(out, 2, "NOTE", note);
         }
     }
     if let Some(witnesses) = participants.get(event.id.as_str()) {
@@ -272,7 +303,7 @@ pub fn export_to_gedcom_with_options(
     let mut people = Vec::new();
     let mut stmt = conn.prepare(
         "SELECT id, given_name, middle_name, surname, nickname, name_prefix,
-                name_suffix, gender, notes, private
+                name_suffix, gender, private
          FROM people ORDER BY rowid",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -285,8 +316,7 @@ pub fn export_to_gedcom_with_options(
             name_prefix: row.get(5)?,
             name_suffix: row.get(6)?,
             gender: row.get(7)?,
-            notes: row.get(8)?,
-            private: row.get::<_, i64>(9)? != 0,
+            private: row.get::<_, i64>(8)? != 0,
             living: false,
         })
     })?;
@@ -483,7 +513,7 @@ pub fn export_to_gedcom_with_options(
 
     let mut citations = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT c.source_id, c.page_or_reference, c.quality_certainty, c.notes,
+        "SELECT c.id, c.source_id, c.page_or_reference, c.quality_certainty,
              c.media_type, c.data_date, c.data_text, l.event_id
          FROM citations c
          JOIN citation_links l ON l.citation_id = c.id
@@ -491,10 +521,10 @@ pub fn export_to_gedcom_with_options(
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(CitationRow {
-            source_id: row.get(0)?,
-            page_or_reference: row.get(1)?,
-            quality: row.get(2)?,
-            note: row.get(3)?,
+            id: row.get(0)?,
+            source_id: row.get(1)?,
+            page_or_reference: row.get(2)?,
+            quality: row.get(3)?,
             media_type: row.get(4)?,
             data_date: row.get(5)?,
             data_text: row.get(6)?,
@@ -504,6 +534,11 @@ pub fn export_to_gedcom_with_options(
     for row in rows {
         citations.push(row?);
     }
+
+    let person_notes = load_notes(conn, "person_id")?;
+    let family_notes = load_notes(conn, "family_id")?;
+    let event_notes = load_notes(conn, "event_id")?;
+    let citation_notes = load_notes(conn, "citation_id")?;
 
     let mut participants = Vec::new();
     let mut stmt = conn.prepare(
@@ -727,8 +762,10 @@ pub fn export_to_gedcom_with_options(
         if options.write_markers && (person.private || person.living) {
             out.push_str("1 RESN privacy\n");
         }
-        if !person.notes.is_empty() {
-            push_text(&mut out, 1, "NOTE", &person.notes);
+        if let Some(notes) = person_notes.get(&person.id) {
+            for note in notes {
+                push_text(&mut out, 1, "NOTE", note);
+            }
         }
 
         if let Some(person_events) = events_by_person.get(person.id.as_str()) {
@@ -740,6 +777,8 @@ pub fn export_to_gedcom_with_options(
                     &citations_by_event,
                     &source_xref,
                     &participants_by_event,
+                    &event_notes,
+                    &citation_notes,
                     options.write_markers,
                 );
             }
@@ -779,6 +818,11 @@ pub fn export_to_gedcom_with_options(
                 }
             }
         }
+        if let Some(notes) = family_notes.get(&family.id) {
+            for note in notes {
+                push_text(&mut out, 1, "NOTE", note);
+            }
+        }
         if let Some(family_events) = events_by_family.get(family.id.as_str()) {
             for event in family_events {
                 push_event(
@@ -788,6 +832,8 @@ pub fn export_to_gedcom_with_options(
                     &citations_by_event,
                     &source_xref,
                     &participants_by_event,
+                    &event_notes,
+                    &citation_notes,
                     options.write_markers,
                 );
             }

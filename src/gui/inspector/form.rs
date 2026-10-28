@@ -19,7 +19,6 @@ pub struct InspectorForm {
     pub birth_place: String,
     pub death: String,
     pub death_place: String,
-    pub notes: String,
 }
 
 impl Default for InspectorForm {
@@ -36,7 +35,6 @@ impl Default for InspectorForm {
             birth_place: String::new(),
             death: String::new(),
             death_place: String::new(),
-            notes: String::new(),
         }
     }
 }
@@ -65,7 +63,6 @@ impl InspectorForm {
             death_place: vitals
                 .and_then(|vitals| vitals.death_place.clone())
                 .unwrap_or_default(),
-            notes: person.notes.clone(),
         }
     }
 
@@ -84,7 +81,6 @@ impl InspectorForm {
         details.name_suffix = self.name_suffix.trim().to_string();
         details.birth_place = blank_to_none(&self.birth_place);
         details.death_place = blank_to_none(&self.death_place);
-        details.notes = self.notes.trim().to_string();
         details
     }
 

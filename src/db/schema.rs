@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 13;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -259,6 +259,32 @@ pub(super) const V5_COLUMNS: [(&str, &str, &str); 3] = [
     ("sources", "bibliography", "TEXT"),
 ];
 
+/// Plain-text notes attached to one person, family, event, citation or place.
+pub(super) const NOTES_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS notes (
+    id TEXT PRIMARY KEY,
+    body TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+    family_id TEXT REFERENCES families(id) ON DELETE CASCADE,
+    event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
+    citation_id TEXT REFERENCES citations(id) ON DELETE CASCADE,
+    place_id TEXT REFERENCES places(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK ((person_id IS NOT NULL) + (family_id IS NOT NULL) + (event_id IS NOT NULL)
+         + (citation_id IS NOT NULL) + (place_id IS NOT NULL) = 1)
+);
+"#;
+
+pub(super) const NOTES_INDEXES_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_notes_person ON notes(person_id);
+CREATE INDEX IF NOT EXISTS idx_notes_family ON notes(family_id);
+CREATE INDEX IF NOT EXISTS idx_notes_event ON notes(event_id);
+CREATE INDEX IF NOT EXISTS idx_notes_citation ON notes(citation_id);
+CREATE INDEX IF NOT EXISTS idx_notes_place ON notes(place_id);
+"#;
+
 /// Per-tree display preferences.
 pub(super) const TREE_SETTINGS_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS tree_settings (
@@ -417,7 +443,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v8_to_v9(conn)?;
         super::migrations::migrate_v9_to_v10(conn)?;
         super::migrations::migrate_v10_to_v11(conn)?;
-        return super::migrations::migrate_v11_to_v12(conn);
+        super::migrations::migrate_v11_to_v12(conn)?;
+        return super::migrations::migrate_v12_to_v13(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -454,9 +481,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 11 {
             super::migrations::migrate_v10_to_v11(conn)?;
         }
-        return super::migrations::migrate_v11_to_v12(conn);
+        if version < 12 {
+            super::migrations::migrate_v11_to_v12(conn)?;
+        }
+        return super::migrations::migrate_v12_to_v13(conn);
     }
-    ensure_v12(conn)
+    ensure_v13(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -470,8 +500,9 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v12(conn: &Connection) -> rusqlite::Result<()> {
-    ensure_v1_columns(conn)?;
+fn ensure_v13(conn: &Connection) -> rusqlite::Result<()> {
+    ensure_column(conn, "people", "middle_name", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "people", "nickname", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
     conn.execute_batch(LINK_TABLES_SQL)?;
@@ -533,6 +564,8 @@ fn ensure_v12(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(ALTERNATE_NAMES_TABLE_SQL)?;
     conn.execute_batch(ALTERNATE_NAMES_INDEX_SQL)?;
     conn.execute_batch(TREE_SETTINGS_TABLE_SQL)?;
+    conn.execute_batch(NOTES_TABLE_SQL)?;
+    conn.execute_batch(NOTES_INDEXES_SQL)?;
     Ok(())
 }
 

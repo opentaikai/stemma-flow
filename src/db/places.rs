@@ -19,7 +19,6 @@ pub struct PlaceSummary {
 pub struct PlaceRecord {
     pub id: String,
     pub name: String,
-    pub notes: Option<String>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
 }
@@ -45,7 +44,6 @@ pub struct PlaceUsage {
 pub struct PlaceDraft {
     pub id: Option<String>,
     pub name: String,
-    pub notes: String,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
 }
@@ -63,7 +61,11 @@ fn clean(value: &str) -> Option<String> {
 pub fn list_places(conn: &Connection) -> Result<Vec<PlaceSummary>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, p.name, p.notes, p.latitude, p.longitude,
+            "SELECT p.id, p.name,
+                    (SELECT group_concat(body, char(10))
+                     FROM (SELECT body FROM notes WHERE place_id = p.id
+                           ORDER BY sort_order, rowid)),
+                    p.latitude, p.longitude,
                     (SELECT COUNT(*) FROM events e WHERE e.place_id = p.id)
              FROM places p
              ORDER BY p.name COLLATE NOCASE, p.rowid",
@@ -89,15 +91,14 @@ pub fn list_places(conn: &Connection) -> Result<Vec<PlaceSummary>, String> {
 /// Loads one place for editing.
 pub fn load_place(conn: &Connection, id: &str) -> Result<Option<PlaceRecord>, String> {
     conn.query_row(
-        "SELECT id, name, notes, latitude, longitude FROM places WHERE id = ?1",
+        "SELECT id, name, latitude, longitude FROM places WHERE id = ?1",
         params![id],
         |row| {
             Ok(PlaceRecord {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                notes: row.get(2)?,
-                latitude: row.get(3)?,
-                longitude: row.get(4)?,
+                latitude: row.get(2)?,
+                longitude: row.get(3)?,
             })
         },
     )
@@ -196,7 +197,6 @@ fn display_name(
 /// Inserts or updates a place.
 pub fn save_place(conn: &mut Connection, draft: &PlaceDraft) -> Result<String, String> {
     let name = clean(&draft.name).ok_or_else(|| "Place name is required".to_string())?;
-    let notes = clean(&draft.notes);
     if let Some(latitude) = draft.latitude
         && (!latitude.is_finite() || !(-90.0..=90.0).contains(&latitude))
     {
@@ -229,17 +229,17 @@ pub fn save_place(conn: &mut Connection, draft: &PlaceDraft) -> Result<String, S
 
     let changed = tx
         .execute(
-            "UPDATE places SET name = ?1, notes = ?2, latitude = ?3, longitude = ?4,
+            "UPDATE places SET name = ?1, latitude = ?2, longitude = ?3,
                 updated_at = datetime('now')
-             WHERE id = ?5",
-            params![name, notes, draft.latitude, draft.longitude, id],
+             WHERE id = ?4",
+            params![name, draft.latitude, draft.longitude, id],
         )
         .map_err(|error| error.to_string())?;
     if changed == 0 {
         tx.execute(
-            "INSERT INTO places (id, name, notes, latitude, longitude)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, name, notes, draft.latitude, draft.longitude],
+            "INSERT INTO places (id, name, latitude, longitude)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![id, name, draft.latitude, draft.longitude],
         )
         .map_err(|error| error.to_string())?;
     }
@@ -304,24 +304,29 @@ mod tests {
             &mut conn,
             &PlaceDraft {
                 name: "  Uppsala, Sweden  ".to_string(),
-                notes: "Cathedral archive".to_string(),
                 latitude: Some(59.8586),
                 longitude: Some(17.6389),
                 ..PlaceDraft::default()
             },
         )
         .expect("place saves");
+        crate::db::notes::add_note(
+            &conn,
+            &crate::db::notes::NoteOwner::Place(id.clone()),
+            "Cathedral archive",
+        )
+        .expect("note saves");
         person_and_event(&conn, &id);
 
         let loaded = load_place(&conn, &id).expect("load").expect("place exists");
         assert_eq!(loaded.name, "Uppsala, Sweden");
-        assert_eq!(loaded.notes.as_deref(), Some("Cathedral archive"));
         assert_eq!(loaded.latitude, Some(59.8586));
         assert_eq!(loaded.longitude, Some(17.6389));
 
         let list = list_places(&conn).expect("list");
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].event_count, 1);
+        assert_eq!(list[0].notes.as_deref(), Some("Cathedral archive"));
     }
 
     #[test]

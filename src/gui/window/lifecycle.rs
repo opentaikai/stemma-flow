@@ -97,6 +97,7 @@ impl TreeWindow {
             self.repositories = crate::gui::repositories::RepositoriesState::default();
             self.pending_participants = None;
             self.person_privacy = None;
+            self.notes = crate::gui::notes::NotesState::default();
         } else if generation_changed {
             self.places.loaded = false;
             self.fact_types.loaded = false;

@@ -22,9 +22,6 @@ pub struct Person {
     pub name_suffix: String,
     /// One of `"M"`, `"F"`, `"U"` (enforced by a CHECK constraint).
     pub gender: String,
-    /// Free-form research notes attached to this person.
-    #[serde(default)]
-    pub notes: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -57,7 +54,6 @@ pub struct Citation {
     pub id: String,
     pub source_id: String,
     pub page_or_reference: Option<String>,
-    pub notes: Option<String>,
     pub quality_source: Option<String>,
     pub quality_information: Option<String>,
     pub quality_evidence: Option<String>,
@@ -79,7 +75,6 @@ impl Person {
             name_prefix: String::new(),
             name_suffix: String::new(),
             gender: gender.into(),
-            notes: String::new(),
             created_at: String::new(),
             updated_at: String::new(),
         }
@@ -121,7 +116,6 @@ impl Citation {
             id: Uuid::new_v4().to_string(),
             source_id: source_id.into(),
             page_or_reference: None,
-            notes: None,
             quality_source: None,
             quality_information: None,
             quality_evidence: None,
