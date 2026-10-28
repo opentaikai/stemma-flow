@@ -431,11 +431,11 @@ impl TreeWindow {
                                 state.error = Some(message);
                             } else {
                                 self.media.loaded = false;
+                                self.load_media_attach(&mut state);
                             }
                         }
                         Err(message) => state.error = Some(message),
                     }
-                    self.load_media_attach(&mut state);
                 }
                 self.media_attach = Some(state);
             }
