@@ -652,19 +652,10 @@ fn alternate_names_and_pieces_round_trip() -> Result<(), GedcomError> {
     import_gedcom(&mut conn, Cursor::new(sample))?;
     let primary: (String, String) = conn
         .query_row(
-            "SELECT name_prefix, name_suffix FROM people WHERE id = 'p1'",
+            "SELECT name_prefix, name_suffix FROM people LIMIT 1",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .or_else(|_| {
-            let id: String =
-                conn.query_row("SELECT id FROM people LIMIT 1", [], |row| row.get(0))?;
-            conn.query_row(
-                "SELECT name_prefix, name_suffix FROM people WHERE id = ?1",
-                params![id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-        })
         .map_err(GedcomError::Db)?;
     assert_eq!(primary, ("Dr.".to_string(), "Jr.".to_string()));
     let alternate: (String, String, String) = conn
