@@ -16,6 +16,7 @@ use crate::db::citations::{
 use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
+use crate::db::groups::{self as group_store, GroupDraft, GroupMember, GroupRecord, GroupSummary};
 use crate::db::media::{
     self as media_store, MediaDraft, MediaLinkSummary, MediaOwner, MediaRecord, MediaSummary,
 };
@@ -446,6 +447,67 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists every static group with member counts.
+    pub fn list_groups(&self) -> Result<Vec<GroupSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        group_store::list_groups(&conn)
+    }
+
+    /// Loads one group for editing.
+    pub fn load_group(&self, id: &str) -> Result<Option<GroupRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        group_store::load_group(&conn, id)
+    }
+
+    /// Inserts or updates a group.
+    pub fn save_group(&mut self, draft: &GroupDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = group_store::save_group(&conn, draft)?;
+        self.set_status(UiStatus::Success("Group saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes one group and its memberships.
+    pub fn delete_group(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        group_store::delete_group(&conn, id)?;
+        self.set_status(UiStatus::Success("Group deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists a group's members.
+    pub fn list_group_members(
+        &self,
+        group_id: &str,
+        surname_first: bool,
+    ) -> Result<Vec<GroupMember>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        group_store::list_members(&conn, group_id, surname_first)
+    }
+
+    /// Adds a person to a group.
+    pub fn add_group_member(&mut self, group_id: &str, person_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        group_store::add_member(&conn, group_id, person_id)?;
+        self.set_status(UiStatus::Success("Group member added".to_string()));
+        Ok(())
+    }
+
+    /// Removes a person from a group.
+    pub fn remove_group_member(&mut self, group_id: &str, person_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        group_store::remove_member(&conn, group_id, person_id)?;
+        self.set_status(UiStatus::Success("Group member removed".to_string()));
         Ok(())
     }
 

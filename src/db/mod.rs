@@ -3,6 +3,7 @@
 pub mod associations;
 pub mod citations;
 pub mod facts;
+pub mod groups;
 pub mod media;
 mod migrations;
 pub mod models;
