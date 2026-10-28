@@ -1545,6 +1545,320 @@ fn media_export_skips_hidden_owners() -> Result<(), GedcomError> {
     Ok(())
 }
 
+#[test]
+fn shared_notes_resolve_and_export_inline() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @N1@ NOTE Shared note
+1 CONT second line
+0 @I1@ INDI
+1 NAME Ada /King/
+1 NOTE @N1@
+0 @I2@ INDI
+1 NAME Charles /Babbage/
+1 NOTE @N1@
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let bodies: Vec<String> = conn
+        .prepare("SELECT body FROM notes ORDER BY rowid")
+        .map_err(GedcomError::Db)?
+        .query_map([], |row| row.get(0))
+        .map_err(GedcomError::Db)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(GedcomError::Db)?;
+    assert_eq!(bodies, ["Shared note\nsecond line"; 2]);
+
+    let ged = export_to_gedcom(&conn)?;
+    assert_eq!(
+        ged.matches("1 NOTE Shared note\n2 CONT second line\n")
+            .count(),
+        2
+    );
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(export_to_gedcom(&fresh)?, ged);
+    Ok(())
+}
+
+#[test]
+fn multiple_media_files_expand_into_rows() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 OBJE @M1@
+0 @M1@ OBJE
+1 FILE one.jpg
+2 FORM jpg
+1 FILE two.png
+2 FORM png
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let paths: Vec<String> = conn
+        .prepare("SELECT file_path FROM media ORDER BY rowid")
+        .map_err(GedcomError::Db)?
+        .query_map([], |row| row.get(0))
+        .map_err(GedcomError::Db)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(GedcomError::Db)?;
+    assert_eq!(paths, ["one.jpg", "two.png"]);
+    let links: i64 = conn
+        .query_row("SELECT COUNT(*) FROM media_links", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(links, 2);
+
+    let ged = export_to_gedcom(&conn)?;
+    assert_eq!(ged.matches("0 @M").count(), 2, "{ged}");
+    Ok(())
+}
+
+#[test]
+fn event_associations_and_citation_media_round_trip() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 BIRT
+2 DATE 1900
+2 ASSO @I2@
+3 RELA Friend
+2 SOUR @S1@
+3 PAGE 1
+3 OBJE @M1@
+0 @I2@ INDI
+1 NAME Charles /Babbage/
+0 @S1@ SOUR
+1 TITL Source
+0 @M1@ OBJE
+1 FILE photo.jpg
+2 FORM jpg
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let association: String = conn
+        .query_row("SELECT relationship FROM event_associations", [], |row| {
+            row.get(0)
+        })
+        .map_err(GedcomError::Db)?;
+    assert_eq!(association, "Friend");
+    let citation_media: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM media_links WHERE citation_id IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(citation_media, 1);
+
+    let ged = export_to_gedcom(&conn)?;
+    assert!(ged.contains("2 ASSO @I2@\n3 RELA Friend\n"), "{ged}");
+    assert!(ged.contains("3 OBJE @M1@\n"), "{ged}");
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(export_to_gedcom(&fresh)?, ged);
+    Ok(())
+}
+
+#[test]
+fn custom_tasks_groups_and_place_metadata_round_trip() -> Result<(), GedcomError> {
+    let conn = setup_test_db().map_err(GedcomError::Db)?;
+    conn.execute_batch(
+        "INSERT INTO people (id, given_name, surname, gender)
+         VALUES ('p1', 'Ada', 'King', 'F'), ('p2', 'Charles', 'Babbage', 'M');
+         INSERT INTO events (id, event_type, date, person_id)
+         VALUES ('e1', 'BIRT', '1900', 'p1');
+         INSERT INTO sources (id, title) VALUES ('s1', 'Source');
+         INSERT INTO citations (id, source_id, page_or_reference) VALUES ('c1', 's1', '12');
+         INSERT INTO citation_links (citation_id, event_id) VALUES ('c1', 'e1');
+         INSERT INTO places (id, name, latitude, longitude) VALUES ('pl1', 'Uppsala', 59.85, 17.63);
+         INSERT INTO notes (id, body, sort_order, place_id) VALUES ('n1', 'Place note', 0, 'pl1');
+         INSERT INTO media (id, file_path, format, caption) VALUES ('m1', 'photo.jpg', 'jpg', 'Photo');
+         INSERT INTO media_links (media_id, person_id) VALUES ('m1', 'p1');
+         INSERT INTO media_links (media_id, event_id) VALUES ('m1', 'e1');
+         INSERT INTO media_links (media_id, source_id) VALUES ('m1', 's1');
+         INSERT INTO media_links (media_id, citation_id) VALUES ('m1', 'c1');
+         INSERT INTO media_links (media_id, place_id) VALUES ('m1', 'pl1');
+         INSERT INTO tasks (id, title, description, status, priority, folder, due_date)
+         VALUES ('t1', 'Find records', 'Checked parish books', 'open', 3, 'Parish', '2026-01-01');
+         INSERT INTO task_links (task_id, person_id) VALUES ('t1', 'p1');
+         INSERT INTO task_links (task_id, event_id) VALUES ('t1', 'e1');
+         INSERT INTO task_links (task_id, source_id) VALUES ('t1', 's1');
+         INSERT INTO task_links (task_id, citation_id) VALUES ('t1', 'c1');
+         INSERT INTO task_links (task_id, place_id) VALUES ('t1', 'pl1');
+         INSERT INTO task_links (task_id, media_id) VALUES ('t1', 'm1');
+         INSERT INTO groups (id, name, description) VALUES ('g1', 'Friends', 'Research circle');
+         INSERT INTO group_members (group_id, person_id) VALUES ('g1', 'p1'), ('g1', 'p2');",
+    )
+    .map_err(GedcomError::Db)?;
+
+    let ged = export_to_gedcom(&conn)?;
+    for expected in [
+        "0 @T1@ _TASK",
+        "1 _STATUS open",
+        "1 _PRIO 3",
+        "0 @G1@ _GROUP",
+        "1 _MEMBER @I1@",
+        "0 @P1@ _PLACE",
+        "1 NOTE Place note",
+        "1 OBJE @M1@",
+        "1 _TASK @T1@",
+        "2 _TASK @T1@",
+        "3 _TASK @T1@",
+    ] {
+        assert!(ged.contains(expected), "missing {expected:?} in {ged}");
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let task_links: i64 = fresh
+        .query_row("SELECT COUNT(*) FROM task_links", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(task_links, 6);
+    let members: i64 = fresh
+        .query_row("SELECT COUNT(*) FROM group_members", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(members, 2);
+    let place_notes: i64 = fresh
+        .query_row(
+            "SELECT COUNT(*) FROM notes WHERE place_id IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(place_notes, 1);
+    assert_eq!(
+        export_to_gedcom(&fresh)?,
+        ged,
+        "custom records stay deterministic"
+    );
+    Ok(())
+}
+
+#[test]
+fn fidelity_harness_round_trips_every_research_entity() -> Result<(), GedcomError> {
+    let conn = setup_test_db().map_err(GedcomError::Db)?;
+    conn.execute_batch(
+        "INSERT INTO people (id, given_name, middle_name, surname, nickname, name_prefix,
+             name_suffix, gender, private, living_override)
+         VALUES ('p1', 'Ada', 'Lynn', 'King', 'Addy', 'Dr.', 'Jr.', 'F', 1, 0),
+                ('p2', 'Charles', '', 'Babbage', '', '', '', 'M', 0, 0);
+         INSERT INTO alternate_names (id, person_id, name_type, given_name, surname)
+         VALUES ('an1', 'p1', 'married', 'Ada', 'Lovelace');
+         INSERT INTO families (id, husband_id, wife_id) VALUES ('f1', 'p2', 'p1');
+         INSERT INTO family_children (family_id, child_id) VALUES ('f1', 'p2');
+         INSERT INTO repositories (id, name, address, notes)
+         VALUES ('r1', 'Archive', 'Main Street', 'Archive note');
+         INSERT INTO sources (id, title, author, publication, abbreviation, notes, repository_id)
+         VALUES ('s1', 'Parish Book', 'Clerk', 'Uppsala', 'PB', 'Source note', 'r1');
+         INSERT INTO source_repositories (source_id, repository_id, call_number, media_type)
+         VALUES ('s1', 'r1', '12/34', 'film');
+         INSERT INTO places (id, name, latitude, longitude)
+         VALUES ('pl1', 'Uppsala', 59.85, 17.63);
+         INSERT INTO events (id, event_type, date, place_id, description, person_id, family_id)
+         VALUES ('e1', 'BIRT', '1900', 'pl1', 'Birth', 'p1', NULL),
+                ('e2', 'MARRIAGE', '1920', 'pl1', NULL, NULL, 'f1');
+         INSERT INTO event_participants (event_id, person_id, role_key)
+         VALUES ('e1', 'p2', 'WITNESS');
+         INSERT INTO citations (id, source_id, page_or_reference, quality_certainty)
+         VALUES ('c1', 's1', '12', '3');
+         INSERT INTO citation_links (citation_id, event_id) VALUES ('c1', 'e1');
+         INSERT INTO media (id, file_path, format, caption, notes)
+         VALUES ('m1', 'photo.jpg', 'jpg', 'Photo', 'Media note');
+         INSERT INTO media_links (media_id, person_id) VALUES ('m1', 'p1');
+         INSERT INTO media_links (media_id, family_id) VALUES ('m1', 'f1');
+         INSERT INTO media_links (media_id, event_id) VALUES ('m1', 'e1');
+         INSERT INTO media_links (media_id, source_id) VALUES ('m1', 's1');
+         INSERT INTO media_links (media_id, citation_id) VALUES ('m1', 'c1');
+         INSERT INTO media_links (media_id, place_id) VALUES ('m1', 'pl1');
+         INSERT INTO notes (id, body, sort_order, person_id) VALUES ('n1', 'Person note', 0, 'p1');
+         INSERT INTO notes (id, body, sort_order, family_id) VALUES ('n2', 'Family note', 0, 'f1');
+         INSERT INTO notes (id, body, sort_order, event_id) VALUES ('n3', 'Event note', 0, 'e1');
+         INSERT INTO notes (id, body, sort_order, citation_id) VALUES ('n4', 'Citation note', 0, 'c1');
+         INSERT INTO notes (id, body, sort_order, place_id) VALUES ('n5', 'Place note', 0, 'pl1');
+         INSERT INTO associations (id, person_id, associate_id, relationship)
+         VALUES ('a1', 'p1', 'p2', 'Friend');
+         INSERT INTO event_associations (id, event_id, associate_id, relationship)
+         VALUES ('ea1', 'e1', 'p2', 'Godparent');
+         INSERT INTO tasks (id, title, description, status, priority, folder, due_date, completed_at)
+         VALUES ('t1', 'Find records', 'Checked parish books', 'done', 3, 'Parish',
+                 '2026-01-01', '2026-01-02 10:00:00');
+         INSERT INTO task_links (task_id, person_id) VALUES ('t1', 'p1');
+         INSERT INTO task_links (task_id, family_id) VALUES ('t1', 'f1');
+         INSERT INTO task_links (task_id, event_id) VALUES ('t1', 'e1');
+         INSERT INTO task_links (task_id, source_id) VALUES ('t1', 's1');
+         INSERT INTO task_links (task_id, citation_id) VALUES ('t1', 'c1');
+         INSERT INTO task_links (task_id, place_id) VALUES ('t1', 'pl1');
+         INSERT INTO task_links (task_id, media_id) VALUES ('t1', 'm1');
+         INSERT INTO groups (id, name, description) VALUES ('g1', 'Friends', 'Research circle');
+         INSERT INTO group_members (group_id, person_id) VALUES ('g1', 'p1'), ('g1', 'p2');",
+    )
+    .map_err(GedcomError::Db)?;
+
+    let options = ExportOptions {
+        include_living: true,
+        include_private: true,
+        write_markers: false,
+        ..ExportOptions::default()
+    };
+    let ged = crate::gedcom::export_to_gedcom_with_options(&conn, &options)?;
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(
+        crate::gedcom::export_to_gedcom_with_options(&fresh, &options)?,
+        ged,
+        "all research entities stay deterministic"
+    );
+
+    for table in [
+        "people",
+        "alternate_names",
+        "families",
+        "family_children",
+        "repositories",
+        "sources",
+        "source_repositories",
+        "places",
+        "events",
+        "event_participants",
+        "citations",
+        "citation_links",
+        "media",
+        "media_links",
+        "notes",
+        "associations",
+        "event_associations",
+        "tasks",
+        "task_links",
+        "groups",
+        "group_members",
+    ] {
+        let before: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .map_err(GedcomError::Db)?;
+        let after: i64 = fresh
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .map_err(GedcomError::Db)?;
+        assert_eq!(after, before, "{table} survives the round-trip");
+    }
+    Ok(())
+}
+
 /// "Иван" and "Иванов" encoded as Windows-1251 bytes.
 const CP1251_IVAN: [u8; 4] = [0xC8, 0xE2, 0xE0, 0xED];
 const CP1251_IVANOV: [u8; 6] = [0xC8, 0xE2, 0xE0, 0xED, 0xEE, 0xE2];
@@ -1714,7 +2028,7 @@ fn unknown_tag_warnings_truncate_long_values() -> Result<(), GedcomError> {
 fn unknown_level_zero_records_warn_once_with_a_silent_subtree() -> Result<(), GedcomError> {
     let sample = "\
 0 HEAD
-0 @N1@ NOTE A research note
+0 @X1@ FOO A research note
 1 PLAC ignored
 0 @I1@ INDI
 1 NAME Ann /Lee/
@@ -1726,7 +2040,7 @@ fn unknown_level_zero_records_warn_once_with_a_silent_subtree() -> Result<(), Ge
     assert_eq!(report.people, 1);
     assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
     assert!(
-        report.warnings[0].contains("[NOTE A research note]"),
+        report.warnings[0].contains("[FOO A research note]"),
         "{:?}",
         report.warnings
     );

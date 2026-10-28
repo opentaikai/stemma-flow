@@ -14,6 +14,7 @@ pub enum MediaOwner {
     Family(String),
     Event(String),
     Source(String),
+    Citation(String),
     Place(String),
 }
 
@@ -24,6 +25,7 @@ impl MediaOwner {
             Self::Family(_) => "family_id",
             Self::Event(_) => "event_id",
             Self::Source(_) => "source_id",
+            Self::Citation(_) => "citation_id",
             Self::Place(_) => "place_id",
         }
     }
@@ -34,6 +36,7 @@ impl MediaOwner {
             | Self::Family(id)
             | Self::Event(id)
             | Self::Source(id)
+            | Self::Citation(id)
             | Self::Place(id) => id,
         }
     }
@@ -44,6 +47,7 @@ impl MediaOwner {
             Self::Family(_) => "family",
             Self::Event(_) => "fact",
             Self::Source(_) => "source",
+            Self::Citation(_) => "citation",
             Self::Place(_) => "place",
         }
     }
@@ -379,6 +383,32 @@ pub fn list_media_links(
 
     let mut stmt = conn
         .prepare(
+            "SELECT c.id, s.title, c.page_or_reference
+             FROM media_links l JOIN citations c ON c.id = l.citation_id
+             JOIN sources s ON s.id = c.source_id
+             WHERE l.media_id = ?1 AND l.citation_id IS NOT NULL ORDER BY c.rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![media_id], |row| {
+            let title: String = row.get(1)?;
+            let page: Option<String> = row.get(2)?;
+            Ok(MediaLinkSummary {
+                owner_type: "citation".to_string(),
+                owner_id: row.get(0)?,
+                label: match page {
+                    Some(page) => format!("{title} — {page}"),
+                    None => title,
+                },
+            })
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    links.extend(rows);
+
+    let mut stmt = conn
+        .prepare(
             "SELECT p.id, p.name FROM media_links l JOIN places p ON p.id = l.place_id
              WHERE l.media_id = ?1 AND l.place_id IS NOT NULL ORDER BY p.rowid",
         )
@@ -404,6 +434,7 @@ fn owner_table(owner: &MediaOwner) -> &'static str {
         MediaOwner::Family(_) => "families",
         MediaOwner::Event(_) => "events",
         MediaOwner::Source(_) => "sources",
+        MediaOwner::Citation(_) => "citations",
         MediaOwner::Place(_) => "places",
     }
 }
