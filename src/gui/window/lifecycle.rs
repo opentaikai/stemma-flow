@@ -22,6 +22,23 @@ use super::{HINT_COLOR, HINT_TEXT};
 
 use super::TreeWindow;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CanvasClick {
+    Select(Option<String>),
+    Edit(String),
+}
+
+fn canvas_click_action(
+    double_clicked: bool,
+    clicked: bool,
+    hit: Option<&str>,
+) -> Option<CanvasClick> {
+    if double_clicked {
+        return hit.map(|person_id| CanvasClick::Edit(person_id.to_string()));
+    }
+    clicked.then(|| CanvasClick::Select(hit.map(str::to_string)))
+}
+
 impl TreeWindow {
     /// Rebuilds the scene when a background import bumped the generation
     /// or the active tree switched to another database.
@@ -157,12 +174,21 @@ impl TreeWindow {
             self.viewport.pan_by(pointer_delta);
         }
 
-        if response.clicked()
-            && let Some(pos) = response.interact_pointer_pos()
-        {
+        let hit = response.interact_pointer_pos().and_then(|pos| {
             let canvas_pos = self.viewport.screen_to_canvas(pos, viewport_rect);
-            let selected = hit_test(&self.scene, canvas_pos).map(|node| node.person_id.clone());
-            self.app.set_selected_person(selected);
+            hit_test(&self.scene, canvas_pos).map(|node| node.person_id.clone())
+        });
+        match canvas_click_action(
+            response.double_clicked(),
+            response.clicked(),
+            hit.as_deref(),
+        ) {
+            Some(CanvasClick::Edit(person_id)) => {
+                self.app.set_selected_person(Some(person_id.clone()));
+                self.open_person_editor(&person_id);
+            }
+            Some(CanvasClick::Select(person_id)) => self.app.set_selected_person(person_id),
+            None => {}
         }
 
         paint_connectors(&painter, &self.scene, &self.viewport, viewport_rect);
@@ -183,5 +209,32 @@ impl TreeWindow {
                 HINT_COLOR,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn double_click_edits_a_hit_node_and_suppresses_single_selection() {
+        assert_eq!(
+            canvas_click_action(true, true, Some("p1")),
+            Some(CanvasClick::Edit("p1".to_string()))
+        );
+        assert_eq!(canvas_click_action(true, false, None), None);
+    }
+
+    #[test]
+    fn single_click_still_selects_or_clears() {
+        assert_eq!(
+            canvas_click_action(false, true, Some("p1")),
+            Some(CanvasClick::Select(Some("p1".to_string())))
+        );
+        assert_eq!(
+            canvas_click_action(false, true, None),
+            Some(CanvasClick::Select(None))
+        );
+        assert_eq!(canvas_click_action(false, false, Some("p1")), None);
     }
 }
