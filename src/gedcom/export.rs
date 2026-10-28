@@ -16,8 +16,21 @@ struct PersonRow {
     nickname: String,
     gender: String,
     notes: String,
+    name_prefix: String,
+    name_suffix: String,
     private: bool,
     living: bool,
+}
+
+struct AlternateNameRow {
+    person_id: String,
+    name_type: String,
+    prefix: String,
+    given_name: String,
+    middle_name: String,
+    surname: String,
+    suffix: String,
+    nickname: String,
 }
 
 struct FamilyRow {
@@ -258,7 +271,8 @@ pub fn export_to_gedcom_with_options(
 
     let mut people = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT id, given_name, middle_name, surname, nickname, gender, notes, private
+        "SELECT id, given_name, middle_name, surname, nickname, name_prefix,
+                name_suffix, gender, notes, private
          FROM people ORDER BY rowid",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -268,9 +282,11 @@ pub fn export_to_gedcom_with_options(
             middle_name: row.get(2)?,
             surname: row.get(3)?,
             nickname: row.get(4)?,
-            gender: row.get(5)?,
-            notes: row.get(6)?,
-            private: row.get::<_, i64>(7)? != 0,
+            name_prefix: row.get(5)?,
+            name_suffix: row.get(6)?,
+            gender: row.get(7)?,
+            notes: row.get(8)?,
+            private: row.get::<_, i64>(9)? != 0,
             living: false,
         })
     })?;
@@ -302,6 +318,27 @@ pub fn export_to_gedcom_with_options(
         .iter()
         .map(|person| person.id.as_str())
         .collect();
+
+    let mut alternate_names = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT person_id, name_type, prefix, given_name, middle_name, surname, suffix, nickname
+         FROM alternate_names ORDER BY person_id, sort_order, id",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(AlternateNameRow {
+            person_id: row.get(0)?,
+            name_type: row.get(1)?,
+            prefix: row.get(2)?,
+            given_name: row.get(3)?,
+            middle_name: row.get(4)?,
+            surname: row.get(5)?,
+            suffix: row.get(6)?,
+            nickname: row.get(7)?,
+        })
+    })?;
+    for row in rows {
+        alternate_names.push(row?);
+    }
 
     let mut families = Vec::new();
     let mut stmt = conn.prepare("SELECT id, husband_id, wife_id FROM families ORDER BY rowid")?;
@@ -519,6 +556,16 @@ pub fn export_to_gedcom_with_options(
         source_xref.insert(&source.id, format!("@S{}@", index + 1));
     }
 
+    let mut alternate_names_by_person: HashMap<&str, Vec<&AlternateNameRow>> = HashMap::new();
+    for name in &alternate_names {
+        if person_xref.contains_key(name.person_id.as_str()) {
+            alternate_names_by_person
+                .entry(name.person_id.as_str())
+                .or_default()
+                .push(name);
+        }
+    }
+
     let mut links_by_source: HashMap<&str, Vec<&RepoLink>> = HashMap::new();
     for link in &repo_links {
         links_by_source
@@ -636,6 +683,12 @@ pub fn export_to_gedcom_with_options(
             .collect::<Vec<_>>()
             .join(" ");
         out.push_str(&format!("1 NAME {given_part} /{}/\n", person.surname));
+        if !person.name_prefix.is_empty() {
+            out.push_str(&format!("2 NPFX {}\n", person.name_prefix));
+        }
+        if !person.name_suffix.is_empty() {
+            out.push_str(&format!("2 NSFX {}\n", person.name_suffix));
+        }
         // Vendor name-part children keep the given name bare on re-import.
         if !person.middle_name.is_empty() || !person.nickname.is_empty() {
             out.push_str(&format!("2 GIVN {}\n", person.given_name));
@@ -646,6 +699,29 @@ pub fn export_to_gedcom_with_options(
                 out.push_str(&format!("2 _PGVN {}\n", person.nickname));
             }
             out.push_str(&format!("2 SURN {}\n", person.surname));
+        }
+        if let Some(names) = alternate_names_by_person.get(person.id.as_str()) {
+            for name in names {
+                let given_part = [name.given_name.as_str(), name.middle_name.as_str()]
+                    .into_iter()
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                out.push_str(&format!("1 NAME {given_part} /{}/\n", name.surname));
+                out.push_str(&format!("2 TYPE {}\n", name.name_type));
+                if !name.prefix.is_empty() {
+                    out.push_str(&format!("2 NPFX {}\n", name.prefix));
+                }
+                if !name.nickname.is_empty() {
+                    out.push_str(&format!("2 NICK {}\n", name.nickname));
+                }
+                if !name.middle_name.is_empty() {
+                    out.push_str(&format!("2 _MIDN {}\n", name.middle_name));
+                }
+                if !name.suffix.is_empty() {
+                    out.push_str(&format!("2 NSFX {}\n", name.suffix));
+                }
+            }
         }
         out.push_str(&format!("1 SEX {}\n", person.gender));
         if options.write_markers && (person.private || person.living) {
