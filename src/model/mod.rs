@@ -5,6 +5,7 @@ pub mod date;
 pub mod fact;
 pub mod graph;
 pub mod name;
+pub mod pedigree;
 pub mod quality;
 pub mod source_template;
 
