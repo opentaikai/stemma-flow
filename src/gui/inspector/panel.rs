@@ -12,6 +12,7 @@ use crate::db::media::MediaOwner;
 use crate::db::notes::NoteOwner;
 use crate::db::people::VitalDates;
 use crate::db::privacy::PersonPrivacy;
+use crate::db::tasks::TaskOwner;
 use crate::model::age;
 
 use super::ACCENT;
@@ -457,6 +458,12 @@ pub fn show(
                         CitationsEvent::Notes { citation_id, title } => {
                             InspectorAction::OpenNotes {
                                 owner: NoteOwner::Citation(citation_id),
+                                title,
+                            }
+                        }
+                        CitationsEvent::Tasks { citation_id, title } => {
+                            InspectorAction::ManageTasks {
+                                owner: TaskOwner::Citation(citation_id),
                                 title,
                             }
                         }

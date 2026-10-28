@@ -18,6 +18,10 @@ pub enum SourcesEvent {
         source_id: String,
         title: String,
     },
+    Tasks {
+        source_id: String,
+        title: String,
+    },
     Merge {
         source_id: String,
         target_id: String,
@@ -292,6 +296,14 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
             *event = Some(SourcesEvent::Media {
                 source_id: id,
                 title: format!("Media \u{2014} {}", state.draft.title.trim()),
+            });
+        }
+        if let Some(id) = state.selected.clone()
+            && ui.button("Tasks\u{2026}").clicked()
+        {
+            *event = Some(SourcesEvent::Tasks {
+                source_id: id,
+                title: format!("Tasks \u{2014} {}", state.draft.title.trim()),
             });
         }
         if let Some(id) = state.selected.clone()

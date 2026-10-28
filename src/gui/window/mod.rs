@@ -22,9 +22,11 @@ use super::names;
 use super::notes as notes_dialog;
 use super::places;
 use super::repositories;
+use super::research;
 use super::settings;
 use super::sources;
 use super::tabs;
+use super::tasks;
 use super::watchlist;
 use super::watchlist::PersonRow;
 use crate::app::StemmaApp;
@@ -64,6 +66,8 @@ pub struct TreeWindow {
     pub(super) places: places::PlacesState,
     pub(super) media: media::MediaState,
     pub(super) media_attach: Option<media::MediaAttachState>,
+    pub(super) research: research::ResearchState,
+    pub(super) task_attach: Option<tasks::TaskAttachState>,
     pub(super) names: names::NamesState,
     pub(super) notes: notes_dialog::NotesState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -115,6 +119,8 @@ impl TreeWindow {
             places: places::PlacesState::default(),
             media: media::MediaState::default(),
             media_attach: None,
+            research: research::ResearchState::default(),
+            task_attach: None,
             names: names::NamesState::default(),
             notes: notes_dialog::NotesState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -187,6 +193,7 @@ impl App for TreeWindow {
                 tabs::AppTab::WatchList => self.watch_list(ui),
                 tabs::AppTab::Places => self.places_tab(ui),
                 tabs::AppTab::Media => self.media_tab(ui),
+                tabs::AppTab::Research => self.research_tab(ui),
                 tabs::AppTab::FactTypes => self.fact_types_tab(ui),
                 tabs::AppTab::Sources => self.sources_tab(ui),
                 tabs::AppTab::Repositories => self.repositories_tab(ui),
@@ -199,6 +206,7 @@ impl App for TreeWindow {
             self.show_participant_window(ui.ctx());
             self.show_association_window(ui.ctx());
             self.show_media_attach(ui.ctx());
+            self.show_task_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
         }
@@ -951,6 +959,64 @@ mod tests {
             window.rows.first().expect("one person").display_name(),
             "Ada Lynn King"
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn research_tasks_and_groups_load_and_link() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+
+        let task_id = window
+            .app
+            .save_task(&crate::db::tasks::TaskDraft {
+                title: "Find the birth record".to_string(),
+                folder: "Parish".to_string(),
+                priority: Some(3),
+                ..crate::db::tasks::TaskDraft::default()
+            })
+            .expect("task saves");
+        window.research.tasks.loaded = false;
+        window.reload_tasks();
+        assert_eq!(window.research.tasks.tasks.len(), 1);
+        assert_eq!(window.research.tasks.folders, ["Parish".to_string()]);
+
+        let owner = crate::db::tasks::TaskOwner::Person(person_id.clone());
+        window.open_tasks(owner.clone(), "Tasks — Ada King".to_string());
+        assert_eq!(
+            window.task_attach.as_ref().expect("dialog").choices.len(),
+            1
+        );
+        window.app.attach_task(&task_id, &owner).expect("attach");
+        window.open_tasks(owner, "Tasks — Ada King".to_string());
+        assert_eq!(
+            window.task_attach.as_ref().expect("dialog").attached.len(),
+            1
+        );
+
+        let group_id = window
+            .app
+            .save_group(&crate::db::groups::GroupDraft {
+                name: "Friends".to_string(),
+                ..crate::db::groups::GroupDraft::default()
+            })
+            .expect("group saves");
+        window
+            .app
+            .add_group_member(&group_id, &person_id)
+            .expect("member");
+        window.research.groups.loaded = false;
+        window.reload_groups();
+        window.research.groups.selected = Some(group_id.clone());
+        window.load_group_draft(&group_id);
+        assert_eq!(window.research.groups.members.len(), 1);
+        assert_eq!(window.research.groups.members[0].name, "Ada King");
 
         let _ = std::fs::remove_file(&db_file);
     }

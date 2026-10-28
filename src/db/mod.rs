@@ -3,6 +3,7 @@
 pub mod associations;
 pub mod citations;
 pub mod facts;
+pub mod groups;
 pub mod media;
 mod migrations;
 pub mod models;
@@ -16,6 +17,7 @@ pub mod repositories;
 pub mod schema;
 pub mod settings;
 pub mod sources;
+pub mod tasks;
 
 pub use models::{Citation, Event, Family, Person};
 pub use schema::init_db;
