@@ -16,6 +16,9 @@ use crate::db::citations::{
 use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
+use crate::db::media::{
+    self as media_store, MediaDraft, MediaLinkSummary, MediaOwner, MediaRecord, MediaSummary,
+};
 use crate::db::names::{self as name_store, AlternateName, AlternateNameDraft};
 use crate::db::notes::{self as note_store, Note, NoteOwner};
 use crate::db::participants::{self as participant_store, EventContext, ParticipantDraft};
@@ -441,6 +444,74 @@ impl StemmaApp {
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
         Ok(())
+    }
+
+    /// Lists every media record.
+    pub fn list_media(&self) -> Result<Vec<MediaSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        media_store::list_media(&conn)
+    }
+
+    /// Loads one media record for editing.
+    pub fn load_media(&self, id: &str) -> Result<Option<MediaRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        media_store::load_media(&conn, id)
+    }
+
+    /// Inserts or updates a media record.
+    pub fn save_media(&mut self, draft: &MediaDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = media_store::save_media(&conn, draft)?;
+        self.set_status(UiStatus::Success("Media saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes one media record and its links.
+    pub fn delete_media(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        media_store::delete_media(&conn, id)?;
+        self.set_status(UiStatus::Success("Media deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists media attached to one record.
+    pub fn list_owner_media(&self, owner: &MediaOwner) -> Result<Vec<MediaSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        media_store::list_owner_media(&conn, owner)
+    }
+
+    /// Attaches media to one record.
+    pub fn attach_media(&mut self, media_id: &str, owner: &MediaOwner) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        media_store::attach_media(&conn, media_id, owner)?;
+        self.set_status(UiStatus::Success("Media attached".to_string()));
+        Ok(())
+    }
+
+    /// Detaches media from one record.
+    pub fn detach_media(&mut self, media_id: &str, owner: &MediaOwner) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        media_store::detach_media(&conn, media_id, owner)?;
+        self.set_status(UiStatus::Success("Media detached".to_string()));
+        Ok(())
+    }
+
+    /// Lists the records using one media item.
+    pub fn list_media_links(
+        &self,
+        media_id: &str,
+        surname_first: bool,
+    ) -> Result<Vec<MediaLinkSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        media_store::list_media_links(&conn, media_id, surname_first)
     }
 
     /// Lists the outgoing associations of a person.
