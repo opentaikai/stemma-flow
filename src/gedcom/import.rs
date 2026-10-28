@@ -67,6 +67,13 @@ pub(crate) struct ParsedParticipant {
     pub role: Option<String>,
 }
 
+/// A parsed `1 ASSO @I@` association.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParsedAssociation {
+    pub xref: String,
+    pub relationship: String,
+}
+
 /// A parsed `0 @I1@ INDI` record.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct IndiRecord {
@@ -80,6 +87,7 @@ pub(crate) struct IndiRecord {
     pub name_prefix: String,
     pub name_suffix: String,
     pub alternate_names: Vec<ParsedAlternateName>,
+    pub associations: Vec<ParsedAssociation>,
     pub gender: String,
     /// Every `1 NOTE` block, including `2 CONT`/`2 CONC` continuations.
     pub notes: Vec<String>,
@@ -190,6 +198,7 @@ impl IndiRecord {
             name_prefix: String::new(),
             name_suffix: String::new(),
             alternate_names: Vec::new(),
+            associations: Vec::new(),
             gender: "U".to_string(),
             notes: Vec::new(),
             events: Vec::new(),
@@ -294,6 +303,17 @@ fn append_note(notes: &mut [String], slot: usize, payload: &str, new_line: bool)
     note.push_str(payload);
 }
 
+fn append_text(text: &mut String, payload: &str, new_line: bool) {
+    if text.is_empty() {
+        text.push_str(payload);
+    } else {
+        if new_line {
+            text.push('\n');
+        }
+        text.push_str(payload);
+    }
+}
+
 /// Warning text for a tag the importer recognises but does not model: the
 /// record keeps importing, the tag is listed for review with its payload
 /// flattened (CONT newlines) and truncated to 100 characters.
@@ -329,6 +349,7 @@ enum Current {
         name_seen: bool,
         alternate_slot: Option<usize>,
         in_name: bool,
+        association_slot: Option<usize>,
     },
     Fam {
         rec: Box<FamRecord>,
@@ -654,6 +675,7 @@ impl<R: BufRead> RecordReader<R> {
                         name_seen: false,
                         alternate_slot: None,
                         in_name: false,
+                        association_slot: None,
                     }),
                     None => {
                         let message =
@@ -823,10 +845,12 @@ impl<R: BufRead> RecordReader<R> {
                 name_seen,
                 alternate_slot,
                 in_name,
+                association_slot,
             }) => {
                 if line.level == 1 {
                     *event_slot = None;
                     *note_slot = None;
+                    *association_slot = None;
                     *in_name = line.tag == "NAME";
                     match line.tag {
                         "NAME" => {
@@ -853,6 +877,18 @@ impl<R: BufRead> RecordReader<R> {
                         "RESN" => rec.private = !line.payload.trim().is_empty(),
                         "FAMC" => push_pointer(&mut rec.famc, line, "FAMC", line_no, &mut warning),
                         "FAMS" => push_pointer(&mut rec.fams, line, "FAMS", line_no, &mut warning),
+                        "ASSO" => {
+                            if is_pointer(line.payload) {
+                                rec.associations.push(ParsedAssociation {
+                                    xref: line.payload.trim().to_string(),
+                                    relationship: "Associate".to_string(),
+                                });
+                                *association_slot = Some(rec.associations.len() - 1);
+                            } else {
+                                warning =
+                                    Some(format!("line {line_no}: ASSO without pointer ignored"));
+                            }
+                        }
                         "NOTE" => {
                             rec.notes.push(line.payload.to_string());
                             *note_slot = Some(rec.notes.len() - 1);
@@ -883,6 +919,23 @@ impl<R: BufRead> RecordReader<R> {
                         "CONC" => append_note(&mut rec.notes, slot, line.payload, false),
                         _ => {
                             *note_slot = None;
+                            warning = Some(unknown_tag_warning(line_no, &line));
+                        }
+                    }
+                } else if let Some(slot) = *association_slot {
+                    let relationship = rec.associations.get_mut(slot);
+                    match (line.level, line.tag, relationship) {
+                        (2, "RELA", Some(association)) => {
+                            association.relationship = line.payload.trim().to_string();
+                        }
+                        (3, "CONT", Some(association)) => {
+                            append_text(&mut association.relationship, line.payload, true);
+                        }
+                        (3, "CONC", Some(association)) => {
+                            append_text(&mut association.relationship, line.payload, false);
+                        }
+                        _ => {
+                            *association_slot = None;
                             warning = Some(unknown_tag_warning(line_no, &line));
                         }
                     }
@@ -1233,6 +1286,13 @@ struct PendingCitation {
     data_text: Option<String>,
 }
 
+/// An `ASSO @X@` pointer waiting for its person record.
+struct PendingAssociation {
+    person_id: String,
+    xref: String,
+    relationship: String,
+}
+
 /// A `_WITN @X@` pointer waiting for its person record.
 struct PendingParticipant {
     event_id: String,
@@ -1263,6 +1323,7 @@ pub fn import_gedcom<R: BufRead>(
     let mut inline_sources: HashMap<String, String> = HashMap::new();
     let mut pending_citations: Vec<PendingCitation> = Vec::new();
     let mut pending_participants: Vec<PendingParticipant> = Vec::new();
+    let mut pending_associations: Vec<PendingAssociation> = Vec::new();
     let mut place_cache: HashMap<String, String> = HashMap::new();
 
     // Pass 1: stream records into the tables, recording xref -> UUID mappings.
@@ -1294,6 +1355,13 @@ pub fn import_gedcom<R: BufRead>(
                 )?;
                 insert_notes(&tx, "person_id", &id, &indi.notes)?;
                 report.people += 1;
+                for association in &indi.associations {
+                    pending_associations.push(PendingAssociation {
+                        person_id: id.clone(),
+                        xref: association.xref.clone(),
+                        relationship: association.relationship.clone(),
+                    });
+                }
                 for (index, name) in indi.alternate_names.iter().enumerate() {
                     tx.execute(
                         "INSERT INTO alternate_names
@@ -1547,6 +1615,36 @@ pub fn import_gedcom<R: BufRead>(
             None => report
                 .warnings
                 .push(format!("dangling SOUR pointer {}", citation.xref)),
+        }
+    }
+
+    for association in pending_associations {
+        match id_map.get(&association.xref) {
+            Some(associate_id) if associate_id == &association.person_id => report
+                .warnings
+                .push(format!("self ASSO pointer {} ignored", association.xref)),
+            Some(associate_id) => {
+                let relationship = association.relationship.trim();
+                let relationship = if relationship.is_empty() {
+                    "Associate"
+                } else {
+                    relationship
+                };
+                tx.execute(
+                    "INSERT OR IGNORE INTO associations
+                     (id, person_id, associate_id, relationship)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        Uuid::new_v4().to_string(),
+                        association.person_id,
+                        associate_id,
+                        relationship
+                    ],
+                )?;
+            }
+            None => report
+                .warnings
+                .push(format!("dangling ASSO pointer {}", association.xref)),
         }
     }
 
