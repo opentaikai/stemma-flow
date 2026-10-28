@@ -52,7 +52,7 @@ Priority:
 | Facts and events | partial | P0 | Read-only facts with witness editing; generic editor pending |
 | Places | partial | P0 | Place records in schema v2; no place page yet |
 | Names | done | P0 | Primary pieces, alternates and married names |
-| Notes | partial | P1 | Person level only, no rich text or spell check |
+| Notes | done | P1 | Plain text on people, families, facts, citations and places; rich text deferred |
 | Search | partial | P1 | Watch-list name filter and relation picker only |
 | Media, maps, tasks, groups, merge, reports, backups | planned | P1 | See milestones |
 | Online integrations, DNA, AI | deferred | P2 | Opt-in, later phases |
@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v12: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings |
+| Schema v2-v13: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
@@ -94,7 +94,7 @@ places, facts, alternate names and notes as first-class records.
 | Private facts and privacy suppression on export | done | P1 | Private people/facts, living detection and opt-in export |
 | Alternate names and name pieces (prefix, suffix) | done | P1 | Primary pieces, typed alternates and married names |
 | Surname-first display option | done | P2 | Per-tree View toggle across composed names |
-| Notes on person, family, fact, citation and place | planned | P0 | Current person notes migrate |
+| Notes on person, family, fact, citation and place | done | P0 | First-class notes table; legacy person, citation and place notes migrate |
 | Associations (friends, associates, neighbours) | planned | P2 | With relationship labels |
 | Media records and links to people, families, facts, sources and places | partial | P1 | Schema and cascading link tables; UI in M4 |
 | Task and group tables | done | P1 | Schema and link tables; UI in M3 |
