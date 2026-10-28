@@ -87,6 +87,7 @@ impl TreeWindow {
         self.seen_generation = generation;
         if switched {
             self.places = crate::gui::places::PlacesState::default();
+            self.names = crate::gui::names::NamesState::default();
             self.fact_types = crate::gui::fact_types::FactTypesState::default();
             self.sources = crate::gui::sources::SourcesState::default();
             self.citations = crate::gui::citations::CitationsState::default();

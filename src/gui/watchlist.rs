@@ -41,7 +41,16 @@ pub fn rows(tree: &FamilyTree, dates: &HashMap<String, VitalDates>) -> Vec<Perso
         let vitals = dates.get(&person.id);
         // The single Given cell shows given + middle so patronymics stay
         // visible and searchable without a separate column.
-        let given_name = [person.given_name.as_str(), person.middle_name.as_str()]
+        let given_name = [
+            person.name_prefix.as_str(),
+            person.given_name.as_str(),
+            person.middle_name.as_str(),
+        ]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+        let surname = [person.surname.as_str(), person.name_suffix.as_str()]
             .into_iter()
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
@@ -49,7 +58,7 @@ pub fn rows(tree: &FamilyTree, dates: &HashMap<String, VitalDates>) -> Vec<Perso
         rows.push(PersonRow {
             id: person.id.clone(),
             given_name,
-            surname: person.surname.clone(),
+            surname,
             gender: person.gender.clone(),
             birth: vitals.and_then(|vitals| vitals.birth.clone()),
             death: vitals.and_then(|vitals| vitals.death.clone()),

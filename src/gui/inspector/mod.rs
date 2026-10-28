@@ -15,6 +15,7 @@ pub use relation::{RelationForm, RelationKind, RelationOutcome, relation_window}
 use egui::Color32;
 
 use crate::db::citations::CitationEdit;
+use crate::db::names::AlternateNameDraft;
 use crate::db::people::PersonDetails;
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
@@ -63,6 +64,10 @@ pub enum InspectorAction {
         event_id: String,
         private: bool,
     },
+    /// Save an alternate name.
+    SaveAlternateName(Box<AlternateNameDraft>),
+    /// Delete an alternate name.
+    DeleteAlternateName(String),
 }
 
 #[cfg(test)]
@@ -282,6 +287,7 @@ mod tests {
                 &mut CitationsState::default(),
                 &facts,
                 None,
+                &mut crate::gui::names::NamesState::default(),
             );
         });
         output.textures_delta.clear();
@@ -334,6 +340,7 @@ mod tests {
                 &mut CitationsState::default(),
                 &[],
                 Some(&privacy),
+                &mut crate::gui::names::NamesState::default(),
             );
         });
         output.textures_delta.clear();

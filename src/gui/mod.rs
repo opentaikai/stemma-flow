@@ -9,6 +9,7 @@ pub mod fact_types;
 pub mod import_report;
 pub mod inspector;
 pub mod layout;
+pub mod names;
 pub mod nodes;
 pub mod places;
 pub mod repositories;
