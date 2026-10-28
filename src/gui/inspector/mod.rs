@@ -17,6 +17,7 @@ pub use relation::{RelationForm, RelationKind, RelationOutcome, relation_window}
 use egui::Color32;
 
 use crate::db::citations::CitationEdit;
+use crate::db::media::MediaOwner;
 use crate::db::names::AlternateNameDraft;
 use crate::db::notes::NoteOwner;
 use crate::db::people::PersonDetails;
@@ -73,6 +74,11 @@ pub enum InspectorAction {
     EditAssociation(String),
     /// Delete one association.
     DeleteAssociation(String),
+    /// Open the media attachment dialog for one record.
+    ManageMedia {
+        owner: MediaOwner,
+        title: String,
+    },
     /// Open the shared notes dialog for one record.
     OpenNotes {
         owner: NoteOwner,

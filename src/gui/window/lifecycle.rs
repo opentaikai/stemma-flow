@@ -101,6 +101,8 @@ impl TreeWindow {
             self.associations.clear();
             self.associations_owner = None;
             self.pending_association = None;
+            self.media = crate::gui::media::MediaState::default();
+            self.media_attach = None;
         } else if generation_changed {
             self.places.loaded = false;
             self.fact_types.loaded = false;

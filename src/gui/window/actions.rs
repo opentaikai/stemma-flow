@@ -2,6 +2,7 @@
 
 use crate::app;
 use crate::app::UiStatus;
+use crate::db::media::{MediaDraft, MediaOwner};
 use crate::db::notes::NoteOwner;
 use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
@@ -16,6 +17,7 @@ use crate::gui::inspector::InspectorForm;
 use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
+use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, MediaEvent};
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
 use crate::gui::places::{self, PlacesEvent};
 use crate::gui::repositories::{self, RepositoriesEvent};
@@ -126,6 +128,9 @@ impl TreeWindow {
                 }
                 Err(message) => self.sources.error = Some(message),
             },
+            SourcesEvent::Media { source_id, title } => {
+                self.open_media(MediaOwner::Source(source_id), title);
+            }
             SourcesEvent::Delete(id) => match self.app.delete_source(&id) {
                 Ok(()) => {
                     self.sources.selected = None;
@@ -204,6 +209,9 @@ impl TreeWindow {
             PlacesEvent::Notes { place_id, title } => {
                 self.open_notes(NoteOwner::Place(place_id), title);
             }
+            PlacesEvent::Media { place_id, title } => {
+                self.open_media(MediaOwner::Place(place_id), title);
+            }
         }
     }
 
@@ -243,6 +251,194 @@ impl TreeWindow {
                 self.places.editing = false;
             }
             (Err(message), _) | (_, Err(message)) => self.places.error = Some(message),
+        }
+    }
+
+    pub(super) fn media_tab(&mut self, ui: &mut Ui) {
+        if !self.media.loaded {
+            self.reload_media();
+        }
+        if let Some(event) = media_ui::show(ui, &mut self.media) {
+            self.apply_media_event(event);
+        }
+    }
+
+    pub(super) fn reload_media(&mut self) {
+        match self.app.list_media() {
+            Ok(list) => {
+                self.media.media = list;
+                self.media.loaded = true;
+                self.media.error = None;
+                if let Some(id) = self.media.selected.clone() {
+                    self.load_media_draft(&id);
+                }
+            }
+            Err(message) => {
+                self.media.error = Some(message);
+                self.media.loaded = true;
+            }
+        }
+    }
+
+    pub(super) fn load_media_draft(&mut self, id: &str) {
+        match (
+            self.app.load_media(id),
+            self.app
+                .list_media_links(id, self.tree_settings.surname_first),
+        ) {
+            (Ok(Some(record)), Ok(links)) => {
+                self.media.selected = Some(id.to_string());
+                self.media.draft = media_ui::MediaEdit::from_record(&record);
+                self.media.links = links;
+                self.media.editing = true;
+                self.media.error = None;
+            }
+            (Ok(None), _) => {
+                self.media.selected = None;
+                self.media.draft = media_ui::MediaEdit::default();
+                self.media.links.clear();
+                self.media.editing = false;
+            }
+            (Err(message), _) | (_, Err(message)) => self.media.error = Some(message),
+        }
+    }
+
+    pub(super) fn apply_media_event(&mut self, event: MediaEvent) {
+        match event {
+            MediaEvent::New => {
+                self.media.selected = None;
+                self.media.draft = media_ui::MediaEdit::default();
+                self.media.links.clear();
+                self.media.editing = true;
+                self.media.error = None;
+            }
+            MediaEvent::Select(id) => self.load_media_draft(&id),
+            MediaEvent::Save(draft) => match self.app.save_media(&draft) {
+                Ok(id) => {
+                    self.media.selected = Some(id);
+                    self.media.loaded = false;
+                    self.reload_media();
+                }
+                Err(message) => self.media.error = Some(message),
+            },
+            MediaEvent::Delete(id) => match self.app.delete_media(&id) {
+                Ok(()) => {
+                    self.media.selected = None;
+                    self.media.draft = media_ui::MediaEdit::default();
+                    self.media.links.clear();
+                    self.media.editing = false;
+                    self.media.loaded = false;
+                    self.reload_media();
+                }
+                Err(message) => self.media.error = Some(message),
+            },
+            MediaEvent::Browse => {
+                if let Some(path) = dialogs::pick_media_path() {
+                    let draft = media_draft_for_path(&path);
+                    self.media.draft.file_path = draft.file_path;
+                    self.media.draft.format = draft.format;
+                    if self.media.draft.caption.trim().is_empty() {
+                        self.media.draft.caption = draft.caption;
+                    }
+                }
+            }
+            MediaEvent::Detach {
+                owner_type,
+                owner_id,
+            } => {
+                let Some(owner) = media_owner(&owner_type, &owner_id) else {
+                    return;
+                };
+                let Some(media_id) = self.media.selected.clone() else {
+                    return;
+                };
+                match self.app.detach_media(&media_id, &owner) {
+                    Ok(()) => {
+                        self.media.loaded = false;
+                        self.load_media_draft(&media_id);
+                    }
+                    Err(message) => self.media.error = Some(message),
+                }
+            }
+        }
+    }
+
+    pub(super) fn open_media(&mut self, owner: MediaOwner, title: String) {
+        let mut state = MediaAttachState::new(owner, title);
+        self.load_media_attach(&mut state);
+        self.media_attach = Some(state);
+    }
+
+    fn load_media_attach(&self, state: &mut MediaAttachState) {
+        match (
+            self.app.list_owner_media(&state.owner),
+            self.app.list_media(),
+        ) {
+            (Ok(attached), Ok(all)) => {
+                let attached_ids: std::collections::HashSet<&str> =
+                    attached.iter().map(|media| media.id.as_str()).collect();
+                state.choices = all
+                    .into_iter()
+                    .filter(|media| !attached_ids.contains(media.id.as_str()))
+                    .collect();
+                state.attached = attached;
+                state.error = None;
+            }
+            (Err(message), _) | (_, Err(message)) => state.error = Some(message),
+        }
+    }
+
+    pub(super) fn show_media_attach(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.media_attach.take() else {
+            return;
+        };
+        let outcome = media_ui::show_attach(ctx, &mut state);
+        match outcome {
+            None => self.media_attach = Some(state),
+            Some(MediaAttachOutcome::Close) => {}
+            Some(MediaAttachOutcome::Attach(media_id)) => {
+                match self.app.attach_media(&media_id, &state.owner) {
+                    Ok(()) => {
+                        self.media.loaded = false;
+                        self.load_media_attach(&mut state);
+                        self.media_attach = Some(state);
+                    }
+                    Err(message) => {
+                        state.error = Some(message);
+                        self.media_attach = Some(state);
+                    }
+                }
+            }
+            Some(MediaAttachOutcome::Detach(media_id)) => {
+                match self.app.detach_media(&media_id, &state.owner) {
+                    Ok(()) => {
+                        self.media.loaded = false;
+                        self.load_media_attach(&mut state);
+                        self.media_attach = Some(state);
+                    }
+                    Err(message) => {
+                        state.error = Some(message);
+                        self.media_attach = Some(state);
+                    }
+                }
+            }
+            Some(MediaAttachOutcome::AddFromFile) => {
+                if let Some(path) = dialogs::pick_media_path() {
+                    let draft = media_draft_for_path(&path);
+                    match self.app.save_media(&draft) {
+                        Ok(media_id) => {
+                            if let Err(message) = self.app.attach_media(&media_id, &state.owner) {
+                                state.error = Some(message);
+                            } else {
+                                self.media.loaded = false;
+                            }
+                        }
+                        Err(message) => state.error = Some(message),
+                    }
+                    self.load_media_attach(&mut state);
+                }
+                self.media_attach = Some(state);
+            }
         }
     }
 
@@ -645,6 +841,7 @@ impl TreeWindow {
                 }
                 Err(message) => self.app.set_status(UiStatus::Error(message)),
             },
+            InspectorAction::ManageMedia { owner, title } => self.open_media(owner, title),
             InspectorAction::OpenNotes { owner, title } => self.open_notes(owner, title),
             InspectorAction::SaveAlternateName(draft) => {
                 match self.app.save_alternate_name(person_id, &draft) {
@@ -1029,5 +1226,34 @@ impl TreeWindow {
             Ok(()) => self.reload_scene(),
             Err(message) => self.app.set_status(UiStatus::Error(message)),
         }
+    }
+}
+
+fn media_owner(owner_type: &str, id: &str) -> Option<MediaOwner> {
+    match owner_type {
+        "person" => Some(MediaOwner::Person(id.to_string())),
+        "family" => Some(MediaOwner::Family(id.to_string())),
+        "fact" => Some(MediaOwner::Event(id.to_string())),
+        "source" => Some(MediaOwner::Source(id.to_string())),
+        "place" => Some(MediaOwner::Place(id.to_string())),
+        _ => None,
+    }
+}
+
+fn media_draft_for_path(path: &std::path::Path) -> MediaDraft {
+    MediaDraft {
+        id: None,
+        file_path: path.to_string_lossy().to_string(),
+        format: path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase(),
+        caption: path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or_default()
+            .to_string(),
+        notes: String::new(),
     }
 }

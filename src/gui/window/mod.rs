@@ -17,6 +17,7 @@ use super::inspector::InspectorForm;
 use super::inspector::ParticipantForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
+use super::media;
 use super::names;
 use super::notes as notes_dialog;
 use super::places;
@@ -61,6 +62,8 @@ pub struct TreeWindow {
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
     pub(super) places: places::PlacesState,
+    pub(super) media: media::MediaState,
+    pub(super) media_attach: Option<media::MediaAttachState>,
     pub(super) names: names::NamesState,
     pub(super) notes: notes_dialog::NotesState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -110,6 +113,8 @@ impl TreeWindow {
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
             places: places::PlacesState::default(),
+            media: media::MediaState::default(),
+            media_attach: None,
             names: names::NamesState::default(),
             notes: notes_dialog::NotesState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -181,6 +186,7 @@ impl App for TreeWindow {
                 tabs::AppTab::Graph => self.canvas(ui),
                 tabs::AppTab::WatchList => self.watch_list(ui),
                 tabs::AppTab::Places => self.places_tab(ui),
+                tabs::AppTab::Media => self.media_tab(ui),
                 tabs::AppTab::FactTypes => self.fact_types_tab(ui),
                 tabs::AppTab::Sources => self.sources_tab(ui),
                 tabs::AppTab::Repositories => self.repositories_tab(ui),
@@ -192,6 +198,7 @@ impl App for TreeWindow {
             self.show_relation_window(ui.ctx());
             self.show_participant_window(ui.ctx());
             self.show_association_window(ui.ctx());
+            self.show_media_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
         }
@@ -943,6 +950,53 @@ mod tests {
         assert_eq!(
             window.rows.first().expect("one person").display_name(),
             "Ada Lynn King"
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn media_tab_loads_and_attachment_dialog_tracks_links() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+        let media_id = window
+            .app
+            .save_media(&crate::db::media::MediaDraft {
+                file_path: "/tmp/photo.jpg".to_string(),
+                caption: "Photo".to_string(),
+                ..crate::db::media::MediaDraft::default()
+            })
+            .expect("media saves");
+        window.media.loaded = false;
+        window.reload_media();
+        assert_eq!(window.media.media.len(), 1);
+        assert_eq!(window.media.media[0].link_count, 0);
+
+        let owner = crate::db::media::MediaOwner::Person(person_id);
+        window.open_media(owner.clone(), "Media — Ada King".to_string());
+        assert_eq!(
+            window.media_attach.as_ref().expect("dialog").choices.len(),
+            1
+        );
+        assert!(
+            window
+                .media_attach
+                .as_ref()
+                .expect("dialog")
+                .attached
+                .is_empty()
+        );
+
+        window.app.attach_media(&media_id, &owner).expect("attach");
+        window.open_media(owner, "Media — Ada King".to_string());
+        assert_eq!(
+            window.media_attach.as_ref().expect("dialog").attached.len(),
+            1
         );
 
         let _ = std::fs::remove_file(&db_file);

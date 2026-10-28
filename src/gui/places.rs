@@ -16,6 +16,7 @@ pub enum PlacesEvent {
     Delete(String),
     SelectPerson(String),
     Notes { place_id: String, title: String },
+    Media { place_id: String, title: String },
 }
 
 /// Columns the grid header can sort by.
@@ -327,13 +328,19 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
                     ui.text_edit_singleline(&mut state.draft.longitude);
                     ui.end_row();
                 });
-            if let Some(id) = state.draft.id.clone()
-                && ui.button("Notes\u{2026}").clicked()
-            {
-                *event = Some(PlacesEvent::Notes {
-                    place_id: id,
-                    title: format!("Notes \u{2014} {}", state.draft.name.trim()),
-                });
+            if let Some(id) = state.draft.id.clone() {
+                if ui.button("Notes\u{2026}").clicked() {
+                    *event = Some(PlacesEvent::Notes {
+                        place_id: id.clone(),
+                        title: format!("Notes \u{2014} {}", state.draft.name.trim()),
+                    });
+                }
+                if ui.button("Media\u{2026}").clicked() {
+                    *event = Some(PlacesEvent::Media {
+                        place_id: id,
+                        title: format!("Media \u{2014} {}", state.draft.name.trim()),
+                    });
+                }
             }
             ui.label(
                 RichText::new("Decimal degrees; leave blank when unknown.")
