@@ -54,7 +54,7 @@ Priority:
 | Names | done | P0 | Primary pieces, alternates and married names |
 | Notes | done | P1 | Plain text on people, families, facts, citations and places; rich text deferred |
 | Search | partial | P1 | Watch-list name filter and relation picker only |
-| Media, maps, tasks, groups, merge, reports, backups | planned | P1 | See milestones |
+| Media, maps, tasks, groups, merge, reports, backups | partial | P1 | Media records, links and thumbnails; albums and portability pending |
 | Online integrations, DNA, AI | deferred | P2 | Opt-in, later phases |
 
 ## Milestone map
@@ -96,7 +96,7 @@ places, facts, alternate names and notes as first-class records.
 | Surname-first display option | done | P2 | Per-tree View toggle across composed names |
 | Notes on person, family, fact, citation and place | done | P0 | First-class notes table; legacy person, citation and place notes migrate |
 | Associations (friends, associates, neighbours) | done | P2 | Directed links, relationship labels and person ASSO/RELA GEDCOM |
-| Media records and links to people, families, facts, sources and places | partial | P1 | Schema and cascading link tables; UI in M4 |
+| Media records and links to people, families, facts, sources and places | done | P1 | Media tab, external paths, thumbnails, attachment dialog and OBJE round-trip |
 | Task and group tables | done | P1 | Schema and link tables; UI in M3 |
 | Migrations and GEDCOM mapping for every new entity | planned | P0 | Fidelity tests required |
 
@@ -155,7 +155,7 @@ Goal: connect people to locations and sources of evidence beyond text.
 | Geocoding of places (latitude and longitude) | planned | P2 | Local cache, opt-in service |
 | Map view of places and groups | planned | P2 | Requires geocoding |
 | Gazetteer search | planned | P2 | Place lookup |
-| Media attachments with thumbnails and list modes | planned | P1 | Photos, audio, video, documents |
+| Media attachments with thumbnails and list modes | done | P1 | Media tab list plus record attachment dialogs |
 | Media albums and drag-and-drop organisation | planned | P2 | Per person and general albums |
 | Relative media links so trees move between computers | planned | P2 | Portable paths |
 | Broken media link repair | planned | P2 | Locate or relink |
