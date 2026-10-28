@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::sources::{SourceDraft, SourceSummary};
+use crate::i18n::template_label;
 use crate::model::source_template::{
     FieldScope, SourceTemplate, TemplateField, gedcom_columns, render_citation, render_free_form,
 };
@@ -96,7 +97,13 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
     let current_name = current_key
         .as_deref()
         .and_then(|key| state.templates.iter().find(|template| template.key == key))
-        .map(|template| format!("{} - {}", template.category, template.name))
+        .map(|template| {
+            format!(
+                "{} - {}",
+                template.category,
+                template_label(&template.key, &template.name)
+            )
+        })
         .unwrap_or_else(|| "Free-form".to_string());
     let choices: Vec<(String, String)> = state
         .templates
@@ -412,7 +419,13 @@ fn merge_panel(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<S
 
 fn template_name(state: &SourcesState, key: Option<&str>) -> String {
     key.and_then(|key| state.templates.iter().find(|template| template.key == key))
-        .map(|template| format!("{} - {}", template.category, template.name))
+        .map(|template| {
+            format!(
+                "{} - {}",
+                template.category,
+                template_label(&template.key, &template.name)
+            )
+        })
         .unwrap_or_else(|| "Free-form".to_string())
 }
 

@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::i18n::tr;
 use egui::{CentralPanel, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Ui, vec2};
 
 /// How many recent tree paths the dashboard lists at most.
@@ -18,7 +19,6 @@ const LOGO_SIZE: f32 = 72.0;
 const BASE_CARD_HEIGHT: f32 = 392.0;
 const RECENT_ROW_HEIGHT: f32 = 26.0;
 const MIN_TOP_SPACE: f32 = 16.0;
-const TAGLINE: &str = "Fast, open-source, event-centric genealogy software";
 
 /// What the user asked the app to do from the dashboard.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,30 +69,26 @@ fn card(ui: &mut Ui, recent: &[PathBuf], action: &mut Option<WelcomeAction>) {
             ui.vertical_centered(|ui| {
                 logo(ui);
                 ui.add_space(12.0);
-                ui.heading("Stemma Flow");
+                ui.heading(tr("app.stemma_flow"));
                 ui.add_space(4.0);
-                ui.label(RichText::new(TAGLINE).weak().size(13.0));
+                ui.label(RichText::new(tr("welcome.tagline")).weak().size(13.0));
             });
             ui.add_space(20.0);
 
             let width = ui.available_width();
-            let create = egui::Button::new(
-                RichText::new("+ Create New Family Tree")
-                    .size(15.0)
-                    .strong(),
-            )
-            .fill(ACCENT);
+            let create = egui::Button::new(RichText::new(tr("welcome.create")).size(15.0).strong())
+                .fill(ACCENT);
             if ui.add_sized([width, BUTTON_HEIGHT], create).clicked() {
                 *action = Some(WelcomeAction::CreateNew);
             }
             ui.add_space(8.0);
-            let open =
-                egui::Button::new(RichText::new("Open Tree").size(15.0).strong()).fill(ACCENT);
+            let open = egui::Button::new(RichText::new(tr("welcome.open")).size(15.0).strong())
+                .fill(ACCENT);
             if ui.add_sized([width, BUTTON_HEIGHT], open).clicked() {
                 *action = Some(WelcomeAction::OpenTree);
             }
             ui.add_space(8.0);
-            let import = egui::Button::new(RichText::new("Import GEDCOM File").size(15.0).strong())
+            let import = egui::Button::new(RichText::new(tr("welcome.import")).size(15.0).strong())
                 .fill(ACCENT);
             if ui.add_sized([width, BUTTON_HEIGHT], import).clicked() {
                 *action = Some(WelcomeAction::ImportGedcom);
@@ -101,10 +97,10 @@ fn card(ui: &mut Ui, recent: &[PathBuf], action: &mut Option<WelcomeAction>) {
             ui.add_space(16.0);
             ui.separator();
             ui.add_space(8.0);
-            ui.label(RichText::new("Recent trees").weak().size(12.0));
+            ui.label(RichText::new(tr("welcome.recent")).weak().size(12.0));
             ui.add_space(4.0);
             if recent.is_empty() {
-                ui.label(RichText::new("No recent trees yet").weak().size(12.0));
+                ui.label(RichText::new(tr("welcome.no_recent")).weak().size(12.0));
             }
             for path in recent.iter().take(RECENT_CAP) {
                 let name = display_name(path);

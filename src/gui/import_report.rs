@@ -4,6 +4,7 @@
 use egui::{Context, Id, Label, ScrollArea, TextStyle, Window};
 
 use crate::gedcom::ImportReport;
+use crate::i18n::{tr, tr_args};
 
 /// Renders the report window while `open` is true.
 ///
@@ -11,19 +12,21 @@ use crate::gedcom::ImportReport;
 /// WikiTree export logs thousands of warnings; every row shows one message
 /// truncated to the window width with the full text on hover.
 pub fn show(ctx: &Context, report: &ImportReport, open: &mut bool) {
-    Window::new("Import Report")
+    Window::new(tr("import_report.title"))
         .id(Id::new("import_report_window"))
         .open(open)
         .default_width(560.0)
         .default_height(360.0)
         .show(ctx, |ui| {
-            ui.label(format!(
-                "{} people, {} families, {} events, {} citations — {} warnings",
-                report.people,
-                report.families,
-                report.events,
-                report.citations,
-                report.warnings.len()
+            ui.label(tr_args(
+                "import_report.summary",
+                &[
+                    ("people", report.people.to_string()),
+                    ("families", report.families.to_string()),
+                    ("events", report.events.to_string()),
+                    ("citations", report.citations.to_string()),
+                    ("warnings", report.warnings.len().to_string()),
+                ],
             ));
             ui.separator();
             let row_height = ui.text_style_height(&TextStyle::Body) + ui.spacing().item_spacing.y;

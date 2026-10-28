@@ -2,6 +2,8 @@
 
 use egui::Ui;
 
+use crate::i18n::tr;
+
 /// The main views available once a tree is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppTab {
@@ -19,14 +21,14 @@ pub enum AppTab {
 /// Renders the tab row and updates `active` when a tab is clicked.
 pub fn show(ui: &mut Ui, active: &mut AppTab) {
     ui.horizontal(|ui| {
-        ui.selectable_value(active, AppTab::Graph, "Graph View");
-        ui.selectable_value(active, AppTab::WatchList, "Watch List");
-        ui.selectable_value(active, AppTab::Places, "Places");
-        ui.selectable_value(active, AppTab::Media, "Media");
-        ui.selectable_value(active, AppTab::Research, "Research");
-        ui.selectable_value(active, AppTab::FactTypes, "Fact Types");
-        ui.selectable_value(active, AppTab::Sources, "Sources");
-        ui.selectable_value(active, AppTab::Repositories, "Repositories");
+        ui.selectable_value(active, AppTab::Graph, tr("tabs.graph"));
+        ui.selectable_value(active, AppTab::WatchList, tr("tabs.watch_list"));
+        ui.selectable_value(active, AppTab::Places, tr("tabs.places"));
+        ui.selectable_value(active, AppTab::Media, tr("tabs.media"));
+        ui.selectable_value(active, AppTab::Research, tr("tabs.research"));
+        ui.selectable_value(active, AppTab::FactTypes, tr("tabs.fact_types"));
+        ui.selectable_value(active, AppTab::Sources, tr("tabs.sources"));
+        ui.selectable_value(active, AppTab::Repositories, tr("tabs.repositories"));
     });
 }
 
