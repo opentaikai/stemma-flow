@@ -9,11 +9,13 @@
 
 use std::collections::HashMap;
 use std::io::BufRead;
+use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
 use crate::db::facts::FactLookup;
+use crate::db::media::MediaOwner;
 use crate::gedcom::{GedcomError, ImportReport};
 use crate::model::fact::FactScope;
 
@@ -58,6 +60,7 @@ pub(crate) struct ParsedEvent {
     pub participants: Vec<ParsedParticipant>,
     pub source_refs: Vec<SourceRef>,
     pub notes: Vec<String>,
+    pub media: Vec<ParsedMediaRef>,
 }
 
 /// A `_WITN @X@` participant reference on an event.
@@ -74,6 +77,38 @@ pub(crate) struct ParsedAssociation {
     pub relationship: String,
 }
 
+/// One inline multimedia block.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ParsedMedia {
+    pub file_path: Option<String>,
+    pub format: Option<String>,
+    pub caption: Option<String>,
+    pub notes: Vec<String>,
+}
+
+/// A pointer to a shared media record or an inline media block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ParsedMediaRef {
+    Pointer(String),
+    Inline(ParsedMedia),
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum MediaField {
+    #[default]
+    None,
+    File,
+    Format,
+    Caption,
+    Note,
+}
+
+#[derive(Debug, Default)]
+struct MediaParseState {
+    slot: Option<usize>,
+    field: MediaField,
+}
+
 /// A parsed `0 @I1@ INDI` record.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct IndiRecord {
@@ -88,6 +123,7 @@ pub(crate) struct IndiRecord {
     pub name_suffix: String,
     pub alternate_names: Vec<ParsedAlternateName>,
     pub associations: Vec<ParsedAssociation>,
+    pub media: Vec<ParsedMediaRef>,
     pub gender: String,
     /// Every `1 NOTE` block, including `2 CONT`/`2 CONC` continuations.
     pub notes: Vec<String>,
@@ -118,6 +154,7 @@ pub(crate) struct FamRecord {
     pub children: Vec<String>,
     pub events: Vec<ParsedEvent>,
     pub notes: Vec<String>,
+    pub media: Vec<ParsedMediaRef>,
 }
 
 /// One `1 REPO @R@` link on a source.
@@ -140,6 +177,7 @@ pub(crate) struct SourRecord {
     pub note: Option<String>,
     pub data_date: Option<String>,
     pub data_text: Option<String>,
+    pub media: Vec<ParsedMediaRef>,
 }
 
 impl SourRecord {
@@ -154,6 +192,7 @@ impl SourRecord {
             note: None,
             data_date: None,
             data_text: None,
+            media: Vec::new(),
         }
     }
 }
@@ -185,6 +224,14 @@ pub(crate) enum Record {
     Fam(FamRecord),
     Sour(SourRecord),
     Repo(RepositoryRecord),
+    Media(MediaRecordParse),
+}
+
+/// A parsed level-0 `OBJE` record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MediaRecordParse {
+    pub xref: String,
+    pub media: ParsedMedia,
 }
 
 impl IndiRecord {
@@ -199,6 +246,7 @@ impl IndiRecord {
             name_suffix: String::new(),
             alternate_names: Vec::new(),
             associations: Vec::new(),
+            media: Vec::new(),
             gender: "U".to_string(),
             notes: Vec::new(),
             events: Vec::new(),
@@ -218,6 +266,7 @@ impl FamRecord {
             children: Vec::new(),
             events: Vec::new(),
             notes: Vec::new(),
+            media: Vec::new(),
         }
     }
 }
@@ -314,6 +363,97 @@ fn append_text(text: &mut String, payload: &str, new_line: bool) {
     }
 }
 
+fn start_media(
+    media: &mut Vec<ParsedMediaRef>,
+    state: &mut MediaParseState,
+    payload: &str,
+    line_no: usize,
+    warning: &mut Option<String>,
+) {
+    if is_pointer(payload) {
+        media.push(ParsedMediaRef::Pointer(payload.trim().to_string()));
+        state.slot = None;
+    } else if !payload.trim().is_empty() {
+        *warning = Some(format!(
+            "line {line_no}: OBJE with unexpected payload ignored"
+        ));
+    } else {
+        media.push(ParsedMediaRef::Inline(ParsedMedia::default()));
+        state.slot = Some(media.len() - 1);
+        state.field = MediaField::None;
+    }
+}
+
+fn media_child(
+    media: &mut [ParsedMediaRef],
+    state: &mut MediaParseState,
+    line: Line<'_>,
+    line_no: usize,
+    obje_level: u8,
+    warning: &mut Option<String>,
+) {
+    let Some(slot) = state.slot else {
+        return;
+    };
+    let Some(ParsedMediaRef::Inline(media)) = media.get_mut(slot) else {
+        state.slot = None;
+        return;
+    };
+    let relative = line.level.saturating_sub(obje_level);
+    match (relative, line.tag) {
+        (1, "FILE") => {
+            if media.file_path.is_some() {
+                *warning = Some(format!("line {line_no}: extra FILE in one OBJE ignored"));
+            } else {
+                media.file_path = optional_payload(line.payload);
+                state.field = MediaField::File;
+            }
+        }
+        (1 | 2, "FORM") => {
+            media.format = optional_payload(line.payload);
+            state.field = MediaField::Format;
+        }
+        (1..=3, "TITL") => {
+            media.caption = Some(line.payload.to_string());
+            state.field = MediaField::Caption;
+        }
+        (1 | 2, "NOTE") => {
+            media.notes.push(line.payload.to_string());
+            state.field = MediaField::Note;
+        }
+        (2 | 3, "CONT" | "CONC") => {
+            let new_line = line.tag == "CONT";
+            match state.field {
+                MediaField::File => append_optional(&mut media.file_path, line.payload, new_line),
+                MediaField::Format => append_optional(&mut media.format, line.payload, new_line),
+                MediaField::Caption => {
+                    append_optional(&mut media.caption, line.payload, new_line);
+                }
+                MediaField::Note => {
+                    if let Some(note) = media.notes.last_mut() {
+                        append_text(note, line.payload, new_line);
+                    }
+                }
+                MediaField::None => {
+                    *warning = Some(format!(
+                        "line {}: {} without a preceding media field ignored",
+                        line.level, line.tag
+                    ));
+                }
+            }
+        }
+        _ => {
+            state.slot = None;
+            *warning = Some(unknown_tag_warning(line_no, &line));
+        }
+    }
+}
+
+fn append_optional(value: &mut Option<String>, payload: &str, new_line: bool) {
+    let text = value.get_or_insert_with(String::new);
+    append_text(text, payload, new_line);
+}
+
 /// Warning text for a tag the importer recognises but does not model: the
 /// record keeps importing, the tag is listed for review with its payload
 /// flattened (CONT newlines) and truncated to 100 characters.
@@ -350,16 +490,26 @@ enum Current {
         alternate_slot: Option<usize>,
         in_name: bool,
         association_slot: Option<usize>,
+        media: MediaParseState,
+        event_media: MediaParseState,
     },
     Fam {
         rec: Box<FamRecord>,
         event_slot: Option<usize>,
         /// Index of the family note receiving `CONT`/`CONC` lines.
         note_slot: Option<usize>,
+        media: MediaParseState,
+        event_media: MediaParseState,
     },
     Sour {
         rec: SourRecord,
         section: SourSection,
+        media: MediaParseState,
+    },
+    Obj {
+        xref: String,
+        media: Vec<ParsedMediaRef>,
+        state: MediaParseState,
     },
     Repo(RepositoryRecord),
     Skipped,
@@ -676,6 +826,8 @@ impl<R: BufRead> RecordReader<R> {
                         alternate_slot: None,
                         in_name: false,
                         association_slot: None,
+                        media: MediaParseState::default(),
+                        event_media: MediaParseState::default(),
                     }),
                     None => {
                         let message =
@@ -691,6 +843,8 @@ impl<R: BufRead> RecordReader<R> {
                         rec: Box::new(FamRecord::new(xref)),
                         event_slot: None,
                         note_slot: None,
+                        media: MediaParseState::default(),
+                        event_media: MediaParseState::default(),
                     }),
                     None => {
                         let message =
@@ -705,6 +859,7 @@ impl<R: BufRead> RecordReader<R> {
                     Some(xref) => Some(Current::Sour {
                         rec: SourRecord::new(xref),
                         section: SourSection::None,
+                        media: MediaParseState::default(),
                     }),
                     None => {
                         let message =
@@ -720,6 +875,27 @@ impl<R: BufRead> RecordReader<R> {
                     None => {
                         let message =
                             format!("line {}: REPO record without @XREF@ skipped", self.line_no);
+                        self.warnings.push(message);
+                        Some(Current::Skipped)
+                    }
+                };
+            }
+            "OBJE" => {
+                self.current = match line.xref {
+                    Some(xref) => {
+                        let media = vec![ParsedMediaRef::Inline(ParsedMedia::default())];
+                        Some(Current::Obj {
+                            xref: xref.to_string(),
+                            media,
+                            state: MediaParseState {
+                                slot: Some(0),
+                                field: MediaField::None,
+                            },
+                        })
+                    }
+                    None => {
+                        let message =
+                            format!("line {}: OBJE record without @XREF@ skipped", self.line_no);
                         self.warnings.push(message);
                         Some(Current::Skipped)
                     }
@@ -748,8 +924,13 @@ impl<R: BufRead> RecordReader<R> {
         let mut warning: Option<String> = None;
         match &mut self.current {
             None | Some(Current::Skipped) => {}
-            Some(Current::Sour { rec, section }) => {
+            Some(Current::Sour {
+                rec,
+                section,
+                media,
+            }) => {
                 if line.level == 1 {
+                    *media = MediaParseState::default();
                     match line.tag {
                         "TITL" => rec.title = line.payload.to_string(),
                         "AUTH" => rec.author = optional_payload(line.payload),
@@ -757,6 +938,9 @@ impl<R: BufRead> RecordReader<R> {
                         "ABBR" => rec.abbreviation = optional_payload(line.payload),
                         "NOTE" => rec.note = Some(line.payload.to_string()),
                         "DATA" => *section = SourSection::Data,
+                        "OBJE" => {
+                            start_media(&mut rec.media, media, line.payload, line_no, &mut warning);
+                        }
                         "REPO" => {
                             if is_pointer(line.payload) {
                                 rec.repositories.push(RepositoryRef {
@@ -783,6 +967,8 @@ impl<R: BufRead> RecordReader<R> {
                     if line.tag != "DATA" && line.tag != "REPO" {
                         *section = SourSection::None;
                     }
+                } else if media.slot.is_some() {
+                    media_child(&mut rec.media, media, line, line_no, 1, &mut warning);
                 } else if line.level == 2 {
                     match *section {
                         SourSection::Data => match line.tag {
@@ -800,6 +986,13 @@ impl<R: BufRead> RecordReader<R> {
                         },
                         SourSection::None => warning = Some(unknown_tag_warning(line_no, &line)),
                     }
+                } else {
+                    warning = Some(unknown_tag_warning(line_no, &line));
+                }
+            }
+            Some(Current::Obj { media, state, .. }) => {
+                if state.slot.is_some() {
+                    media_child(media, state, line, line_no, 0, &mut warning);
                 } else {
                     warning = Some(unknown_tag_warning(line_no, &line));
                 }
@@ -846,11 +1039,15 @@ impl<R: BufRead> RecordReader<R> {
                 alternate_slot,
                 in_name,
                 association_slot,
+                media,
+                event_media,
             }) => {
                 if line.level == 1 {
                     *event_slot = None;
                     *note_slot = None;
                     *association_slot = None;
+                    *media = MediaParseState::default();
+                    *event_media = MediaParseState::default();
                     *in_name = line.tag == "NAME";
                     match line.tag {
                         "NAME" => {
@@ -889,6 +1086,9 @@ impl<R: BufRead> RecordReader<R> {
                                     Some(format!("line {line_no}: ASSO without pointer ignored"));
                             }
                         }
+                        "OBJE" => {
+                            start_media(&mut rec.media, media, line.payload, line_no, &mut warning);
+                        }
                         "NOTE" => {
                             rec.notes.push(line.payload.to_string());
                             *note_slot = Some(rec.notes.len() - 1);
@@ -906,6 +1106,7 @@ impl<R: BufRead> RecordReader<R> {
                                     participants: Vec::new(),
                                     source_refs: Vec::new(),
                                     notes: Vec::new(),
+                                    media: Vec::new(),
                                 });
                                 *event_slot = Some(rec.events.len() - 1);
                             } else {
@@ -913,6 +1114,8 @@ impl<R: BufRead> RecordReader<R> {
                             }
                         }
                     }
+                } else if media.slot.is_some() {
+                    media_child(&mut rec.media, media, line, line_no, 1, &mut warning);
                 } else if let Some(slot) = *note_slot {
                     match line.tag {
                         "CONT" => append_note(&mut rec.notes, slot, line.payload, true),
@@ -977,17 +1180,28 @@ impl<R: BufRead> RecordReader<R> {
                         }
                     }
                 } else if let Some(slot) = event_slot {
-                    fill_event(&mut rec.events, *slot, line, line_no, &mut warning);
+                    fill_event(
+                        &mut rec.events,
+                        *slot,
+                        line,
+                        line_no,
+                        event_media,
+                        &mut warning,
+                    );
                 }
             }
             Some(Current::Fam {
                 rec,
                 event_slot,
                 note_slot,
+                media,
+                event_media,
             }) => {
                 if line.level == 1 {
                     *event_slot = None;
                     *note_slot = None;
+                    *media = MediaParseState::default();
+                    *event_media = MediaParseState::default();
                     match line.tag {
                         "HUSB" => {
                             rec.husband = optional_pointer(line, "HUSB", line_no, &mut warning)
@@ -995,6 +1209,9 @@ impl<R: BufRead> RecordReader<R> {
                         "WIFE" => rec.wife = optional_pointer(line, "WIFE", line_no, &mut warning),
                         "CHIL" => {
                             push_pointer(&mut rec.children, line, "CHIL", line_no, &mut warning)
+                        }
+                        "OBJE" => {
+                            start_media(&mut rec.media, media, line.payload, line_no, &mut warning);
                         }
                         "NOTE" => {
                             rec.notes.push(line.payload.to_string());
@@ -1013,6 +1230,7 @@ impl<R: BufRead> RecordReader<R> {
                                     participants: Vec::new(),
                                     source_refs: Vec::new(),
                                     notes: Vec::new(),
+                                    media: Vec::new(),
                                 });
                                 *event_slot = Some(rec.events.len() - 1);
                             } else {
@@ -1033,7 +1251,14 @@ impl<R: BufRead> RecordReader<R> {
                     // Children of an unknown level-1 tag (REFN/TYPE…).
                     warning = Some(unknown_tag_warning(line_no, &line));
                 } else if let Some(slot) = event_slot {
-                    fill_event(&mut rec.events, *slot, line, line_no, &mut warning);
+                    fill_event(
+                        &mut rec.events,
+                        *slot,
+                        line,
+                        line_no,
+                        event_media,
+                        &mut warning,
+                    );
                 }
             }
         }
@@ -1047,6 +1272,14 @@ impl<R: BufRead> RecordReader<R> {
             Some(Current::Indi { rec, .. }) => Some(Record::Indi(*rec)),
             Some(Current::Fam { rec, .. }) => Some(Record::Fam(*rec)),
             Some(Current::Sour { rec, .. }) => Some(Record::Sour(rec)),
+            Some(Current::Obj {
+                xref, mut media, ..
+            }) => match media.pop() {
+                Some(ParsedMediaRef::Inline(media)) => {
+                    Some(Record::Media(MediaRecordParse { xref, media }))
+                }
+                _ => None,
+            },
             Some(Current::Repo(repo)) => Some(Record::Repo(repo)),
             Some(Current::Skipped) | None => None,
         }
@@ -1101,11 +1334,20 @@ fn fill_event(
     slot: usize,
     line: Line<'_>,
     line_no: usize,
+    media: &mut MediaParseState,
     warning: &mut Option<String>,
 ) {
     let Some(event) = events.get_mut(slot) else {
         return;
     };
+    if line.level == 2 && line.tag == "OBJE" {
+        start_media(&mut event.media, media, line.payload, line_no, warning);
+        return;
+    }
+    if media.slot.is_some() {
+        media_child(&mut event.media, media, line, line_no, 2, warning);
+        return;
+    }
     match line.level {
         2 => match line.tag {
             "DATE" => event.date = optional_payload(line.payload),
@@ -1286,6 +1528,12 @@ struct PendingCitation {
     data_text: Option<String>,
 }
 
+/// An `OBJE @X@` pointer waiting for its media record.
+struct PendingMedia {
+    owner: MediaOwner,
+    xref: String,
+}
+
 /// An `ASSO @X@` pointer waiting for its person record.
 struct PendingAssociation {
     person_id: String,
@@ -1309,6 +1557,15 @@ pub fn import_gedcom<R: BufRead>(
     conn: &mut Connection,
     reader: R,
 ) -> Result<ImportReport, GedcomError> {
+    import_gedcom_with_base(conn, reader, None)
+}
+
+/// Imports GEDCOM, resolving relative media paths against `base_dir`.
+pub fn import_gedcom_with_base<R: BufRead>(
+    conn: &mut Connection,
+    reader: R,
+    base_dir: Option<&Path>,
+) -> Result<ImportReport, GedcomError> {
     let facts = crate::db::facts::load_fact_lookup(conn)
         .map_err(|error| GedcomError::Db(rusqlite::Error::InvalidParameterName(error)))?;
     let mut reader = RecordReader::new(reader, facts);
@@ -1325,6 +1582,8 @@ pub fn import_gedcom<R: BufRead>(
     let mut pending_participants: Vec<PendingParticipant> = Vec::new();
     let mut pending_associations: Vec<PendingAssociation> = Vec::new();
     let mut place_cache: HashMap<String, String> = HashMap::new();
+    let mut media_ids: HashMap<String, String> = HashMap::new();
+    let mut pending_media: Vec<PendingMedia> = Vec::new();
 
     // Pass 1: stream records into the tables, recording xref -> UUID mappings.
     while let Some(record) = reader.next_record()? {
@@ -1354,6 +1613,15 @@ pub fn import_gedcom<R: BufRead>(
                     ],
                 )?;
                 insert_notes(&tx, "person_id", &id, &indi.notes)?;
+                collect_media(
+                    &tx,
+                    &indi.media,
+                    MediaOwner::Person(id.clone()),
+                    &media_ids,
+                    &mut pending_media,
+                    base_dir,
+                    &mut report,
+                )?;
                 report.people += 1;
                 for association in &indi.associations {
                     pending_associations.push(PendingAssociation {
@@ -1385,6 +1653,15 @@ pub fn import_gedcom<R: BufRead>(
                 for event in &indi.events {
                     let event_id =
                         insert_event(&tx, event, Some(&id), None, &mut report, &mut place_cache)?;
+                    collect_media(
+                        &tx,
+                        &event.media,
+                        MediaOwner::Event(event_id.clone()),
+                        &media_ids,
+                        &mut pending_media,
+                        base_dir,
+                        &mut report,
+                    )?;
                     collect_participants(event, &event_id, &mut pending_participants);
                     collect_source_refs(
                         &tx,
@@ -1413,10 +1690,28 @@ pub fn import_gedcom<R: BufRead>(
                 let id = Uuid::new_v4().to_string();
                 tx.execute("INSERT INTO families (id) VALUES (?1)", [&id])?;
                 insert_notes(&tx, "family_id", &id, &fam.notes)?;
+                collect_media(
+                    &tx,
+                    &fam.media,
+                    MediaOwner::Family(id.clone()),
+                    &media_ids,
+                    &mut pending_media,
+                    base_dir,
+                    &mut report,
+                )?;
                 report.families += 1;
                 for event in &fam.events {
                     let event_id =
                         insert_event(&tx, event, None, Some(&id), &mut report, &mut place_cache)?;
+                    collect_media(
+                        &tx,
+                        &event.media,
+                        MediaOwner::Event(event_id.clone()),
+                        &media_ids,
+                        &mut pending_media,
+                        base_dir,
+                        &mut report,
+                    )?;
                     collect_participants(event, &event_id, &mut pending_participants);
                     collect_source_refs(
                         &tx,
@@ -1435,6 +1730,17 @@ pub fn import_gedcom<R: BufRead>(
                     wife: fam.wife,
                     children: fam.children,
                 });
+            }
+            Record::Media(media) => {
+                if media_ids.contains_key(&media.xref) {
+                    report
+                        .warnings
+                        .push(format!("duplicate OBJE {} skipped", media.xref));
+                    continue;
+                }
+                if let Some(id) = insert_media(&tx, &media.media, base_dir, &mut report)? {
+                    media_ids.insert(media.xref, id);
+                }
             }
             Record::Sour(sour) => {
                 if sour_meta.contains_key(&sour.xref) {
@@ -1596,6 +1902,15 @@ pub fn import_gedcom<R: BufRead>(
             continue;
         };
         let source_id = insert_source(&tx, source, &repo_ids, &mut report)?;
+        collect_media(
+            &tx,
+            &source.media,
+            MediaOwner::Source(source_id.clone()),
+            &media_ids,
+            &mut pending_media,
+            base_dir,
+            &mut report,
+        )?;
         source_ids.insert(xref.as_str(), source_id);
     }
     for citation in &pending_citations {
@@ -1645,6 +1960,15 @@ pub fn import_gedcom<R: BufRead>(
             None => report
                 .warnings
                 .push(format!("dangling ASSO pointer {}", association.xref)),
+        }
+    }
+
+    for link in pending_media {
+        match media_ids.get(&link.xref) {
+            Some(media_id) => link_media(&tx, media_id, &link.owner)?,
+            None => report
+                .warnings
+                .push(format!("dangling OBJE pointer {}", link.xref)),
         }
     }
 
@@ -1842,6 +2166,84 @@ fn insert_event(
     insert_notes(conn, "event_id", &id, &event.notes)?;
     report.events += 1;
     Ok(id)
+}
+
+fn resolve_media_path(path: &str, base_dir: Option<&Path>) -> String {
+    if Path::new(path).is_absolute() {
+        return path.to_string();
+    }
+    match base_dir {
+        Some(base_dir) => base_dir.join(path).to_string_lossy().to_string(),
+        None => path.to_string(),
+    }
+}
+
+fn insert_media(
+    conn: &Connection,
+    media: &ParsedMedia,
+    base_dir: Option<&Path>,
+    report: &mut ImportReport,
+) -> rusqlite::Result<Option<String>> {
+    let Some(file_path) = media
+        .file_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    else {
+        report
+            .warnings
+            .push("OBJE without FILE ignored".to_string());
+        return Ok(None);
+    };
+    let file_path = resolve_media_path(file_path, base_dir);
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO media (id, file_path, format, caption, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            id,
+            file_path,
+            media.format,
+            media.caption,
+            (!media.notes.is_empty()).then(|| media.notes.join("\n"))
+        ],
+    )?;
+    Ok(Some(id))
+}
+
+fn link_media(conn: &Connection, media_id: &str, owner: &MediaOwner) -> rusqlite::Result<()> {
+    let sql = format!(
+        "INSERT OR IGNORE INTO media_links (media_id, {}) VALUES (?1, ?2)",
+        owner.column()
+    );
+    conn.execute(&sql, params![media_id, owner.id()])?;
+    Ok(())
+}
+
+fn collect_media(
+    conn: &Connection,
+    media: &[ParsedMediaRef],
+    owner: MediaOwner,
+    ids: &HashMap<String, String>,
+    pending: &mut Vec<PendingMedia>,
+    base_dir: Option<&Path>,
+    report: &mut ImportReport,
+) -> rusqlite::Result<()> {
+    let _ = ids;
+    for reference in media {
+        match reference {
+            ParsedMediaRef::Pointer(xref) => pending.push(PendingMedia {
+                owner: owner.clone(),
+                xref: xref.clone(),
+            }),
+            ParsedMediaRef::Inline(media) => {
+                if let Some(media_id) = insert_media(conn, media, base_dir, report)? {
+                    link_media(conn, &media_id, &owner)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Inserts ordered notes for one owner.

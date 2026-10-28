@@ -8,6 +8,7 @@ use egui::{RichText, Ui};
 use crate::db::Person;
 use crate::db::associations::AssociationRecord;
 use crate::db::facts::PersonFact;
+use crate::db::media::MediaOwner;
 use crate::db::notes::NoteOwner;
 use crate::db::people::VitalDates;
 use crate::db::privacy::PersonPrivacy;
@@ -532,6 +533,14 @@ pub fn show(
                         action = Some(InspectorAction::AddChild);
                     }
                 });
+            });
+            card(ui, "Media", |ui| {
+                if ui.button("Manage media\u{2026}").clicked() {
+                    action = Some(InspectorAction::ManageMedia {
+                        owner: MediaOwner::Person(person.id.clone()),
+                        title: format!("Media \u{2014} {}", person_label(person, surname_first)),
+                    });
+                }
             });
             card(ui, "Notes", |ui| {
                 if ui.button("Edit notes\u{2026}").clicked() {

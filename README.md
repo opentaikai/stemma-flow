@@ -68,8 +68,11 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   canonical citation to any number of person or family events.
   `load_vital_dates` and
   `load_marriage_details` join the place name for the existing inspector
-  and watch-list views. Media and task links are typed, cascading rows;
-  groups hold people.
+  and watch-list views. `media` stores external file paths, format,
+  caption and notes; typed `media_links` rows attach one media record to a
+  person, family, event/fact, source, citation or place and cascade with
+  either side. Media and task links are typed, cascading rows; groups hold
+  people.
 
 Relationships are modelled through events and the `family_children` junction
 table. Foreign keys cascade deletes from people/families down to events,
@@ -132,9 +135,9 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   row in `notes`; multiple notes are kept. Place notes remain app-only.
   Person-level `1 ASSO @I@` links keep their `2 RELA` label, including
   `CONT`/`CONC` continuations; missing labels default to `Associate`.
-  Shared `0 @N@ NOTE` records, event-level `ASSO` and every other tag the
-  importer recognises but does not model — `REFN`, `OBJE`, unknown level-0
-  records — are logged as a
+  Shared `0 @N@ NOTE` records, event-level `ASSO`, citation/place media and
+  every other tag the importer recognises but does not model — `REFN`,
+  unknown level-0 records — are logged as a
   non-fatal `Line N: Tag recognized/unsupported or ignored [TAG value]`
   warning (payload truncated to 100 characters) and the import continues.
 - Source records are first class: every `0 @S@ SOUR` keeps its own
@@ -144,7 +147,11 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   `QUAY`, `NOTE`, `MEDI` and `DATA` (`DATE`/`TEXT`), plus a link to its
   event; a citation data date never overwrites the event date. Inline
   `2 SOUR text` sources are deduplicated only within one import, while
-  repeated event citations stay separate records.
+  repeated event citations stay separate records. Shared `0 @M@ OBJE`
+  records and inline `OBJE` blocks on people, families, facts and sources
+  import their `FILE`, `FORM`, `TITL` and `NOTE` values; relative file paths
+  are resolved against the GEDCOM directory. Extra files in one `OBJE` and
+  dangling media pointers are warned about.
 - Warnings never block an import: the status bar appends the count
   (`…, N warnings`) to every finished import, and an import that logged
   any warnings also opens the **Import Report** window
@@ -152,8 +159,8 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   full text on hover, sized for the thousands of warnings a large
   WikiTree export produces.
 - `gedcom::export_to_gedcom(&conn)` serialises `people`, `families`,
-  `family_children`, `events`, `sources` and `citations` back into a
-  deterministic GEDCOM 5.5.1 document. Every citation is written for each
+  `family_children`, `events`, `sources`, `citations` and linked media back
+  into a deterministic GEDCOM 5.5.1 document. Every citation is written for each
   event it supports, including family marriages; the document starts with a
   `LINEAGE-LINKED` `HEAD`, one
   `REPO` record per repository, one `SOUR` record per source with `AUTH`,
@@ -175,7 +182,9 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   people, families, facts and citations, so notes round-trip losslessly;
   place notes remain local to the tree. Associations export as `1 ASSO` +
   `2 RELA` after the person's family links and are omitted when either
-  person is filtered out. Dates are canonicalised on the way out
+  person is filtered out. Visible media export as shared `0 @M@ OBJE`
+  records with `FILE`/`FORM`/`TITL`/`NOTE`, linked from people, families,
+  facts and sources; media with no visible owner is omitted. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
   written as a single-line `(date phrase)` instead, so a dirty date can
   never corrupt a record.
@@ -248,9 +257,9 @@ win. Included private or living people carry `1 RESN privacy`, and
 included private events carry `2 _PRIV Y`. Family links to hidden people
 are removed, and families with no visible member are not exported.
 
-## Graph View, Watch List, Places, Fact Types, Sources & inspector
+## Graph View, Watch List, Places, Media, Fact Types, Sources & inspector
 
-With a tree open the `eframe` window (1200x800) shows a tab bar with six
+With a tree open the `eframe` window (1200x800) shows a tab bar with seven
 views (the app always launches on Graph View):
 
 - **Graph View** — the interactive canvas: opening (or reloading) a tree
@@ -292,6 +301,15 @@ views (the app always launches on Graph View):
   name and GEDCOM output keep the canonical order. Coordinates round-trip through
   `MAP`/`LATI`/`LONG`; place notes open in the shared notes dialog and
   remain local to the tree.
+- **Media** — a filterable media list with cached image thumbnails and
+  format/path fallbacks, a missing-file marker and link counts. The editor
+  stores an external file path, format, caption and notes; **Browse…**
+  fills path/format/caption from a chosen file. Deleting a record cascades
+  its attachments. **Media…** dialogs on person, family, fact, source and
+  place records list attached media, attach existing records, add a file
+  directly and detach links. Place and citation media remain app-only;
+  relative paths, copying files into the tree and broken-link repair are
+  deferred.
 - **Fact Types** — a filterable, sortable grid of the built-in and custom
   fact types with category, scope, kind, GEDCOM tag, role count and event
   usage, plus an editor. Custom types get an immutable generated key and a
@@ -358,8 +376,9 @@ views (the app always launches on Graph View):
   every family the person belongs to, an **Associations** card lists
   directed links with relationship labels and opens a dialog to search
   people and add, edit or delete them, **Vital Facts** and **Other Facts**
-  expose their event notes, and the **Notes** card opens a shared dialog
-  for adding, editing and deleting notes. Profile and vital fields still
+  expose their event notes and media, and a **Media** card opens the
+  attachment dialog; the **Notes** card opens a shared dialog for adding,
+  editing and deleting notes. Profile and vital fields still
   commit together on save; notes save independently.
 
 `src/gui` builds it from straight SQLite data each time an import or person

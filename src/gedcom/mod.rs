@@ -7,7 +7,7 @@ pub mod import;
 mod tests;
 
 pub use export::{ExportOptions, export_to_gedcom, export_to_gedcom_with_options};
-pub use import::import_gedcom;
+pub use import::{import_gedcom, import_gedcom_with_base};
 
 use thiserror::Error;
 

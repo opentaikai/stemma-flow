@@ -41,3 +41,16 @@ pub fn pick_tree_open_path() -> Option<PathBuf> {
         .add_filter("SQLite Database", &["db", "sqlite"])
         .pick_file()
 }
+
+/// Opens the native picker for an external media file.
+pub fn pick_media_path() -> Option<PathBuf> {
+    FileDialog::new()
+        .add_filter(
+            "Media",
+            &[
+                "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "pdf", "mp3", "mp4",
+                "wav", "mov",
+            ],
+        )
+        .pick_file()
+}
