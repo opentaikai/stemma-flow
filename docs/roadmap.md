@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v14: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes, v14 associations |
+| Schema v2-v15: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes, v14 associations, v15 event associations |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
@@ -98,7 +98,7 @@ places, facts, alternate names and notes as first-class records.
 | Associations (friends, associates, neighbours) | done | P2 | Directed links, relationship labels and person ASSO/RELA GEDCOM |
 | Media records and links to people, families, facts, sources and places | done | P1 | Media tab, external paths, thumbnails, attachment dialog and OBJE round-trip |
 | Task and group tables | done | P1 | Tables, link tables and Research UI |
-| Migrations and GEDCOM mapping for every new entity | planned | P0 | Fidelity tests required |
+| Migrations and GEDCOM mapping for every new entity | done | P0 | Migration matrix, kitchen-sink fidelity harness and custom research tags |
 
 ## M2 - Editing and navigation (P0)
 
@@ -225,7 +225,8 @@ long research sessions.
 
 - Schema versioning with forward-only migrations and migration tests.
 - GEDCOM fidelity harness: import -> export -> import comparisons for
-  every new entity.
+  every new entity, with custom `_TASK`/`_GROUP`/`_PLACE` extensions for
+  research data.
 - Privacy by default: living people and private facts are excluded from
   exports unless the user opts in; report privacy remains future work.
 - No network access unless a feature is explicitly enabled.

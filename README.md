@@ -20,8 +20,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (26 tables, 44
-  indexes) and records its version in `PRAGMA user_version` (currently 14):
+- `db::init_db(&conn)` creates or upgrades the schema (27 tables, 46
+  indexes) and records its version in `PRAGMA user_version` (currently 15):
   `people`, `alternate_names`, `tree_settings`, `notes`, `associations`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
@@ -35,7 +35,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   event participants, v10 person/event privacy with living overrides,
   v11 primary name pieces plus alternate names, v12 per-tree display
   settings, v13 first-class notes migrated out of the person, place and
-  citation columns, and v14 directed person associations.
+  citation columns, v14 directed person associations, and v15 event
+  associations.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -54,7 +55,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   ordered plain-text notes for people, families, events/facts, citations and
   places; each note has exactly one owner and cascades with it.
   `associations` stores directed person-to-person links with a free-text
-  relationship label such as Friend, Neighbour or Godparent.
+  relationship label such as Friend, Neighbour or Godparent;
+  `event_associations` stores the same labels on a fact/event.
   `fact_types` carries the 61 built-in person/family event and attribute
   definitions, including their GEDCOM tags and scope; `fact_type_roles`
   holds user-defined roles for each type. `event_participants` links
@@ -136,11 +138,11 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   byte-identical). Every inline `NOTE` on an `INDI`, `FAM`, event/fact or
   citation — including its `CONT`/`CONC` continuations — becomes an ordered
   row in `notes`; multiple notes are kept. Place notes remain app-only.
-  Person-level `1 ASSO @I@` links keep their `2 RELA` label, including
-  `CONT`/`CONC` continuations; missing labels default to `Associate`.
-  Shared `0 @N@ NOTE` records, event-level `ASSO`, citation/place media and
-  every other tag the importer recognises but does not model — `REFN`,
-  unknown level-0 records — are logged as a
+  Person-level and event-level `ASSO` links keep their `RELA` label,
+  including `CONT`/`CONC` continuations; missing labels default to
+  `Associate`. Shared `0 @N@ NOTE` records are resolved into each owner's
+  notes. Every other tag the importer recognises but does not model —
+  `REFN`, unknown level-0 records — is logged as a
   non-fatal `Line N: Tag recognized/unsupported or ignored [TAG value]`
   warning (payload truncated to 100 characters) and the import continues.
 - Source records are first class: every `0 @S@ SOUR` keeps its own
@@ -151,10 +153,12 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   event; a citation data date never overwrites the event date. Inline
   `2 SOUR text` sources are deduplicated only within one import, while
   repeated event citations stay separate records. Shared `0 @M@ OBJE`
-  records and inline `OBJE` blocks on people, families, facts and sources
-  import their `FILE`, `FORM`, `TITL` and `NOTE` values; relative file paths
-  are resolved against the GEDCOM directory. Extra files in one `OBJE` and
-  dangling media pointers are warned about.
+  records and inline `OBJE` blocks on people, families, facts, sources,
+  citations and places import their `FILE`, `FORM`, `TITL` and `NOTE`
+  values; each `FILE` becomes its own media row and relative paths resolve
+  against the GEDCOM directory. Custom `0 @P@ _PLACE` records carry place
+  coordinates, notes, media and task links even when no event uses the
+  place.
 - Warnings never block an import: the status bar appends the count
   (`…, N warnings`) to every finished import, and an import that logged
   any warnings also opens the **Import Report** window
@@ -171,7 +175,7 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   those columns from their fields when saved), then `INDI` and `FAM`
   records and finally `TRLR`. Events read their `2 PLAC` from the linked
   place record; stored coordinates are written as `3 MAP` with `4 LATI` and
-  `4 LONG`, while place notes remain app-only. Fact types and attributes such
+  `4 LONG`. Fact types and attributes such
   as `OCCU`, `CENS`, `BURI` and `DIV` round-trip, including custom types with
   their stored GEDCOM tags; attribute values are stored in
   `events.description`. Multiple `NAME` records round-trip with `NPFX`/
@@ -183,11 +187,15 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   when included, and family links are limited to visible people. Stored
   notes travel as inline `NOTE` lines with `CONT` continuations on
   people, families, facts and citations, so notes round-trip losslessly;
-  place notes remain local to the tree. Associations export as `1 ASSO` +
-  `2 RELA` after the person's family links and are omitted when either
-  person is filtered out. Visible media export as shared `0 @M@ OBJE`
-  records with `FILE`/`FORM`/`TITL`/`NOTE`, linked from people, families,
-  facts and sources; media with no visible owner is omitted. Dates are canonicalised on the way out
+  Places also get `_PLACE` records with coordinates, notes, media and task
+  links. Associations export as `1 ASSO` + `2 RELA` on people and events and
+  are omitted when either person is filtered out. Visible media export as
+  shared `0 @M@ OBJE` records with `FILE`/`FORM`/`TITL`/`NOTE`, linked from
+  people, families, facts, sources, citations and places; media with no
+  visible owner is omitted. Tasks and groups use documented custom records:
+  `_TASK` with `TITL`/`NOTE`/`_STATUS`/`_PRIO`/`_FOLDER`/`_DUE`/`_DONE`,
+  `_TASK @T@` links on owners, and `_GROUP` records with `_MEMBER @I@`.
+  Custom records re-import without warnings but are ignored by other apps. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
   written as a single-line `(date phrase)` instead, so a dirty date can
   never corrupt a record.
@@ -310,9 +318,9 @@ views (the app always launches on Graph View):
   fills path/format/caption from a chosen file. Deleting a record cascades
   its attachments. **Media…** dialogs on person, family, fact, source and
   place records list attached media, attach existing records, add a file
-  directly and detach links. Place and citation media remain app-only;
-  relative paths, copying files into the tree and broken-link repair are
-  deferred.
+  directly and detach links. Citation/place media now round-trip through
+  GEDCOM; relative paths, copying files into the tree and broken-link repair
+  remain deferred.
 - **Research** — sub-tabs for **Tasks** and **Groups**. Tasks form a
   research log with title/goal, description/results, open/done status,
   priority, folder, due date, completion time and linked-record counts;
