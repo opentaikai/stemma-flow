@@ -98,6 +98,9 @@ impl TreeWindow {
             self.pending_participants = None;
             self.person_privacy = None;
             self.notes = crate::gui::notes::NotesState::default();
+            self.associations.clear();
+            self.associations_owner = None;
+            self.pending_association = None;
         } else if generation_changed {
             self.places.loaded = false;
             self.fact_types.loaded = false;

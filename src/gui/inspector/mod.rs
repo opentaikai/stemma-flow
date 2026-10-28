@@ -67,6 +67,12 @@ pub enum InspectorAction {
         event_id: String,
         private: bool,
     },
+    /// Open the new-association dialog.
+    AddAssociation,
+    /// Edit the label of an existing association.
+    EditAssociation(String),
+    /// Delete one association.
+    DeleteAssociation(String),
     /// Open the shared notes dialog for one record.
     OpenNotes {
         owner: NoteOwner,
@@ -291,6 +297,7 @@ mod tests {
                 &mut form,
                 None,
                 Connections::default(),
+                &[],
                 &mut CitationsState::default(),
                 &facts,
                 None,
@@ -346,6 +353,7 @@ mod tests {
                 &mut form,
                 None,
                 Connections::default(),
+                &[],
                 &mut CitationsState::default(),
                 &[],
                 Some(&privacy),

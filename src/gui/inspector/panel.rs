@@ -6,6 +6,7 @@ use crate::gui::names::{self, NamesEvent, NamesState};
 use egui::{RichText, Ui};
 
 use crate::db::Person;
+use crate::db::associations::AssociationRecord;
 use crate::db::facts::PersonFact;
 use crate::db::notes::NoteOwner;
 use crate::db::people::VitalDates;
@@ -131,6 +132,7 @@ pub fn show(
     form: &mut InspectorForm,
     dates: Option<&VitalDates>,
     connections: Connections,
+    associations: &[AssociationRecord],
     citations: &mut CitationsState,
     facts: &[PersonFact],
     privacy: Option<&PersonPrivacy>,
@@ -212,6 +214,33 @@ pub fn show(
                     }
                 });
             }
+            card(ui, "Associations", |ui| {
+                if associations.is_empty() {
+                    ui.label(RichText::new("(none)").weak().size(12.0));
+                }
+                for association in associations {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(&association.relationship).strong());
+                        if ui
+                            .link(&association.associate_name)
+                            .on_hover_text("Focus this person")
+                            .clicked()
+                        {
+                            action = Some(InspectorAction::Focus(association.associate_id.clone()));
+                        }
+                        if ui.small_button("Edit").clicked() {
+                            action = Some(InspectorAction::EditAssociation(association.id.clone()));
+                        }
+                        if ui.small_button("Delete").clicked() {
+                            action =
+                                Some(InspectorAction::DeleteAssociation(association.id.clone()));
+                        }
+                    });
+                }
+                if ui.button("+ Add Association").clicked() {
+                    action = Some(InspectorAction::AddAssociation);
+                }
+            });
             card(ui, "Other Facts", |ui| {
                 if facts.is_empty() {
                     ui.label(RichText::new("(none)").weak().size(12.0));

@@ -5,6 +5,7 @@ use crate::app::UiStatus;
 use crate::db::notes::NoteOwner;
 use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
+use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
 use crate::gui::citations::CitationDraft;
 use crate::gui::dialogs;
 use crate::gui::export_dialog;
@@ -504,6 +505,7 @@ impl TreeWindow {
         self.sync_inspector_form();
         self.sync_citations();
         self.sync_alternate_names();
+        self.sync_associations();
         let Some(person_id) = self.app.selected_person_id().map(str::to_string) else {
             return;
         };
@@ -521,6 +523,7 @@ impl TreeWindow {
         if self.config.reverse_place_names {
             inspector::reverse_marriage_places(&mut connections);
         }
+        let associations = self.associations.clone();
         let facts = self
             .person_facts
             .get(&person_id)
@@ -532,6 +535,7 @@ impl TreeWindow {
             &mut self.inspector,
             self.dates.get(&person_id),
             connections,
+            &associations,
             &mut self.citations,
             &facts,
             self.person_privacy.as_ref(),
@@ -624,6 +628,23 @@ impl TreeWindow {
                     Err(message) => self.app.set_status(UiStatus::Error(message)),
                 }
             }
+            InspectorAction::AddAssociation => {
+                self.pending_association =
+                    Some(associations_dialog::AssociationForm::new(person_id));
+            }
+            InspectorAction::EditAssociation(id) => {
+                if let Some(record) = self.associations.iter().find(|record| record.id == id) {
+                    self.pending_association =
+                        Some(associations_dialog::AssociationForm::from_record(record));
+                }
+            }
+            InspectorAction::DeleteAssociation(id) => match self.app.delete_association(&id) {
+                Ok(()) => {
+                    self.associations_owner = None;
+                    self.sync_associations();
+                }
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            },
             InspectorAction::OpenNotes { owner, title } => self.open_notes(owner, title),
             InspectorAction::SaveAlternateName(draft) => {
                 match self.app.save_alternate_name(person_id, &draft) {
@@ -678,6 +699,50 @@ impl TreeWindow {
                 }
             }
             Err(message) => self.notes.error = Some(message),
+        }
+    }
+
+    pub(super) fn sync_associations(&mut self) {
+        let current = self.app.selected_person_id().map(str::to_string);
+        if self.associations_owner == current {
+            return;
+        }
+        self.associations_owner = current.clone();
+        let Some(person_id) = current else {
+            self.associations.clear();
+            return;
+        };
+        match self
+            .app
+            .list_associations(&person_id, self.tree_settings.surname_first)
+        {
+            Ok(associations) => self.associations = associations,
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn show_association_window(&mut self, ctx: &egui::Context) {
+        let Some(mut form) = self.pending_association.take() else {
+            return;
+        };
+        match associations_dialog::show(
+            ctx,
+            &mut form,
+            &self.tree,
+            self.tree_settings.surname_first,
+        ) {
+            None => self.pending_association = Some(form),
+            Some(AssociationOutcome::Cancel) => {}
+            Some(AssociationOutcome::Save(draft)) => match self.app.save_association(&draft) {
+                Ok(_) => {
+                    self.associations_owner = None;
+                    self.sync_associations();
+                }
+                Err(message) => {
+                    form.error = Some(message);
+                    self.pending_association = Some(form);
+                }
+            },
         }
     }
 
@@ -895,6 +960,7 @@ impl TreeWindow {
         match self.app.set_surname_first(surname_first) {
             Ok(()) => {
                 self.tree_settings.surname_first = surname_first;
+                self.associations_owner = None;
                 self.places.loaded = false;
                 self.pending_participants = None;
                 self.reload_scene_quiet();
