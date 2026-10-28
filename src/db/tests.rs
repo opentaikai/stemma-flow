@@ -1316,6 +1316,37 @@ fn init_db_migrates_event_associations_to_v15() -> rusqlite::Result<()> {
 }
 
 #[test]
+fn migration_versions_rerun_safely_to_current() -> rusqlite::Result<()> {
+    for version in 2..=14 {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        init_db(&conn)?;
+        conn.pragma_update(None, "user_version", version)?;
+        init_db(&conn)?;
+        let current: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        assert_eq!(current, 15, "version {version} upgrades to current");
+        assert_eq!(
+            scalar_count(
+                &conn,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'notes'",
+            )?,
+            1,
+            "notes table exists after upgrading from {version}"
+        );
+        assert_eq!(
+            scalar_count(
+                &conn,
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'event_associations'",
+            )?,
+            1,
+            "event associations exist after upgrading from {version}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn init_db_rejects_a_newer_schema() -> rusqlite::Result<()> {
     let conn = setup_test_db()?;
     conn.pragma_update(None, "user_version", 99)?;
