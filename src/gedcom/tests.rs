@@ -1338,6 +1338,46 @@ fn association_import_defaults_and_warns_on_bad_pointers() -> Result<(), GedcomE
     Ok(())
 }
 
+#[test]
+fn association_export_skips_hidden_people() -> Result<(), GedcomError> {
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let ada = crate::db::people::insert_person(
+        &mut conn,
+        &crate::db::people::PersonDetails::new("Ada", "", "King", "", "F", None, None),
+    )
+    .expect("Ada inserts");
+    let charles = crate::db::people::insert_person(
+        &mut conn,
+        &crate::db::people::PersonDetails::new("Charles", "", "Babbage", "", "M", None, None),
+    )
+    .expect("Charles inserts");
+    crate::db::associations::save_association(
+        &mut conn,
+        &crate::db::associations::AssociationDraft {
+            id: None,
+            person_id: ada,
+            associate_id: charles,
+            relationship: "Friend".to_string(),
+        },
+    )
+    .expect("association saves");
+    conn.execute(
+        "UPDATE people SET private = 1 WHERE surname = 'Babbage'",
+        [],
+    )
+    .map_err(GedcomError::Db)?;
+
+    let ged = crate::gedcom::export_to_gedcom_with_options(
+        &conn,
+        &crate::gedcom::ExportOptions::default(),
+    )?;
+    assert!(
+        !ged.contains("1 ASSO"),
+        "hidden associate is omitted: {ged}"
+    );
+    Ok(())
+}
+
 /// "Иван" and "Иванов" encoded as Windows-1251 bytes.
 const CP1251_IVAN: [u8; 4] = [0xC8, 0xE2, 0xE0, 0xED];
 const CP1251_IVANOV: [u8; 6] = [0xC8, 0xE2, 0xE0, 0xED, 0xEE, 0xE2];
