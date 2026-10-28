@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -259,6 +259,26 @@ pub(super) const V5_COLUMNS: [(&str, &str, &str); 3] = [
     ("sources", "bibliography", "TEXT"),
 ];
 
+/// Additional names for a person.
+pub(super) const ALTERNATE_NAMES_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS alternate_names (
+    id TEXT PRIMARY KEY,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    name_type TEXT NOT NULL DEFAULT 'aka',
+    prefix TEXT NOT NULL DEFAULT '',
+    given_name TEXT NOT NULL DEFAULT '',
+    middle_name TEXT NOT NULL DEFAULT '',
+    surname TEXT NOT NULL DEFAULT '',
+    suffix TEXT NOT NULL DEFAULT '',
+    nickname TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+"#;
+
+pub(super) const ALTERNATE_NAMES_INDEX_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_alternate_names_person ON alternate_names(person_id);
+"#;
+
 /// Roles belong to one fact type and feed future shared events.
 pub(super) const FACT_ROLES_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS fact_type_roles (
@@ -387,7 +407,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v6_to_v7(conn)?;
         super::migrations::migrate_v7_to_v8(conn)?;
         super::migrations::migrate_v8_to_v9(conn)?;
-        return super::migrations::migrate_v9_to_v10(conn);
+        super::migrations::migrate_v9_to_v10(conn)?;
+        return super::migrations::migrate_v10_to_v11(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -418,9 +439,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 9 {
             super::migrations::migrate_v8_to_v9(conn)?;
         }
-        return super::migrations::migrate_v9_to_v10(conn);
+        if version < 10 {
+            super::migrations::migrate_v9_to_v10(conn)?;
+        }
+        return super::migrations::migrate_v10_to_v11(conn);
     }
-    ensure_v10(conn)
+    ensure_v11(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -434,7 +458,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v10(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v11(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
@@ -492,6 +516,10 @@ fn ensure_v10(conn: &Connection) -> rusqlite::Result<()> {
         "private",
         "INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1))",
     )?;
+    ensure_column(conn, "people", "name_prefix", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "people", "name_suffix", "TEXT NOT NULL DEFAULT ''")?;
+    conn.execute_batch(ALTERNATE_NAMES_TABLE_SQL)?;
+    conn.execute_batch(ALTERNATE_NAMES_INDEX_SQL)?;
     Ok(())
 }
 

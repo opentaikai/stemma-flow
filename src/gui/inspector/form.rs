@@ -12,6 +12,8 @@ pub struct InspectorForm {
     pub middle_name: String,
     pub surname: String,
     pub nickname: String,
+    pub name_prefix: String,
+    pub name_suffix: String,
     pub gender: String,
     pub birth: String,
     pub birth_place: String,
@@ -27,6 +29,8 @@ impl Default for InspectorForm {
             middle_name: String::new(),
             surname: String::new(),
             nickname: String::new(),
+            name_prefix: String::new(),
+            name_suffix: String::new(),
             gender: "U".to_string(),
             birth: String::new(),
             birth_place: String::new(),
@@ -46,6 +50,8 @@ impl InspectorForm {
             middle_name: person.middle_name.clone(),
             surname: person.surname.clone(),
             nickname: person.nickname.clone(),
+            name_prefix: person.name_prefix.clone(),
+            name_suffix: person.name_suffix.clone(),
             gender: person.gender.clone(),
             birth: vitals
                 .and_then(|vitals| vitals.birth.clone())
@@ -74,6 +80,8 @@ impl InspectorForm {
             blank_to_none(&self.birth),
             blank_to_none(&self.death),
         );
+        details.name_prefix = self.name_prefix.trim().to_string();
+        details.name_suffix = self.name_suffix.trim().to_string();
         details.birth_place = blank_to_none(&self.birth_place);
         details.death_place = blank_to_none(&self.death_place);
         details.notes = self.notes.trim().to_string();

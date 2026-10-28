@@ -20,6 +20,10 @@ pub struct PersonDetails {
     pub surname: String,
     /// Preferred given name or nickname (GEDCOM `_PGVN`/`NICK`).
     pub nickname: String,
+    /// GEDCOM `NPFX` name prefix.
+    pub name_prefix: String,
+    /// GEDCOM `NSFX` name suffix.
+    pub name_suffix: String,
     /// One of `"M"`, `"F"`, `"U"` (enforced by a CHECK constraint).
     pub gender: String,
     pub birth_date: Option<String>,
@@ -45,6 +49,8 @@ impl PersonDetails {
             middle_name: middle_name.into().trim().to_string(),
             surname: surname.into().trim().to_string(),
             nickname: nickname.into().trim().to_string(),
+            name_prefix: String::new(),
+            name_suffix: String::new(),
             gender: gender.into(),
             birth_date: clean(birth_date),
             birth_place: None,
@@ -75,15 +81,13 @@ impl PersonDetails {
 
     /// Name used in status messages; falls back for blank records.
     pub fn display_name(&self) -> String {
-        let combined = [
-            self.given_name.as_str(),
-            self.middle_name.as_str(),
-            self.surname.as_str(),
-        ]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
+        let combined = crate::model::name::full_name(
+            &self.name_prefix,
+            &self.given_name,
+            &self.middle_name,
+            &self.surname,
+            &self.name_suffix,
+        );
         if combined.is_empty() {
             "(unnamed)".to_string()
         } else {
@@ -135,6 +139,8 @@ fn normalize(details: &PersonDetails) -> Result<PersonDetails, String> {
     let mut normalized = details.clone();
     normalized.birth_date = normalize_date(details.birth_date.as_deref(), "Birth date")?;
     normalized.death_date = normalize_date(details.death_date.as_deref(), "Death date")?;
+    normalized.name_prefix = normalized.name_prefix.trim().to_string();
+    normalized.name_suffix = normalized.name_suffix.trim().to_string();
     Ok(normalized)
 }
 
@@ -184,13 +190,16 @@ pub fn update_person(
     let changed = tx
         .execute(
             "UPDATE people SET given_name = ?1, middle_name = ?2, surname = ?3,
-             nickname = ?4, gender = ?5, notes = ?6, updated_at = datetime('now')
-             WHERE id = ?7",
+             nickname = ?4, name_prefix = ?5, name_suffix = ?6, gender = ?7,
+             notes = ?8, updated_at = datetime('now')
+             WHERE id = ?9",
             params![
                 details.given_name,
                 details.middle_name,
                 details.surname,
                 details.nickname,
+                details.name_prefix,
+                details.name_suffix,
                 details.gender,
                 details.notes,
                 person_id
@@ -602,14 +611,18 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
 fn write_person(conn: &Connection, details: &PersonDetails) -> Result<String, String> {
     let id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender, notes)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO people
+         (id, given_name, middle_name, surname, nickname, name_prefix, name_suffix,
+          gender, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             id,
             details.given_name,
             details.middle_name,
             details.surname,
             details.nickname,
+            details.name_prefix,
+            details.name_suffix,
             details.gender,
             details.notes
         ],
@@ -787,6 +800,33 @@ mod tests {
         assert_eq!(trimmed.death_date.as_deref(), Some("1815"));
         assert_eq!(trimmed.display_name(), "Ada Lynn King");
         assert_eq!(PersonDetails::unnamed().display_name(), "(unnamed)");
+    }
+
+    #[test]
+    fn stores_primary_prefix_and_suffix() {
+        let mut conn = connection();
+        let mut profile = details("Ada", "F");
+        profile.name_prefix = "  Dr. ".to_string();
+        profile.name_suffix = " Jr.  ".to_string();
+        let id = insert_person(&mut conn, &profile).expect("insert succeeds");
+        let (prefix, suffix): (String, String) = conn
+            .query_row(
+                "SELECT name_prefix, name_suffix FROM people WHERE id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("name pieces");
+        assert_eq!(prefix, "Dr.");
+        assert_eq!(suffix, "Jr.");
+        assert_eq!(
+            PersonDetails {
+                name_prefix: prefix,
+                name_suffix: suffix,
+                ..profile
+            }
+            .display_name(),
+            "Dr. Ada Tester Jr."
+        );
     }
 
     #[test]

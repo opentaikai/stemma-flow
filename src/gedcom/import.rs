@@ -76,6 +76,9 @@ pub(crate) struct IndiRecord {
     pub surname: String,
     /// `2 _PGVN`/`2 NICK` preferred given name or nickname.
     pub nickname: String,
+    pub name_prefix: String,
+    pub name_suffix: String,
+    pub alternate_names: Vec<ParsedAlternateName>,
     pub gender: String,
     /// First `1 NOTE` block, including `2 CONT`/`2 CONC` continuations;
     /// later note blocks on the same person are ignored.
@@ -84,6 +87,18 @@ pub(crate) struct IndiRecord {
     pub famc: Vec<String>,
     pub fams: Vec<String>,
     pub private: bool,
+}
+
+/// A secondary `1 NAME` record on a person.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParsedAlternateName {
+    pub name_type: Option<String>,
+    pub prefix: String,
+    pub given_name: String,
+    pub middle_name: String,
+    pub surname: String,
+    pub suffix: String,
+    pub nickname: String,
 }
 
 /// A parsed `0 @F1@ FAM` record.
@@ -171,6 +186,9 @@ impl IndiRecord {
             middle_name: String::new(),
             surname: String::new(),
             nickname: String::new(),
+            name_prefix: String::new(),
+            name_suffix: String::new(),
+            alternate_names: Vec::new(),
             gender: "U".to_string(),
             note: None,
             events: Vec::new(),
@@ -306,6 +324,9 @@ enum Current {
         event_slot: Option<usize>,
         /// True while level-2 lines belong to the person's first `1 NOTE`.
         in_note: bool,
+        name_seen: bool,
+        alternate_slot: Option<usize>,
+        in_name: bool,
     },
     Fam {
         rec: Box<FamRecord>,
@@ -626,6 +647,9 @@ impl<R: BufRead> RecordReader<R> {
                         rec: Box::new(IndiRecord::new(xref)),
                         event_slot: None,
                         in_note: false,
+                        name_seen: false,
+                        alternate_slot: None,
+                        in_name: false,
                     }),
                     None => {
                         let message =
@@ -791,15 +815,34 @@ impl<R: BufRead> RecordReader<R> {
                 rec,
                 event_slot,
                 in_note,
+                name_seen,
+                alternate_slot,
+                in_name,
             }) => {
                 if line.level == 1 {
                     *event_slot = None;
                     *in_note = false;
+                    *in_name = line.tag == "NAME";
                     match line.tag {
                         "NAME" => {
                             let (given_name, surname) = parse_name(line.payload);
-                            rec.given_name = given_name;
-                            rec.surname = surname;
+                            if !*name_seen {
+                                rec.given_name = given_name;
+                                rec.surname = surname;
+                                *name_seen = true;
+                                *alternate_slot = None;
+                            } else {
+                                rec.alternate_names.push(ParsedAlternateName {
+                                    name_type: None,
+                                    prefix: String::new(),
+                                    given_name,
+                                    middle_name: String::new(),
+                                    surname,
+                                    suffix: String::new(),
+                                    nickname: String::new(),
+                                });
+                                *alternate_slot = Some(rec.alternate_names.len() - 1);
+                            }
                         }
                         "SEX" => rec.gender = normalize_gender(line.payload),
                         "RESN" => rec.private = !line.payload.trim().is_empty(),
@@ -844,12 +887,39 @@ impl<R: BufRead> RecordReader<R> {
                 } else if event_slot.is_none() {
                     // Name-part children of `1 NAME` (GIVN/SURN/_MIDN/_PGVN…)
                     // land here because events are closed by the level-1 line.
-                    match line.tag {
-                        "GIVN" => rec.given_name = line.payload.to_string(),
-                        "SURN" => rec.surname = line.payload.to_string(),
-                        "_MIDN" => rec.middle_name = line.payload.to_string(),
-                        "_PGVN" | "NICK" => rec.nickname = line.payload.to_string(),
-                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                    if !*in_name {
+                        warning = Some(unknown_tag_warning(line_no, &line));
+                    } else {
+                        match alternate_slot {
+                            Some(slot) => {
+                                if let Some(name) = rec.alternate_names.get_mut(*slot) {
+                                    match line.tag {
+                                        "NPFX" => name.prefix = line.payload.to_string(),
+                                        "NSFX" => name.suffix = line.payload.to_string(),
+                                        "GIVN" => name.given_name = line.payload.to_string(),
+                                        "SURN" => name.surname = line.payload.to_string(),
+                                        "_MIDN" => name.middle_name = line.payload.to_string(),
+                                        "_PGVN" | "NICK" => {
+                                            name.nickname = line.payload.to_string()
+                                        }
+                                        "TYPE" => name.name_type = optional_payload(line.payload),
+                                        _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                                    }
+                                } else {
+                                    warning = Some(unknown_tag_warning(line_no, &line));
+                                }
+                            }
+                            None => match line.tag {
+                                "NPFX" => rec.name_prefix = line.payload.to_string(),
+                                "NSFX" => rec.name_suffix = line.payload.to_string(),
+                                "GIVN" => rec.given_name = line.payload.to_string(),
+                                "SURN" => rec.surname = line.payload.to_string(),
+                                "_MIDN" => rec.middle_name = line.payload.to_string(),
+                                "_PGVN" | "NICK" => rec.nickname = line.payload.to_string(),
+                                "TYPE" => {}
+                                _ => warning = Some(unknown_tag_warning(line_no, &line)),
+                            },
+                        }
                     }
                 } else if let Some(slot) = event_slot {
                     fill_event(&mut rec.events, *slot, line, line_no, &mut warning);
@@ -1145,20 +1215,43 @@ pub fn import_gedcom<R: BufRead>(
                 let id = Uuid::new_v4().to_string();
                 tx.execute(
                     "INSERT INTO people
-                     (id, given_name, middle_name, surname, nickname, gender, notes, private)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     (id, given_name, middle_name, surname, nickname, name_prefix,
+                      name_suffix, gender, notes, private)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
                         id,
                         indi.given_name,
                         indi.middle_name,
                         indi.surname,
                         indi.nickname,
+                        indi.name_prefix,
+                        indi.name_suffix,
                         indi.gender,
                         indi.note.unwrap_or_default(),
                         indi.private as i64
                     ],
                 )?;
                 report.people += 1;
+                for (index, name) in indi.alternate_names.iter().enumerate() {
+                    tx.execute(
+                        "INSERT INTO alternate_names
+                         (id, person_id, name_type, prefix, given_name, middle_name,
+                          surname, suffix, nickname, sort_order)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                        params![
+                            Uuid::new_v4().to_string(),
+                            id,
+                            name.name_type.as_deref().unwrap_or("aka"),
+                            name.prefix,
+                            name.given_name,
+                            name.middle_name,
+                            name.surname,
+                            name.suffix,
+                            name.nickname,
+                            index as i64
+                        ],
+                    )?;
+                }
                 for event in &indi.events {
                     let event_id =
                         insert_event(&tx, event, Some(&id), None, &mut report, &mut place_cache)?;

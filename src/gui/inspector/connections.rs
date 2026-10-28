@@ -151,15 +151,13 @@ pub fn reverse_marriage_places(connections: &mut Connections) {
 
 /// Display label for a stored person; blank names fall back gracefully.
 pub fn person_label(person: &Person) -> String {
-    let combined = [
-        person.given_name.as_str(),
-        person.middle_name.as_str(),
-        person.surname.as_str(),
-    ]
-    .into_iter()
-    .filter(|part| !part.is_empty())
-    .collect::<Vec<_>>()
-    .join(" ");
+    let combined = crate::model::name::full_name(
+        &person.name_prefix,
+        &person.given_name,
+        &person.middle_name,
+        &person.surname,
+        &person.name_suffix,
+    );
     if combined.is_empty() {
         "(unnamed)".to_string()
     } else {

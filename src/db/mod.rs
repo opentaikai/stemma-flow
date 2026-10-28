@@ -4,6 +4,7 @@ pub mod citations;
 pub mod facts;
 mod migrations;
 pub mod models;
+pub mod names;
 pub mod participants;
 pub mod people;
 pub mod places;
@@ -45,7 +46,8 @@ pub struct FamilyTree {
 pub fn load_family_tree(conn: &Connection) -> rusqlite::Result<FamilyTree> {
     let mut people = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT id, given_name, middle_name, surname, nickname, gender, notes, created_at, updated_at
+        "SELECT id, given_name, middle_name, surname, nickname, name_prefix, name_suffix,
+                gender, notes, created_at, updated_at
          FROM people ORDER BY rowid",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -55,10 +57,12 @@ pub fn load_family_tree(conn: &Connection) -> rusqlite::Result<FamilyTree> {
             middle_name: row.get(2)?,
             surname: row.get(3)?,
             nickname: row.get(4)?,
-            gender: row.get(5)?,
-            notes: row.get(6)?,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
+            name_prefix: row.get(5)?,
+            name_suffix: row.get(6)?,
+            gender: row.get(7)?,
+            notes: row.get(8)?,
+            created_at: row.get(9)?,
+            updated_at: row.get(10)?,
         })
     })?;
     for row in rows {

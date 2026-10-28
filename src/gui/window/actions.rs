@@ -495,6 +495,7 @@ impl TreeWindow {
     pub(super) fn person_inspector(&mut self, ui: &mut Ui) {
         self.sync_inspector_form();
         self.sync_citations();
+        self.sync_alternate_names();
         let Some(person_id) = self.app.selected_person_id().map(str::to_string) else {
             return;
         };
@@ -520,6 +521,7 @@ impl TreeWindow {
             &mut self.citations,
             &facts,
             self.person_privacy.as_ref(),
+            &mut self.names,
         ) {
             self.apply_inspector_action(action, &person_id);
         }
@@ -607,6 +609,38 @@ impl TreeWindow {
                     Err(message) => self.app.set_status(UiStatus::Error(message)),
                 }
             }
+            InspectorAction::SaveAlternateName(draft) => {
+                match self.app.save_alternate_name(person_id, &draft) {
+                    Ok(_) => {
+                        self.names.loaded = false;
+                        self.names.editing = false;
+                        self.names.draft = crate::db::names::AlternateNameDraft::default();
+                    }
+                    Err(message) => self.names.error = Some(message),
+                }
+            }
+            InspectorAction::DeleteAlternateName(id) => match self.app.delete_alternate_name(&id) {
+                Ok(()) => self.names.loaded = false,
+                Err(message) => self.names.error = Some(message),
+            },
+        }
+    }
+
+    pub(super) fn sync_alternate_names(&mut self) {
+        let current = self.app.selected_person_id().map(str::to_string);
+        if self.names.loaded && self.names.person_id == current {
+            return;
+        }
+        self.names.person_id = current.clone();
+        self.names.loaded = true;
+        self.names.error = None;
+        let Some(person_id) = current else {
+            self.names.names.clear();
+            return;
+        };
+        match self.app.alternate_names(&person_id) {
+            Ok(names) => self.names.names = names,
+            Err(message) => self.names.error = Some(message),
         }
     }
 

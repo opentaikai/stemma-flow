@@ -38,11 +38,13 @@ pub struct ParticipantDraft {
 }
 
 fn display_name(
+    prefix: Option<String>,
     given: Option<String>,
     middle: Option<String>,
     surname: Option<String>,
+    suffix: Option<String>,
 ) -> Option<String> {
-    let parts = [given, middle, surname]
+    let parts = [prefix, given, middle, surname, suffix]
         .into_iter()
         .flatten()
         .map(|part| part.trim().to_string())
@@ -63,10 +65,13 @@ pub fn load_event_context(
     let row = conn
         .query_row(
             "SELECT e.event_type, COALESCE(ft.label, e.event_type), e.date, pl.name,
-                    e.person_id, person.given_name, person.middle_name, person.surname,
+                    e.person_id, person.name_prefix, person.given_name,
+                    person.middle_name, person.surname, person.name_suffix,
                     e.family_id,
-                    fam.husband_id, h.given_name, h.middle_name, h.surname,
-                    fam.wife_id, w.given_name, w.middle_name, w.surname
+                    fam.husband_id, h.name_prefix, h.given_name, h.middle_name,
+                    h.surname, h.name_suffix,
+                    fam.wife_id, w.name_prefix, w.given_name, w.middle_name,
+                    w.surname, w.name_suffix
              FROM events e
              LEFT JOIN fact_types ft ON ft.key = e.event_type
              LEFT JOIN places pl ON pl.id = e.place_id
@@ -83,12 +88,30 @@ pub fn load_event_context(
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
-                    display_name(row.get(5)?, row.get(6)?, row.get(7)?),
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    display_name(row.get(10)?, row.get(11)?, row.get(12)?),
-                    row.get::<_, Option<String>>(13)?,
-                    display_name(row.get(14)?, row.get(15)?, row.get(16)?),
+                    display_name(
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                    ),
+                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    display_name(
+                        row.get(12)?,
+                        row.get(13)?,
+                        row.get(14)?,
+                        row.get(15)?,
+                        row.get(16)?,
+                    ),
+                    row.get::<_, Option<String>>(17)?,
+                    display_name(
+                        row.get(18)?,
+                        row.get(19)?,
+                        row.get(20)?,
+                        row.get(21)?,
+                        row.get(22)?,
+                    ),
                 ))
             },
         )
@@ -136,7 +159,8 @@ pub fn load_event_context(
         .unwrap_or_default();
     let mut stmt = conn
         .prepare(
-            "SELECT ep.person_id, p.given_name, p.middle_name, p.surname,
+            "SELECT ep.person_id, p.name_prefix, p.given_name, p.middle_name,
+                    p.surname, p.name_suffix,
                     ep.role_key, COALESCE(r.label, ep.role_key), ep.sort_order
              FROM event_participants ep
              JOIN people p ON p.id = ep.person_id
@@ -151,11 +175,17 @@ pub fn load_event_context(
         .query_map(params![event_type, event_id], |row| {
             Ok(EventParticipant {
                 person_id: row.get(0)?,
-                person_name: display_name(row.get(1)?, row.get(2)?, row.get(3)?)
-                    .unwrap_or_else(|| "(unnamed)".to_string()),
-                role_key: row.get(4)?,
-                role_label: row.get(5)?,
-                sort_order: row.get(6)?,
+                person_name: display_name(
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                )
+                .unwrap_or_else(|| "(unnamed)".to_string()),
+                role_key: row.get(6)?,
+                role_label: row.get(7)?,
+                sort_order: row.get(8)?,
             })
         })
         .map_err(|error| error.to_string())?

@@ -110,10 +110,13 @@ pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUs
     let mut stmt = conn
         .prepare(
             "SELECT e.id, e.event_type, COALESCE(ft.label, e.event_type), e.date,
-                    e.person_id, p.given_name, p.middle_name, p.surname,
+                    e.person_id, p.name_prefix, p.given_name, p.middle_name,
+                    p.surname, p.name_suffix,
                     e.family_id,
-                    f.husband_id, h.given_name, h.middle_name, h.surname,
-                    f.wife_id, w.given_name, w.middle_name, w.surname
+                    f.husband_id, h.name_prefix, h.given_name, h.middle_name,
+                    h.surname, h.name_suffix,
+                    f.wife_id, w.name_prefix, w.given_name, w.middle_name,
+                    w.surname, w.name_suffix
              FROM events e
              LEFT JOIN fact_types ft ON ft.key = e.event_type
              LEFT JOIN people p ON p.id = e.person_id
@@ -132,12 +135,30 @@ pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUs
                 event_label: row.get(2)?,
                 date: row.get(3)?,
                 person_id: row.get(4)?,
-                person_name: display_name(row.get(5)?, row.get(6)?, row.get(7)?),
-                family_id: row.get(8)?,
-                husband_id: row.get(9)?,
-                husband_name: display_name(row.get(10)?, row.get(11)?, row.get(12)?),
-                wife_id: row.get(13)?,
-                wife_name: display_name(row.get(14)?, row.get(15)?, row.get(16)?),
+                person_name: display_name(
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                ),
+                family_id: row.get(10)?,
+                husband_id: row.get(11)?,
+                husband_name: display_name(
+                    row.get(12)?,
+                    row.get(13)?,
+                    row.get(14)?,
+                    row.get(15)?,
+                    row.get(16)?,
+                ),
+                wife_id: row.get(17)?,
+                wife_name: display_name(
+                    row.get(18)?,
+                    row.get(19)?,
+                    row.get(20)?,
+                    row.get(21)?,
+                    row.get(22)?,
+                ),
             })
         })
         .map_err(|error| error.to_string())?
@@ -147,11 +168,13 @@ pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUs
 }
 
 fn display_name(
+    prefix: Option<String>,
     given: Option<String>,
     middle: Option<String>,
     surname: Option<String>,
+    suffix: Option<String>,
 ) -> Option<String> {
-    let parts = [given, middle, surname]
+    let parts = [prefix, given, middle, surname, suffix]
         .into_iter()
         .flatten()
         .map(|part| part.trim().to_string())

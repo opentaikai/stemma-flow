@@ -635,6 +635,65 @@ fn shared_citations_export_to_every_event_and_import_separately() -> Result<(), 
 }
 
 #[test]
+fn alternate_names_and_pieces_round_trip() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+2 NPFX Dr.
+2 NSFX Jr.
+1 NAME Ada /Lovelace/
+2 TYPE married
+2 NPFX Dr.
+2 NSFX Jr.
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut conn, Cursor::new(sample))?;
+    let primary: (String, String) = conn
+        .query_row(
+            "SELECT name_prefix, name_suffix FROM people LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(primary, ("Dr.".to_string(), "Jr.".to_string()));
+    let alternate: (String, String, String) = conn
+        .query_row(
+            "SELECT name_type, given_name, surname FROM alternate_names",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(GedcomError::Db)?;
+    assert_eq!(
+        alternate,
+        (
+            "married".to_string(),
+            "Ada".to_string(),
+            "Lovelace".to_string()
+        )
+    );
+
+    let exported = export_to_gedcom(&conn)?;
+    for expected in [
+        "1 NAME Ada /King/",
+        "2 NPFX Dr.",
+        "2 NSFX Jr.",
+        "1 NAME Ada /Lovelace/",
+        "2 TYPE married",
+    ] {
+        assert!(
+            exported.contains(expected),
+            "export must contain {expected:?}: {exported:?}"
+        );
+    }
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom(&mut fresh, Cursor::new(exported.clone()))?;
+    assert_eq!(export_to_gedcom(&fresh)?, exported);
+    Ok(())
+}
+
+#[test]
 fn privacy_options_filter_people_and_facts() -> Result<(), GedcomError> {
     let sample = "\
 0 HEAD

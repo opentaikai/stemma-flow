@@ -20,9 +20,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (22 tables, 36
-  indexes) and records its version in `PRAGMA user_version` (currently 10):
-  `people`, `families`, `family_children`, `repositories`, `sources`,
+- `db::init_db(&conn)` creates or upgrades the schema (23 tables, 37
+  indexes) and records its version in `PRAGMA user_version` (currently 11):
+  `people`, `alternate_names`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
   `events`, `event_participants`, `citations`, `citation_links`, `media`,
@@ -32,7 +32,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   source template catalogue, v5 the free-form citation outputs, v6 the
   reusable citation links, v7 fact scope/kind with the 61-type built-in
   catalogue, v8 per-fact-type roles plus unique GEDCOM tags, v9 shared
-  event participants and v10 person/event privacy with living overrides.
+  event participants, v10 person/event privacy with living overrides and
+  v11 primary name pieces plus alternate names.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -53,7 +54,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   holds user-defined roles for each type. `event_participants` links
   additional people to an event with one of those roles. `people` and
   `events` carry private flags, and `people.living_override` stores the
-  Auto/Living/Deceased override. Custom types use the same tables with
+  Auto/Living/Deceased override. `people.name_prefix`/`name_suffix` hold the
+  primary GEDCOM name pieces; `alternate_names` stores additional typed
+  names, including married names. Custom types use the same tables with
   `is_builtin = 0`. Citations keep page, note,
   certainty, media type and data date/text; `citation_links` attaches one
   canonical citation to any number of person or family events.
@@ -152,7 +155,9 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   `4 LONG`, while place notes remain app-only. Fact types and attributes such
   as `OCCU`, `CENS`, `BURI` and `DIV` round-trip, including custom types with
   their stored GEDCOM tags; attribute values are stored in
-  `events.description`. Shared-event witnesses use custom `2 _WITN @I@` and
+  `events.description`. Multiple `NAME` records round-trip with `NPFX`/
+  `NSFX` and `TYPE`, while the first NAME is the primary name. Shared-event
+  witnesses use custom `2 _WITN @I@` and
   `3 _ROLE <label>` lines; imported role labels are added to the fact type
   when missing. Privacy filtering happens before serialisation: hidden
   people and private facts are omitted, `RESN`/`_PRIV` markers are written
@@ -295,8 +300,9 @@ views (the app always launches on Graph View):
   selection. It is laid out as framed cards in a scrolling body with the
   accent **Save Changes** footer pinned below, enabled only once a first
   or last name is present: a **Header** card with the
-  person's name and gender, **Profile** (given name, middle name, surname,
-  nickname, gender) and **Vital Facts** (birth/death dates *and places*)
+  person's name and gender, **Profile** (prefix, given name, middle name,
+  surname, suffix, nickname, gender), a **Names** card for typed alternate
+  names (including Married) and **Vital Facts** (birth/death dates *and places*)
   editors — the date fields accept GEDCOM or ISO input, and an invalid
   date shows an inline message and disables saving — an **Other Facts**
   card listing imported non-vital facts with their labels, dates, places,

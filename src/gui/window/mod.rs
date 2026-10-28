@@ -16,6 +16,7 @@ use super::inspector::InspectorForm;
 use super::inspector::ParticipantForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
+use super::names;
 use super::places;
 use super::repositories;
 use super::settings;
@@ -56,6 +57,7 @@ pub struct TreeWindow {
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
     pub(super) places: places::PlacesState,
+    pub(super) names: names::NamesState,
     pub(super) fact_types: fact_types::FactTypesState,
     pub(super) sources: sources::SourcesState,
     pub(super) citations: citations::CitationsState,
@@ -99,6 +101,7 @@ impl TreeWindow {
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
             places: places::PlacesState::default(),
+            names: names::NamesState::default(),
             fact_types: fact_types::FactTypesState::default(),
             sources: sources::SourcesState::default(),
             citations: citations::CitationsState::default(),
@@ -841,6 +844,43 @@ mod tests {
         assert_eq!(window.fact_types.types.len(), 61);
         assert!(window.fact_types.selected.is_none());
         assert!(matches!(window.app.status(), UiStatus::Success(_)));
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn alternate_name_events_save_and_delete() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+        window.app.set_selected_person(Some(person_id.clone()));
+        window.sync_inspector_form();
+        window.sync_alternate_names();
+        assert!(window.names.loaded);
+        assert!(window.names.names.is_empty());
+
+        window.apply_inspector_action(
+            InspectorAction::SaveAlternateName(Box::new(crate::db::names::AlternateNameDraft {
+                name_type: "married".to_string(),
+                given_name: "Ada".to_string(),
+                surname: "Lovelace".to_string(),
+                ..crate::db::names::AlternateNameDraft::default()
+            })),
+            &person_id,
+        );
+        window.sync_alternate_names();
+        assert_eq!(window.names.names.len(), 1);
+        assert_eq!(window.names.names[0].name_type, "married");
+        assert_eq!(window.names.names[0].display_name(), "Ada Lovelace");
+
+        let id = window.names.names[0].id.clone();
+        window.apply_inspector_action(InspectorAction::DeleteAlternateName(id), &person_id);
+        window.sync_alternate_names();
+        assert!(window.names.names.is_empty());
 
         let _ = std::fs::remove_file(&db_file);
     }

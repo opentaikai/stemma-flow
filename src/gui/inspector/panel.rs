@@ -1,6 +1,7 @@
 //! Rendering the inspector panel: framed cards and the profile editors.
 
 use crate::gui::citations::{self, CitationsEvent, CitationsState};
+use crate::gui::names::{self, NamesEvent, NamesState};
 
 use egui::{RichText, Ui};
 
@@ -27,6 +28,10 @@ pub fn name_editors(ui: &mut Ui, form: &mut InspectorForm) {
         .num_columns(2)
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
+            ui.label("Prefix:");
+            ui.text_edit_singleline(&mut form.name_prefix);
+            ui.end_row();
+
             ui.label("Given name:");
             ui.text_edit_singleline(&mut form.given_name);
             ui.end_row();
@@ -37,6 +42,10 @@ pub fn name_editors(ui: &mut Ui, form: &mut InspectorForm) {
 
             ui.label("Surname:");
             ui.text_edit_singleline(&mut form.surname);
+            ui.end_row();
+
+            ui.label("Suffix:");
+            ui.text_edit_singleline(&mut form.name_suffix);
             ui.end_row();
             if !has_name {
                 ui.label("");
@@ -113,6 +122,7 @@ pub fn vital_editors(ui: &mut Ui, form: &mut InspectorForm) {
 }
 
 /// Draws the inspector body and returns the action to apply, if any.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
     person: Option<&Person>,
@@ -121,6 +131,7 @@ pub fn show(
     citations: &mut CitationsState,
     facts: &[PersonFact],
     privacy: Option<&PersonPrivacy>,
+    names: &mut NamesState,
 ) -> Option<InspectorAction> {
     let Some(person) = person else {
         ui.label(RichText::new("Selected person not found.").weak());
@@ -156,6 +167,14 @@ pub fn show(
                 );
             });
             card(ui, "Profile", |ui| name_editors(ui, form));
+            card(ui, "Names", |ui| {
+                if let Some(event) = names::show(ui, names) {
+                    action = Some(match event {
+                        NamesEvent::Save(draft) => InspectorAction::SaveAlternateName(draft),
+                        NamesEvent::Delete(id) => InspectorAction::DeleteAlternateName(id),
+                    });
+                }
+            });
             card(ui, "Vital Facts", |ui| vital_editors(ui, form));
             card(ui, "Other Facts", |ui| {
                 if facts.is_empty() {
