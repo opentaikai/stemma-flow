@@ -215,5 +215,21 @@ mod tests {
                 .is_empty(),
             "events cascade with their person"
         );
+        conn.execute("DELETE FROM families WHERE id = 'f1'", [])
+            .expect("delete family");
+        conn.execute("DELETE FROM places WHERE id = 'pl1'", [])
+            .expect("delete place");
+        conn.execute("DELETE FROM sources WHERE id = 's1'", [])
+            .expect("delete source");
+        for owner in [
+            NoteOwner::Family("f1".to_string()),
+            NoteOwner::Citation("c1".to_string()),
+            NoteOwner::Place("pl1".to_string()),
+        ] {
+            assert!(
+                list_notes(&conn, &owner).expect("list").is_empty(),
+                "{owner:?} cascades"
+            );
+        }
     }
 }

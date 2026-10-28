@@ -940,6 +940,36 @@ mod tests {
     }
 
     #[test]
+    fn notes_open_for_people_and_reload_after_changes() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+        let owner = crate::db::notes::NoteOwner::Person(person_id.clone());
+
+        window.open_notes(owner.clone(), "Notes — Ada King".to_string());
+        assert!(window.notes.notes.is_empty());
+        assert_eq!(window.notes.target.as_ref(), Some(&owner));
+
+        window
+            .app
+            .add_note(&owner, "First line\nSecond line")
+            .expect("note saves");
+        window.open_notes(owner.clone(), "Notes — Ada King".to_string());
+        assert_eq!(window.notes.notes.len(), 1);
+        assert_eq!(window.notes.notes[0].body, "First line\nSecond line");
+
+        let note_id = window.notes.notes[0].id.clone();
+        window.app.delete_note(&note_id).expect("note deletes");
+        assert!(window.app.list_notes(&owner).expect("list").is_empty());
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn privacy_toggles_update_the_person_and_facts() {
         let db_file = temp_path("db");
         import_people(
