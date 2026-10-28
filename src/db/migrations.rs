@@ -8,10 +8,10 @@ use uuid::Uuid;
 use super::schema::{
     ALTERNATE_NAMES_INDEX_SQL, ALTERNATE_NAMES_TABLE_SQL, ASSOCIATIONS_INDEXES_SQL,
     ASSOCIATIONS_TABLE_SQL, CITATION_LINKS_INDEXES_SQL, CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL,
-    EVENT_PARTICIPANTS_INDEX_SQL, EVENT_PARTICIPANTS_TABLE_SQL, FACT_ROLES_TABLE_SQL,
-    FACT_TAG_INDEX_SQL, INDEXES_SQL, LINK_TABLES_SQL, NOTES_INDEXES_SQL, NOTES_TABLE_SQL,
-    TREE_SETTINGS_TABLE_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS,
-    ensure_column, seed_source_templates,
+    EVENT_ASSOCIATIONS_INDEXES_SQL, EVENT_ASSOCIATIONS_TABLE_SQL, EVENT_PARTICIPANTS_INDEX_SQL,
+    EVENT_PARTICIPANTS_TABLE_SQL, FACT_ROLES_TABLE_SQL, FACT_TAG_INDEX_SQL, INDEXES_SQL,
+    LINK_TABLES_SQL, NOTES_INDEXES_SQL, NOTES_TABLE_SQL, TREE_SETTINGS_TABLE_SQL, V3_COLUMNS,
+    V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS, ensure_column, seed_source_templates,
 };
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
@@ -211,6 +211,15 @@ pub(super) fn migrate_v13_to_v14(conn: &Connection) -> rusqlite::Result<()> {
     tx.execute_batch(ASSOCIATIONS_TABLE_SQL)?;
     tx.execute_batch(ASSOCIATIONS_INDEXES_SQL)?;
     tx.pragma_update(None, "user_version", 14)?;
+    tx.commit()
+}
+
+/// Adds directed associations attached to events.
+pub(super) fn migrate_v14_to_v15(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch(EVENT_ASSOCIATIONS_TABLE_SQL)?;
+    tx.execute_batch(EVENT_ASSOCIATIONS_INDEXES_SQL)?;
+    tx.pragma_update(None, "user_version", 15)?;
     tx.commit()
 }
 
