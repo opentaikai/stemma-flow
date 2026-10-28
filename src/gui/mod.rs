@@ -15,6 +15,7 @@ pub mod media;
 pub mod names;
 pub mod nodes;
 pub mod notes;
+pub mod pedigree;
 pub mod person_editor;
 pub mod places;
 pub mod repositories;

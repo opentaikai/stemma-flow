@@ -203,3 +203,12 @@ create_new = "Neue Person erstellen"
 
 [watchlist]
 double_click_edit = "Zum Bearbeiten doppelklicken"
+
+[pedigree]
+view = "Ansicht:"
+all = "Alle"
+pedigree = "Vorfahren"
+generations = "Generationen:"
+root = "Wurzel:"
+no_root = "Person auswählen und als Wurzel festlegen"
+set_root = "Auswahl als Wurzel festlegen"

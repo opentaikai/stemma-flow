@@ -108,7 +108,7 @@ places, facts, alternate names and notes as first-class records.
 | Add relatives from empty parent, spouse and child slots | done | P0 | Role-specific slots reuse the link-existing picker |
 | Double-click a person to edit | done | P1 | Opens the pinned editor from graph nodes and watch-list cells |
 | Switch between family members inside the edit screen | done | P2 | Parent/spouse rows switch the pinned editor |
-| Pedigree view (5 or 6 generations) | planned | P0 | Ancestor-focused layout |
+| Pedigree view (5 or 6 generations) | done | P0 | Pinned-root ancestor chart; all parent families |
 | Family view | planned | P0 | Couple plus children |
 | Descendant view (2 to 7 generations) | planned | P1 | Reuses the graph layout |
 | People list view with configurable columns | planned | P1 | Watch list evolves into this |
