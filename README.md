@@ -20,9 +20,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (23 tables, 37
-  indexes) and records its version in `PRAGMA user_version` (currently 11):
-  `people`, `alternate_names`, `families`, `family_children`, `repositories`, `sources`,
+- `db::init_db(&conn)` creates or upgrades the schema (24 tables, 37
+  indexes) and records its version in `PRAGMA user_version` (currently 12):
+  `people`, `alternate_names`, `tree_settings`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
   `events`, `event_participants`, `citations`, `citation_links`, `media`,
@@ -32,8 +32,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   source template catalogue, v5 the free-form citation outputs, v6 the
   reusable citation links, v7 fact scope/kind with the 61-type built-in
   catalogue, v8 per-fact-type roles plus unique GEDCOM tags, v9 shared
-  event participants, v10 person/event privacy with living overrides and
-  v11 primary name pieces plus alternate names.
+  event participants, v10 person/event privacy with living overrides,
+  v11 primary name pieces plus alternate names, and v12 per-tree display
+  settings.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -257,6 +258,13 @@ views (the app always launches on Graph View):
   delete removes the person, their events, citations and child links.
   **+ Add Independent Person** inserts an unnamed draft and focuses it; a
   first or last name is required before it can be saved.
+- **View > Surname-first names** — a per-tree toggle that renders composed
+  names as `Surname, Prefix Given Middle Suffix` (for example
+  `King, Dr. Ada Lynn Jr.`) in graph labels, the watch list's composed name,
+  the inspector, relation and witness pickers, place usage and alternate
+  names. The separate Given Name and Surname columns keep their normal
+  order, and GEDCOM output stays canonical. The preference lives in the
+  tree database, so reopening the file restores it.
 - **Places** — a filterable, sortable grid of the tree's shared place
   records with event counts, notes, latitude and longitude. The editor
   changes the canonical name, notes and decimal-degree coordinates; renaming
