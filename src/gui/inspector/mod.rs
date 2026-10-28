@@ -20,7 +20,7 @@ use crate::db::citations::CitationEdit;
 use crate::db::media::MediaOwner;
 use crate::db::names::AlternateNameDraft;
 use crate::db::notes::NoteOwner;
-use crate::db::people::PersonDetails;
+use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::tasks::TaskOwner;
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
@@ -29,7 +29,7 @@ const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InspectorAction {
     Save(Box<PersonDetails>),
-    AddParent,
+    AddParentAs(ParentRole),
     AddSpouse,
     AddChild,
     /// Open the pinned modeless person editor.
@@ -293,7 +293,7 @@ mod tests {
         let (person, dates) = person_with_dates();
         let ctx = Context::default();
         let mut form = InspectorForm::from_person(&person, &dates);
-        let mut captured = Some(InspectorAction::AddParent);
+        let mut captured = Some(InspectorAction::AddParentAs(ParentRole::Father));
         let facts = [PersonFact {
             event_id: "e1".to_string(),
             event_type: "OCCUPATION".to_string(),

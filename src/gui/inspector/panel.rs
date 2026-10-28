@@ -11,7 +11,7 @@ use crate::db::facts::PersonFact;
 use crate::db::groups::GroupSummary;
 use crate::db::media::MediaOwner;
 use crate::db::notes::NoteOwner;
-use crate::db::people::VitalDates;
+use crate::db::people::{ParentRole, VitalDates};
 use crate::db::privacy::PersonPrivacy;
 use crate::db::tasks::TaskOwner;
 use crate::i18n::{fact_label, tr};
@@ -19,6 +19,7 @@ use crate::model::age;
 
 use super::ACCENT;
 use super::InspectorAction;
+use super::RelationKind;
 use super::connections::{Connections, person_label};
 use super::form::InspectorForm;
 
@@ -491,11 +492,23 @@ pub fn show(
                 }
             });
             card(ui, "Relationships", |ui| {
-                for (title, relatives) in [
-                    ("Parents", &connections.parents),
-                    ("Siblings", &connections.siblings),
-                    ("Spouses", &connections.spouses),
-                    ("Children", &connections.children),
+                for (title, relatives, kind) in [
+                    (
+                        tr("inspector.parents"),
+                        &connections.parents,
+                        Some(RelationKind::Parent),
+                    ),
+                    (tr("inspector.siblings"), &connections.siblings, None),
+                    (
+                        tr("inspector.spouses"),
+                        &connections.spouses,
+                        Some(RelationKind::Spouse),
+                    ),
+                    (
+                        tr("inspector.children"),
+                        &connections.children,
+                        Some(RelationKind::Child),
+                    ),
                 ] {
                     ui.label(RichText::new(title).weak().size(12.0));
                     if relatives.is_empty() {
@@ -548,18 +561,33 @@ pub fn show(
                             }
                         });
                     }
+                    match kind {
+                        Some(RelationKind::Parent) => {
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.small_button(tr("inspector.add_father")).clicked() {
+                                    action = Some(InspectorAction::AddParentAs(ParentRole::Father));
+                                }
+                                if ui.small_button(tr("inspector.add_mother")).clicked() {
+                                    action = Some(InspectorAction::AddParentAs(ParentRole::Mother));
+                                }
+                            });
+                        }
+                        Some(RelationKind::Spouse)
+                            if ui.small_button(tr("inspector.add_spouse")).clicked() =>
+                        {
+                            action = Some(InspectorAction::AddSpouse);
+                        }
+                        Some(RelationKind::Child)
+                            if ui.small_button(tr("inspector.add_child")).clicked() =>
+                        {
+                            action = Some(InspectorAction::AddChild);
+                        }
+                        Some(RelationKind::Spouse | RelationKind::Child) | None => {}
+                    }
+                    if kind.is_some() {
+                        ui.add_space(4.0);
+                    }
                 }
-                ui.horizontal(|ui| {
-                    if ui.button("+ Add Parent").clicked() {
-                        action = Some(InspectorAction::AddParent);
-                    }
-                    if ui.button("+ Add Spouse").clicked() {
-                        action = Some(InspectorAction::AddSpouse);
-                    }
-                    if ui.button("+ Add Child").clicked() {
-                        action = Some(InspectorAction::AddChild);
-                    }
-                });
             });
             card(ui, "Media", |ui| {
                 if ui.button("Manage media\u{2026}").clicked() {

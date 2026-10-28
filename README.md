@@ -395,11 +395,12 @@ views (the app always launches on Graph View):
   children —
   rows select that relative on the graph and re-centre the view, spouse
   rows carry the marriage date and place when a `MARRIAGE` event exists —
-  with **+ Add Parent**, **+ Add Spouse**,
-  **+ Add Child** buttons whose pop-up can **search and link an existing
-  person** (filtered by role; duplicates, self links and cycles are
-  rejected) or create a new one in one step (parents choose a
-  Father/Mother role that presets the gender). A **Families** card lists
+  with role-specific **+ Add father…**, **+ Add mother…**,
+  **+ Add spouse…** and **+ Add child…** slots whose pop-up can
+  **search and link an existing person** (filtered by role; duplicates,
+  self links and cycles are rejected) or create a new one in one step.
+  Parent slots preselect Father/Mother and the matching gender, and remain
+  available after a relative exists. A **Families** card lists
   every family the person belongs to, an **Associations** card lists
   directed links with relationship labels and opens a dialog to search
   people and add, edit or delete them, **Vital Facts** and **Other Facts**

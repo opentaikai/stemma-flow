@@ -838,7 +838,9 @@ impl TreeWindow {
                 self.research.tab = crate::gui::research::ResearchTab::Groups;
             }
             InspectorAction::Focus(target) => self.focus_person(&target),
-            InspectorAction::AddParent => self.open_relation(&person_id, RelationKind::Parent),
+            InspectorAction::AddParentAs(role) => {
+                self.open_relation_with_role(&person_id, RelationKind::Parent, role)
+            }
             InspectorAction::AddSpouse => self.open_relation(&person_id, RelationKind::Spouse),
             InspectorAction::AddChild => self.open_relation(&person_id, RelationKind::Child),
             InspectorAction::EditParticipants(event_id) => self.open_participants(&event_id),
@@ -1459,7 +1461,9 @@ impl TreeWindow {
     pub(super) fn apply_inspector_action(&mut self, action: InspectorAction, person_id: &str) {
         match action {
             InspectorAction::Save(details) => self.edit_person(&details),
-            InspectorAction::AddParent => self.open_relation(person_id, RelationKind::Parent),
+            InspectorAction::AddParentAs(role) => {
+                self.open_relation_with_role(person_id, RelationKind::Parent, role)
+            }
             InspectorAction::AddSpouse => self.open_relation(person_id, RelationKind::Spouse),
             InspectorAction::AddChild => self.open_relation(person_id, RelationKind::Child),
             InspectorAction::OpenEditor => self.open_person_editor(person_id),
@@ -1897,6 +1901,27 @@ impl TreeWindow {
             .map(|person| inspector::person_label(person, self.tree_settings.surname_first))
             .unwrap_or_else(|| "(unnamed)".to_string());
         self.pending_relation = Some(RelationForm::new(target, kind, &target_label));
+    }
+
+    pub(super) fn open_relation_with_role(
+        &mut self,
+        target: &str,
+        kind: RelationKind,
+        role: crate::db::people::ParentRole,
+    ) {
+        let target_label = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == target)
+            .map(|person| inspector::person_label(person, self.tree_settings.surname_first))
+            .unwrap_or_else(|| "(unnamed)".to_string());
+        self.pending_relation = Some(inspector::RelationForm::new_with_role(
+            target,
+            kind,
+            &target_label,
+            role,
+        ));
     }
 
     pub(super) fn show_relation_window(&mut self, ctx: &egui::Context) {
