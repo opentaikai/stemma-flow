@@ -71,8 +71,11 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   and watch-list views. `media` stores external file paths, format,
   caption and notes; typed `media_links` rows attach one media record to a
   person, family, event/fact, source, citation or place and cascade with
-  either side. Media and task links are typed, cascading rows; groups hold
-  people.
+  either side. `tasks` stores research goals, logs, status, priority, folder
+  and due/completion dates; `task_links` attaches a task to people, families,
+  events, sources, citations, places or media. `groups` and `group_members`
+  hold static named groups of people. Media and task links are typed,
+  cascading rows; tasks and groups are app-only.
 
 Relationships are modelled through events and the `family_children` junction
 table. Foreign keys cascade deletes from people/families down to events,
@@ -257,9 +260,9 @@ win. Included private or living people carry `1 RESN privacy`, and
 included private events carry `2 _PRIV Y`. Family links to hidden people
 are removed, and families with no visible member are not exported.
 
-## Graph View, Watch List, Places, Media, Fact Types, Sources & inspector
+## Graph View, Watch List, Places, Media, Research, Fact Types, Sources & inspector
 
-With a tree open the `eframe` window (1200x800) shows a tab bar with seven
+With a tree open the `eframe` window (1200x800) shows a tab bar with eight
 views (the app always launches on Graph View):
 
 - **Graph View** — the interactive canvas: opening (or reloading) a tree
@@ -310,6 +313,13 @@ views (the app always launches on Graph View):
   directly and detach links. Place and citation media remain app-only;
   relative paths, copying files into the tree and broken-link repair are
   deferred.
+- **Research** — sub-tabs for **Tasks** and **Groups**. Tasks form a
+  research log with title/goal, description/results, open/done status,
+  priority, folder, due date, completion time and linked-record counts;
+  filters cover text, status and folder. Groups are static named people
+  groups with an editor, member search and add/remove actions. **Tasks…**
+  dialogs on people, families, facts, citations, sources, places and media
+  attach existing tasks and detach links. Tasks and groups remain app-only.
 - **Fact Types** — a filterable, sortable grid of the built-in and custom
   fact types with category, scope, kind, GEDCOM tag, role count and event
   usage, plus an editor. Custom types get an immutable generated key and a
@@ -376,8 +386,8 @@ views (the app always launches on Graph View):
   every family the person belongs to, an **Associations** card lists
   directed links with relationship labels and opens a dialog to search
   people and add, edit or delete them, **Vital Facts** and **Other Facts**
-  expose their event notes and media, and a **Media** card opens the
-  attachment dialog; the **Notes** card opens a shared dialog for adding,
+  expose their event notes and media, a **Media** card opens the attachment dialog and a **Tasks** card opens
+  the task linker; the **Notes** card opens a shared dialog for adding,
   editing and deleting notes. Profile and vital fields still
   commit together on save; notes save independently.
 

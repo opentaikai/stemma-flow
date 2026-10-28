@@ -54,7 +54,7 @@ Priority:
 | Names | done | P0 | Primary pieces, alternates and married names |
 | Notes | done | P1 | Plain text on people, families, facts, citations and places; rich text deferred |
 | Search | partial | P1 | Watch-list name filter and relation picker only |
-| Media, maps, tasks, groups, merge, reports, backups | partial | P1 | Media records, links and thumbnails; albums and portability pending |
+| Media, maps, tasks, groups, merge, reports, backups | partial | P1 | Media and research UI complete; albums, maps, merge and backups pending |
 | Online integrations, DNA, AI | deferred | P2 | Opt-in, later phases |
 
 ## Milestone map
@@ -97,7 +97,7 @@ places, facts, alternate names and notes as first-class records.
 | Notes on person, family, fact, citation and place | done | P0 | First-class notes table; legacy person, citation and place notes migrate |
 | Associations (friends, associates, neighbours) | done | P2 | Directed links, relationship labels and person ASSO/RELA GEDCOM |
 | Media records and links to people, families, facts, sources and places | done | P1 | Media tab, external paths, thumbnails, attachment dialog and OBJE round-trip |
-| Task and group tables | done | P1 | Schema and link tables; UI in M3 |
+| Task and group tables | done | P1 | Tables, link tables and Research UI |
 | Migrations and GEDCOM mapping for every new entity | planned | P0 | Fidelity tests required |
 
 ## M2 - Editing and navigation (P0)
@@ -128,16 +128,16 @@ Goal: keep research organised beside the people it concerns.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Tasks and research logs | planned | P1 | Goals, results, status, priority |
-| Link tasks to people, families, events, sources, citations and places | planned | P1 | Filters by linked record |
-| Task folders and research-log table view | planned | P1 | Printable |
+| Tasks and research logs | done | P1 | Goals, results, status, priority and folders |
+| Link tasks to people, families, events, sources, citations and places | done | P1 | Attach from record cards; detach from task editor |
+| Task folders and research-log table view | partial | P1 | Folders and table view done; printing deferred |
 | Problem alerts (missing or contradictory data) | planned | P1 | Interactive, mark as not a problem |
 | DataClean for names and places | planned | P1 | Batch normalisation |
 | Advanced person search (facts, dates, places, notes) | planned | P1 | Multiple criteria |
 | Saved search criteria | planned | P1 | Reusable rules |
 | Find Everywhere across all record types | planned | P2 | Global text search |
 | Search and replace for names, places, notes and filenames | planned | P2 | Explicit confirmation |
-| Named groups (static and rule-based) | planned | P1 | Used by reports and charts |
+| Named groups (static and rule-based) | partial | P1 | Static membership done; rules and report integration deferred |
 | Colour-code sets and labels | planned | P2 | Visual grouping |
 | Bookmarks, history and back/forward navigation | planned | P2 | Last N people visited |
 | Date calculator and pop-up calendar | planned | P2 | For date entry |
