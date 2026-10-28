@@ -7,6 +7,7 @@ use egui::{Color32, Layout, RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
 use crate::db::{FamilyTree, people::VitalDates};
+use crate::i18n::tr;
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 const ROW_HEIGHT: f32 = 24.0;
@@ -116,6 +117,7 @@ impl SortColumn {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WatchEvent {
     Select(String),
+    Edit(String),
     AddPerson,
     Delete(String),
 }
@@ -339,7 +341,7 @@ pub fn show(
                 row.col(|ui| {
                     ui.horizontal(|ui| {
                         if ui.small_button("Edit").clicked() {
-                            events.push(WatchEvent::Select(person.id.clone()));
+                            events.push(WatchEvent::Edit(person.id.clone()));
                         }
                         ui.menu_button("Delete", |ui| {
                             ui.label(format!("Delete {}?", person.display_name()));
@@ -363,11 +365,20 @@ pub fn show(
 }
 
 fn clickable_cell(ui: &mut Ui, text: &str, person_id: &str, events: &mut Vec<WatchEvent>) {
-    if ui
-        .add(egui::Label::new(text).sense(Sense::click()))
-        .clicked()
-    {
-        events.push(WatchEvent::Select(person_id.to_string()));
+    let response = ui.add(egui::Label::new(text).sense(Sense::click()));
+    if let Some(event) = watch_click(person_id, response.double_clicked(), response.clicked()) {
+        events.push(event);
+    }
+    response.on_hover_text(tr("watchlist.double_click_edit"));
+}
+
+fn watch_click(person_id: &str, double_clicked: bool, clicked: bool) -> Option<WatchEvent> {
+    if double_clicked {
+        Some(WatchEvent::Edit(person_id.to_string()))
+    } else if clicked {
+        Some(WatchEvent::Select(person_id.to_string()))
+    } else {
+        None
     }
 }
 
@@ -455,6 +466,19 @@ mod tests {
             vec![0, 1, 2],
             "a new column starts ascending and equal keys keep rowid order"
         );
+    }
+
+    #[test]
+    fn click_events_prefer_double_click() {
+        assert_eq!(
+            watch_click("p1", true, true),
+            Some(WatchEvent::Edit("p1".to_string()))
+        );
+        assert_eq!(
+            watch_click("p1", false, true),
+            Some(WatchEvent::Select("p1".to_string()))
+        );
+        assert_eq!(watch_click("p1", false, false), None);
     }
 
     #[test]

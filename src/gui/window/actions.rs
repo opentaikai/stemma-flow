@@ -101,11 +101,19 @@ impl TreeWindow {
             self.app.selected_person_id(),
         );
         for event in events {
-            match event {
-                WatchEvent::Select(person_id) => self.app.set_selected_person(Some(person_id)),
-                WatchEvent::AddPerson => self.add_person(),
-                WatchEvent::Delete(person_id) => self.delete_person(&person_id),
+            self.apply_watch_event(event);
+        }
+    }
+
+    pub(super) fn apply_watch_event(&mut self, event: WatchEvent) {
+        match event {
+            WatchEvent::Select(person_id) => self.app.set_selected_person(Some(person_id)),
+            WatchEvent::Edit(person_id) => {
+                self.app.set_selected_person(Some(person_id.clone()));
+                self.open_person_editor(&person_id);
             }
+            WatchEvent::AddPerson => self.add_person(),
+            WatchEvent::Delete(person_id) => self.delete_person(&person_id),
         }
     }
 
