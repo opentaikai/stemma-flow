@@ -356,9 +356,18 @@ views (the app always launches on Graph View):
   source picker and removed from the editor; deleting a repository asks for
   confirmation and removes its source links. Repository metadata and links
   round-trip through GEDCOM.
+- **Modeless Person Editor** — **Open full editor…** in the quick
+  inspector opens a resizable floating window pinned to that person. It
+  keeps the complete profile, names, vitals, families, associations, facts,
+  relationships, citations, privacy, groups, notes, media and tasks in one
+  scrolling screen. Browsing the graph or watch list changes the quick
+  inspector but never retargets the editor. Saving writes the pinned person,
+  and closing or switching with unsaved profile/vital changes prompts
+  Save/Discard/Cancel. Other cards continue saving immediately.
 - **Person Inspector** — a right-side panel shown whenever a person is
   selected, with a pinned **×** button that closes it by clearing the
-  selection. It is laid out as framed cards in a scrolling body with the
+  selection. **Open full editor…** pins a modeless editor without replacing
+  the quick inspector. It is laid out as framed cards in a scrolling body with the
   accent **Save Changes** footer pinned below, enabled only once a first
   or last name is present: a **Header** card with the
   person's name and gender, **Profile** (prefix, given name, middle name,

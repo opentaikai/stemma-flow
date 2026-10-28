@@ -32,6 +32,10 @@ pub enum InspectorAction {
     AddParent,
     AddSpouse,
     AddChild,
+    /// Open the pinned modeless person editor.
+    OpenEditor,
+    /// Switch to the Groups pane in the Research tab.
+    OpenGroups,
     /// Select `person_id` and re-centre the graph on it.
     Focus(String),
     /// Close the inspector by clearing the selection.
@@ -310,10 +314,12 @@ mod tests {
                 None,
                 Connections::default(),
                 &[],
+                &[],
                 &mut CitationsState::default(),
                 &facts,
                 None,
                 &mut crate::gui::names::NamesState::default(),
+                false,
                 false,
             );
         });
@@ -366,10 +372,12 @@ mod tests {
                 None,
                 Connections::default(),
                 &[],
+                &[],
                 &mut CitationsState::default(),
                 &[],
                 Some(&privacy),
                 &mut crate::gui::names::NamesState::default(),
+                false,
                 false,
             );
         });

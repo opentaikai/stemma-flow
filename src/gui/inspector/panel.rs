@@ -8,12 +8,13 @@ use egui::{RichText, Ui};
 use crate::db::Person;
 use crate::db::associations::AssociationRecord;
 use crate::db::facts::PersonFact;
+use crate::db::groups::GroupSummary;
 use crate::db::media::MediaOwner;
 use crate::db::notes::NoteOwner;
 use crate::db::people::VitalDates;
 use crate::db::privacy::PersonPrivacy;
 use crate::db::tasks::TaskOwner;
-use crate::i18n::fact_label;
+use crate::i18n::{fact_label, tr};
 use crate::model::age;
 
 use super::ACCENT;
@@ -136,11 +137,13 @@ pub fn show(
     dates: Option<&VitalDates>,
     connections: Connections,
     associations: &[AssociationRecord],
+    groups: &[GroupSummary],
     citations: &mut CitationsState,
     facts: &[PersonFact],
     privacy: Option<&PersonPrivacy>,
     names: &mut NamesState,
     surname_first: bool,
+    editor_mode: bool,
 ) -> Option<InspectorAction> {
     let Some(person) = person else {
         ui.label(RichText::new("Selected person not found.").weak());
@@ -148,19 +151,21 @@ pub fn show(
     };
 
     let mut action = None;
-    ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // U+00D7 is in Ubuntu-Light; U+2715 (✕) is missing from the
-            // bundled fonts and would render as a replacement box.
-            if ui
-                .small_button("×")
-                .on_hover_text("Close inspector")
-                .clicked()
-            {
-                action = Some(InspectorAction::Close);
-            }
+    if !editor_mode {
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // U+00D7 is in Ubuntu-Light; U+2715 (✕) is missing from the
+                // bundled fonts and would render as a replacement box.
+                if ui
+                    .small_button("×")
+                    .on_hover_text("Close inspector")
+                    .clicked()
+                {
+                    action = Some(InspectorAction::Close);
+                }
+            });
         });
-    });
+    }
     let footer_height = ui.spacing().interact_size.y + ui.spacing().item_spacing.y * 5.0;
     let body_height = (ui.available_height() - footer_height).max(120.0);
     egui::ScrollArea::vertical()
@@ -244,6 +249,16 @@ pub fn show(
                     action = Some(InspectorAction::AddAssociation);
                 }
             });
+            if !groups.is_empty() {
+                card(ui, &tr("editor.groups"), |ui| {
+                    for group in groups {
+                        ui.label(RichText::new(&group.name).strong());
+                    }
+                    if ui.button(tr("editor.manage_groups")).clicked() {
+                        action = Some(InspectorAction::OpenGroups);
+                    }
+                });
+            }
             card(ui, "Other Facts", |ui| {
                 if facts.is_empty() {
                     ui.label(RichText::new("(none)").weak().size(12.0));
@@ -573,6 +588,9 @@ pub fn show(
         .clicked()
     {
         action = Some(InspectorAction::Save(Box::new(form.to_details())));
+    }
+    if !editor_mode && ui.button(tr("editor.open")).clicked() {
+        action = Some(InspectorAction::OpenEditor);
     }
     action
 }
