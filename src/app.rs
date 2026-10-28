@@ -16,6 +16,7 @@ use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
 use crate::db::names::{self as name_store, AlternateName, AlternateNameDraft};
+use crate::db::notes::{self as note_store, Note, NoteOwner};
 use crate::db::participants::{self as participant_store, EventContext, ParticipantDraft};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
@@ -438,6 +439,40 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists the notes attached to one record.
+    pub fn list_notes(&self, owner: &NoteOwner) -> Result<Vec<Note>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        note_store::list_notes(&conn, owner)
+    }
+
+    /// Adds a note to one record.
+    pub fn add_note(&mut self, owner: &NoteOwner, body: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        note_store::add_note(&conn, owner, body)?;
+        self.set_status(UiStatus::Success("Note added".to_string()));
+        Ok(())
+    }
+
+    /// Updates an existing note.
+    pub fn update_note(&mut self, id: &str, body: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        note_store::update_note(&conn, id, body)?;
+        self.set_status(UiStatus::Success("Note saved".to_string()));
+        Ok(())
+    }
+
+    /// Deletes one note.
+    pub fn delete_note(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        note_store::delete_note(&conn, id)?;
+        self.set_status(UiStatus::Success("Note deleted".to_string()));
         Ok(())
     }
 

@@ -5,6 +5,7 @@ pub mod facts;
 mod migrations;
 pub mod models;
 pub mod names;
+pub mod notes;
 pub mod participants;
 pub mod people;
 pub mod places;
