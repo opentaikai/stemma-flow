@@ -106,7 +106,7 @@ places, facts, alternate names and notes as first-class records.
 |---|---|---|---|
 | Modeless Edit Person screen with all information in one place | done | P0 | Pinned floating editor with dirty prompts |
 | Add relatives from empty parent, spouse and child slots | done | P0 | Role-specific slots reuse the link-existing picker |
-| Double-click a person to edit | planned | P1 | Graph and list views |
+| Double-click a person to edit | done | P1 | Opens the pinned editor from graph nodes and watch-list cells |
 | Switch between family members inside the edit screen | planned | P2 | Spouse and parent switching |
 | Pedigree view (5 or 6 generations) | planned | P0 | Ancestor-focused layout |
 | Family view | planned | P0 | Couple plus children |
