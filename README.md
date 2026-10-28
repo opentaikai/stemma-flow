@@ -363,8 +363,11 @@ views (the app always launches on Graph View):
   keeps the complete profile, names, vitals, families, associations, facts,
   relationships, citations, privacy, groups, notes, media and tasks in one
   scrolling screen. Browsing the graph or watch list changes the quick
-  inspector but never retargets the editor. Saving writes the pinned person,
-  and closing or switching with unsaved profile/vital changes prompts
+  inspector but never retargets the editor. Clicking a parent or spouse name
+  switches the editor to that person and moves the main selection with it;
+  a small **Focus** action still shows them on the graph. Children and
+  siblings keep graph-focus behavior. Saving writes the pinned person, and
+  closing or switching with unsaved profile/vital changes prompts
   Save/Discard/Cancel. Other cards continue saving immediately.
 - **Person Inspector** — a right-side panel shown whenever a person is
   selected, with a pinned **×** button that closes it by clearing the
