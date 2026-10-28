@@ -20,6 +20,7 @@ use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
 use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, MediaEvent};
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
+use crate::gui::person_editor::{EditorPrompt, PersonEditor};
 use crate::gui::places::{self, PlacesEvent};
 use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::research::{self as research_ui, ResearchEvent};
@@ -655,6 +656,422 @@ impl TreeWindow {
         }
     }
 
+    pub(super) fn open_person_editor(&mut self, person_id: &str) {
+        if self
+            .person_editor
+            .as_ref()
+            .is_some_and(|editor| editor.person_id == person_id)
+        {
+            return;
+        }
+        if let Some(editor) = self.person_editor.as_mut()
+            && editor.is_dirty()
+        {
+            editor.prompt = Some(EditorPrompt::Switch(person_id.to_string()));
+            return;
+        }
+        if let Some(editor) = self.build_person_editor(person_id) {
+            self.person_editor = Some(editor);
+        }
+    }
+
+    fn build_person_editor(&self, person_id: &str) -> Option<PersonEditor> {
+        let person = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == person_id)?;
+        let form = crate::gui::inspector::InspectorForm::from_person(person, &self.dates);
+        let mut names = crate::gui::names::NamesState {
+            person_id: Some(person_id.to_string()),
+            loaded: true,
+            ..crate::gui::names::NamesState::default()
+        };
+        match self.app.alternate_names(person_id) {
+            Ok(list) => names.names = list,
+            Err(message) => names.error = Some(message),
+        }
+        let mut citations = crate::gui::citations::CitationsState {
+            person_id: Some(person_id.to_string()),
+            loaded: true,
+            ..crate::gui::citations::CitationsState::default()
+        };
+        self.fill_editor_citations(&mut citations, person_id);
+        let associations = self
+            .app
+            .list_associations(person_id, self.tree_settings.surname_first)
+            .unwrap_or_default();
+        let privacy = self.app.person_privacy(person_id).ok().flatten();
+        let groups = self
+            .app
+            .list_groups_for_person(person_id)
+            .unwrap_or_default();
+        Some(PersonEditor {
+            person_id: person_id.to_string(),
+            saved_form: form.clone(),
+            form,
+            names,
+            citations,
+            associations,
+            associations_owner: Some(person_id.to_string()),
+            privacy,
+            groups,
+            prompt: None,
+            prompt_error: None,
+        })
+    }
+
+    fn fill_editor_citations(
+        &self,
+        citations: &mut crate::gui::citations::CitationsState,
+        person_id: &str,
+    ) {
+        citations.error = None;
+        citations.dirty = false;
+        citations.pending_delete = None;
+        citations.choices.clear();
+        citations.choices_source = None;
+        match (
+            self.app.list_person_citations(person_id),
+            self.app.list_sources(),
+            self.app.citation_targets(person_id),
+        ) {
+            (Ok(records), Ok(sources), Ok(targets)) => {
+                citations.citations = CitationDraft::from_records(&records);
+                citations.sources = sources;
+                citations.targets = targets;
+                if !citations
+                    .targets
+                    .iter()
+                    .any(|target| target.key == citations.add_target)
+                {
+                    citations.add_target = citations
+                        .targets
+                        .first()
+                        .map(|target| target.key.clone())
+                        .unwrap_or_else(|| "BIRTH".to_string());
+                }
+                if let Some(source_id) = citations.add_source.as_deref()
+                    && !citations
+                        .sources
+                        .iter()
+                        .any(|source| source.id == source_id)
+                {
+                    citations.add_source = None;
+                }
+            }
+            (Err(message), _, _) | (_, Err(message), _) | (_, _, Err(message)) => {
+                citations.error = Some(message);
+            }
+        }
+    }
+
+    fn refresh_editor_names(&self, editor: &mut PersonEditor) {
+        match self.app.alternate_names(&editor.person_id) {
+            Ok(names) => editor.names.names = names,
+            Err(message) => editor.names.error = Some(message),
+        }
+    }
+
+    fn refresh_editor_associations(&mut self, editor: &mut PersonEditor) {
+        match self
+            .app
+            .list_associations(&editor.person_id, self.tree_settings.surname_first)
+        {
+            Ok(associations) => editor.associations = associations,
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    fn refresh_editor_privacy(&self, editor: &mut PersonEditor) {
+        editor.privacy = self.app.person_privacy(&editor.person_id).ok().flatten();
+        editor.groups = self
+            .app
+            .list_groups_for_person(&editor.person_id)
+            .unwrap_or_default();
+    }
+
+    fn save_editor_profile(&mut self, editor: &mut PersonEditor) -> Result<(), String> {
+        let details = editor.form.to_details();
+        self.app.edit_person(&editor.person_id, &details)?;
+        editor.saved_form = editor.form.clone();
+        self.reload_scene_quiet();
+        self.refresh_editor_privacy(editor);
+        Ok(())
+    }
+
+    fn resolve_editor_prompt(&mut self, editor: &mut PersonEditor) -> bool {
+        let Some(prompt) = editor.prompt.take() else {
+            return true;
+        };
+        match prompt {
+            EditorPrompt::Close => false,
+            EditorPrompt::Switch(person_id) => match self.build_person_editor(&person_id) {
+                Some(next) => {
+                    *editor = next;
+                    true
+                }
+                None => false,
+            },
+        }
+    }
+
+    pub(super) fn apply_editor_action(
+        &mut self,
+        editor: &mut PersonEditor,
+        action: InspectorAction,
+    ) {
+        let person_id = editor.person_id.clone();
+        match action {
+            InspectorAction::Save(details) => match self.app.edit_person(&person_id, &details) {
+                Ok(()) => {
+                    editor.saved_form = editor.form.clone();
+                    self.reload_scene_quiet();
+                    self.refresh_editor_privacy(editor);
+                }
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            },
+            InspectorAction::Close => editor.prompt = Some(EditorPrompt::Close),
+            InspectorAction::OpenEditor => {}
+            InspectorAction::OpenGroups => {
+                self.tab = crate::gui::tabs::AppTab::Research;
+                self.research.tab = crate::gui::research::ResearchTab::Groups;
+            }
+            InspectorAction::Focus(target) => self.focus_person(&target),
+            InspectorAction::AddParent => self.open_relation(&person_id, RelationKind::Parent),
+            InspectorAction::AddSpouse => self.open_relation(&person_id, RelationKind::Spouse),
+            InspectorAction::AddChild => self.open_relation(&person_id, RelationKind::Child),
+            InspectorAction::EditParticipants(event_id) => self.open_participants(&event_id),
+            InspectorAction::ManageMedia { owner, title } => self.open_media(owner, title),
+            InspectorAction::ManageTasks { owner, title } => self.open_tasks(owner, title),
+            InspectorAction::OpenNotes { owner, title } => self.open_notes(owner, title),
+            InspectorAction::SaveCitations(edits) => {
+                let mut failure = None;
+                for edit in edits.iter() {
+                    if let Err(message) = self.app.save_citation(edit) {
+                        failure = Some(message);
+                        break;
+                    }
+                }
+                if let Some(message) = failure {
+                    editor.citations.error = Some(message);
+                } else {
+                    self.fill_editor_citations(&mut editor.citations, &person_id);
+                }
+            }
+            InspectorAction::AddCitation {
+                source_id,
+                target,
+                page,
+            } => match self
+                .app
+                .add_citation(&source_id, &person_id, &target, page.as_deref())
+            {
+                Ok(_) => {
+                    editor.citations.add_page.clear();
+                    self.fill_editor_citations(&mut editor.citations, &person_id);
+                }
+                Err(message) => editor.citations.error = Some(message),
+            },
+            InspectorAction::AttachCitation {
+                citation_id,
+                target,
+            } => match self.app.attach_citation(&citation_id, &person_id, &target) {
+                Ok(_) => self.fill_editor_citations(&mut editor.citations, &person_id),
+                Err(message) => editor.citations.error = Some(message),
+            },
+            InspectorAction::DetachCitation {
+                citation_id,
+                event_id,
+            } => match self.app.detach_citation(&citation_id, &event_id) {
+                Ok(()) => self.fill_editor_citations(&mut editor.citations, &person_id),
+                Err(message) => editor.citations.error = Some(message),
+            },
+            InspectorAction::DeleteCitation(id) => match self.app.delete_citation(&id) {
+                Ok(()) => {
+                    editor.citations.pending_delete = None;
+                    self.fill_editor_citations(&mut editor.citations, &person_id);
+                }
+                Err(message) => editor.citations.error = Some(message),
+            },
+            InspectorAction::LoadCitationChoices(source_id) => {
+                editor.citations.add_source = Some(source_id.clone());
+                match self.app.source_citations(&source_id) {
+                    Ok(choices) => {
+                        editor.citations.choices = choices;
+                        editor.citations.choices_source = Some(source_id);
+                    }
+                    Err(message) => editor.citations.error = Some(message),
+                }
+            }
+            InspectorAction::SetPersonPrivate(private) => {
+                match self.app.set_person_private(&person_id, private) {
+                    Ok(()) => self.refresh_editor_privacy(editor),
+                    Err(message) => self.app.set_status(UiStatus::Error(message)),
+                }
+            }
+            InspectorAction::SetLivingOverride(value) => {
+                match self.app.set_living_override(&person_id, value) {
+                    Ok(()) => self.refresh_editor_privacy(editor),
+                    Err(message) => self.app.set_status(UiStatus::Error(message)),
+                }
+            }
+            InspectorAction::SetEventPrivate { event_id, private } => {
+                match self.app.set_event_private(&event_id, private) {
+                    Ok(()) => self.refresh_editor_privacy(editor),
+                    Err(message) => self.app.set_status(UiStatus::Error(message)),
+                }
+            }
+            InspectorAction::SaveAlternateName(draft) => {
+                match self.app.save_alternate_name(&person_id, &draft) {
+                    Ok(_) => {
+                        editor.names.editing = false;
+                        editor.names.draft = crate::db::names::AlternateNameDraft::default();
+                        self.refresh_editor_names(editor);
+                    }
+                    Err(message) => editor.names.error = Some(message),
+                }
+            }
+            InspectorAction::DeleteAlternateName(id) => match self.app.delete_alternate_name(&id) {
+                Ok(()) => self.refresh_editor_names(editor),
+                Err(message) => editor.names.error = Some(message),
+            },
+            InspectorAction::AddAssociation => {
+                self.pending_association =
+                    Some(associations_dialog::AssociationForm::new(&person_id));
+            }
+            InspectorAction::EditAssociation(id) => {
+                if let Some(record) = editor.associations.iter().find(|record| record.id == id) {
+                    self.pending_association =
+                        Some(associations_dialog::AssociationForm::from_record(record));
+                }
+            }
+            InspectorAction::DeleteAssociation(id) => match self.app.delete_association(&id) {
+                Ok(()) => self.refresh_editor_associations(editor),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            },
+        }
+    }
+
+    pub(super) fn show_person_editor(&mut self, ctx: &egui::Context) {
+        let Some(mut editor) = self.person_editor.take() else {
+            return;
+        };
+        let Some(person) = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == editor.person_id)
+            .cloned()
+        else {
+            return;
+        };
+        let person_id = editor.person_id.clone();
+        let mut connections = inspector::connections(
+            &self.tree,
+            &person_id,
+            &self.marriages,
+            self.tree_settings.surname_first,
+        );
+        if self.config.reverse_place_names {
+            inspector::reverse_marriage_places(&mut connections);
+        }
+        let facts = self
+            .person_facts
+            .get(&person_id)
+            .cloned()
+            .unwrap_or_default();
+        let associations = editor.associations.clone();
+        let groups = editor.groups.clone();
+        let dates = self.dates.get(&person_id).cloned();
+        let surname_first = self.tree_settings.surname_first;
+        let mut action = None;
+        let mut open = true;
+        egui::Window::new(format!(
+            "Edit Person — {}",
+            inspector::person_label(&person, surname_first)
+        ))
+        .id(egui::Id::new("person_editor_window"))
+        .resizable(true)
+        .default_width(760.0)
+        .default_height(720.0)
+        .min_width(620.0)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            action = inspector::show(
+                ui,
+                Some(&person),
+                &mut editor.form,
+                dates.as_ref(),
+                connections,
+                &associations,
+                &groups,
+                &mut editor.citations,
+                &facts,
+                editor.privacy.as_ref(),
+                &mut editor.names,
+                surname_first,
+                true,
+            );
+        });
+        if !open {
+            if editor.is_dirty() {
+                editor.prompt = Some(EditorPrompt::Close);
+            } else {
+                return;
+            }
+        }
+        if let Some(action) = action {
+            self.apply_editor_action(&mut editor, action);
+        }
+        if editor.prompt.is_some() {
+            let mut outcome = None;
+            egui::Window::new(crate::i18n::tr("editor.unsaved_title"))
+                .id(egui::Id::new("person_editor_prompt"))
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(crate::i18n::tr("editor.unsaved_hint"));
+                    if let Some(error) = &editor.prompt_error {
+                        ui.label(
+                            egui::RichText::new(error)
+                                .color(ui.visuals().error_fg_color)
+                                .small(),
+                        );
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button(crate::i18n::tr("editor.save")).clicked() {
+                            outcome = Some("save");
+                        }
+                        if ui.button(crate::i18n::tr("editor.discard")).clicked() {
+                            outcome = Some("discard");
+                        }
+                        if ui.button(crate::i18n::tr("common.cancel")).clicked() {
+                            outcome = Some("cancel");
+                        }
+                    });
+                });
+            let mut keep = true;
+            match outcome {
+                Some("save") => match self.save_editor_profile(&mut editor) {
+                    Ok(()) => keep = self.resolve_editor_prompt(&mut editor),
+                    Err(message) => editor.prompt_error = Some(message),
+                },
+                Some("discard") => keep = self.resolve_editor_prompt(&mut editor),
+                Some("cancel") => {
+                    editor.prompt = None;
+                    editor.prompt_error = None;
+                }
+                _ => {}
+            }
+            if keep {
+                self.person_editor = Some(editor);
+            }
+        } else {
+            self.person_editor = Some(editor);
+        }
+    }
+
     pub(super) fn open_media(&mut self, owner: MediaOwner, title: String) {
         let mut state = MediaAttachState::new(owner, title);
         self.load_media_attach(&mut state);
@@ -1026,11 +1443,13 @@ impl TreeWindow {
             self.dates.get(&person_id),
             connections,
             &associations,
+            &[],
             &mut self.citations,
             &facts,
             self.person_privacy.as_ref(),
             &mut self.names,
             self.tree_settings.surname_first,
+            false,
         ) {
             self.apply_inspector_action(action, &person_id);
         }
@@ -1043,6 +1462,11 @@ impl TreeWindow {
             InspectorAction::AddParent => self.open_relation(person_id, RelationKind::Parent),
             InspectorAction::AddSpouse => self.open_relation(person_id, RelationKind::Spouse),
             InspectorAction::AddChild => self.open_relation(person_id, RelationKind::Child),
+            InspectorAction::OpenEditor => self.open_person_editor(person_id),
+            InspectorAction::OpenGroups => {
+                self.tab = tabs::AppTab::Research;
+                self.research.tab = crate::gui::research::ResearchTab::Groups;
+            }
             InspectorAction::Focus(target) => self.focus_person(&target),
             InspectorAction::Close => self.app.set_selected_person(None),
             InspectorAction::SaveCitations(edits) => {

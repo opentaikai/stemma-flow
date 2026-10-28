@@ -20,6 +20,7 @@ use super::layout::TreeScene;
 use super::media;
 use super::names;
 use super::notes as notes_dialog;
+use super::person_editor;
 use super::places;
 use super::repositories;
 use super::research;
@@ -71,6 +72,7 @@ pub struct TreeWindow {
     pub(super) task_attach: Option<tasks::TaskAttachState>,
     pub(super) names: names::NamesState,
     pub(super) notes: notes_dialog::NotesState,
+    pub(super) person_editor: Option<person_editor::PersonEditor>,
     pub(super) fact_types: fact_types::FactTypesState,
     pub(super) sources: sources::SourcesState,
     pub(super) citations: citations::CitationsState,
@@ -124,6 +126,7 @@ impl TreeWindow {
             task_attach: None,
             names: names::NamesState::default(),
             notes: notes_dialog::NotesState::default(),
+            person_editor: None,
             fact_types: fact_types::FactTypesState::default(),
             sources: sources::SourcesState::default(),
             citations: citations::CitationsState::default(),
@@ -208,6 +211,7 @@ impl App for TreeWindow {
             self.show_participant_window(ui.ctx());
             self.show_association_window(ui.ctx());
             self.show_media_attach(ui.ctx());
+            self.show_person_editor(ui.ctx());
             self.show_task_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
@@ -960,6 +964,121 @@ mod tests {
         assert_eq!(
             window.rows.first().expect("one person").display_name(),
             "Ada Lynn King"
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn modeless_editor_stays_pinned_while_browsing_and_saves_its_person() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n\
+             0 @I2@ INDI\n1 NAME Charles /Babbage/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let ada = window
+            .rows
+            .iter()
+            .find(|row| row.surname == "King")
+            .expect("Ada")
+            .id
+            .clone();
+        let charles = window
+            .rows
+            .iter()
+            .find(|row| row.surname == "Babbage")
+            .expect("Charles")
+            .id
+            .clone();
+
+        window.app.set_selected_person(Some(ada.clone()));
+        window.sync_inspector_form();
+        window.open_person_editor(&ada);
+        {
+            let editor = window.person_editor.as_mut().expect("editor");
+            editor.form.given_name = "Augusta".to_string();
+            assert!(editor.is_dirty());
+        }
+
+        window.app.set_selected_person(Some(charles.clone()));
+        window.sync_inspector_form();
+        assert_eq!(
+            window.person_editor.as_ref().expect("editor").person_id,
+            ada,
+            "browsing does not retarget the editor"
+        );
+        assert_eq!(
+            window
+                .person_editor
+                .as_ref()
+                .expect("editor")
+                .form
+                .given_name,
+            "Augusta",
+            "the draft survives selection changes"
+        );
+
+        let mut editor = window.person_editor.take().expect("editor");
+        let details = editor.form.to_details();
+        window.apply_editor_action(
+            &mut editor,
+            crate::gui::inspector::InspectorAction::Save(Box::new(details)),
+        );
+        window.person_editor = Some(editor);
+        let ada_row = window
+            .rows
+            .iter()
+            .find(|row| row.id == ada)
+            .expect("Ada row");
+        assert_eq!(ada_row.given_name, "Augusta");
+        let charles_row = window
+            .rows
+            .iter()
+            .find(|row| row.id == charles)
+            .expect("Charles row");
+        assert_eq!(charles_row.given_name, "Charles");
+        assert!(
+            !window.person_editor.as_ref().expect("editor").is_dirty(),
+            "save clears dirty state"
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn dirty_editor_prompts_before_switching_people() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n\
+             0 @I2@ INDI\n1 NAME Charles /Babbage/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let ids: Vec<String> = window.rows.iter().map(|row| row.id.clone()).collect();
+        window.open_person_editor(&ids[0]);
+        window
+            .person_editor
+            .as_mut()
+            .expect("editor")
+            .form
+            .given_name = "Changed".to_string();
+        window.open_person_editor(&ids[1]);
+
+        let editor = window.person_editor.as_ref().expect("editor");
+        assert_eq!(editor.person_id, ids[0], "switch waits for confirmation");
+        assert_eq!(
+            editor.prompt,
+            Some(crate::gui::person_editor::EditorPrompt::Switch(
+                ids[1].clone()
+            ))
         );
 
         let _ = std::fs::remove_file(&db_file);

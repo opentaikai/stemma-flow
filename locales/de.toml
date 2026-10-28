@@ -161,3 +161,13 @@ census = "Volkszählung"
 certificate = "Urkunde"
 website = "Website"
 cemetery = "Friedhofsdenkmal"
+
+[editor]
+title = "Person bearbeiten — {name}"
+open = "Vollständigen Editor öffnen…"
+groups = "Gruppen"
+manage_groups = "Gruppen verwalten…"
+unsaved_title = "Nicht gespeicherte Änderungen"
+unsaved_hint = "Änderungen an dieser Person vor dem Schließen speichern?"
+save = "Speichern"
+discard = "Verwerfen"

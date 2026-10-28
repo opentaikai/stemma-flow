@@ -98,6 +98,7 @@ impl TreeWindow {
             self.pending_participants = None;
             self.person_privacy = None;
             self.notes = crate::gui::notes::NotesState::default();
+            self.person_editor = None;
             self.associations.clear();
             self.associations_owner = None;
             self.pending_association = None;

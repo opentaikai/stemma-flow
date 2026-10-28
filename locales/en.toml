@@ -161,3 +161,13 @@ census = "Census"
 certificate = "Certificate"
 website = "Website"
 cemetery = "Cemetery memorial"
+
+[editor]
+title = "Edit Person — {name}"
+open = "Open full editor…"
+groups = "Groups"
+manage_groups = "Manage groups…"
+unsaved_title = "Unsaved changes"
+unsaved_hint = "Save changes to this person before closing?"
+save = "Save"
+discard = "Discard"
