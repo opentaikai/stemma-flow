@@ -168,11 +168,38 @@ pub(super) fn migrate_v11_to_v12(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-/// Adds first-class notes for people, families, events, citations and places.
+/// Adds first-class notes and moves the legacy note columns into them.
 pub(super) fn migrate_v12_to_v13(conn: &Connection) -> rusqlite::Result<()> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let people_notes = has_column(conn, "people", "notes")?;
+    let citation_notes = has_column(conn, "citations", "notes")?;
+    let place_notes = has_column(conn, "places", "notes")?;
     tx.execute_batch(NOTES_TABLE_SQL)?;
     tx.execute_batch(NOTES_INDEXES_SQL)?;
+    if people_notes {
+        tx.execute_batch(
+            "INSERT INTO notes (id, body, sort_order, person_id)
+             SELECT lower(hex(randomblob(16))), notes, 0, id
+             FROM people WHERE trim(notes) <> '';
+             ALTER TABLE people DROP COLUMN notes;",
+        )?;
+    }
+    if citation_notes {
+        tx.execute_batch(
+            "INSERT INTO notes (id, body, sort_order, citation_id)
+             SELECT lower(hex(randomblob(16))), notes, 0, id
+             FROM citations WHERE notes IS NOT NULL AND trim(notes) <> '';
+             ALTER TABLE citations DROP COLUMN notes;",
+        )?;
+    }
+    if place_notes {
+        tx.execute_batch(
+            "INSERT INTO notes (id, body, sort_order, place_id)
+             SELECT lower(hex(randomblob(16))), notes, 0, id
+             FROM places WHERE notes IS NOT NULL AND trim(notes) <> '';
+             ALTER TABLE places DROP COLUMN notes;",
+        )?;
+    }
     tx.pragma_update(None, "user_version", 13)?;
     tx.commit()
 }
@@ -270,4 +297,17 @@ fn rebuild_citations(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     }
     tx.execute_batch("DROP TABLE citations; ALTER TABLE citations_v2 RENAME TO citations;")?;
     Ok(())
+}
+
+/// Whether a table currently has a column.
+fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut present = false;
+    for name in stmt.query_map([], |row| row.get::<_, String>(1))? {
+        if name? == column {
+            present = true;
+            break;
+        }
+    }
+    Ok(present)
 }

@@ -1624,9 +1624,9 @@ fn insert_citation(
 ) -> rusqlite::Result<()> {
     let citation_id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO citations (id, source_id, page_or_reference, notes,
+        "INSERT INTO citations (id, source_id, page_or_reference,
              quality_certainty, media_type, data_date, data_text)
-         VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             citation_id,
             source_id,

@@ -93,7 +93,6 @@ mod tests {
         let mut person = Person::new("Ada", "King", "F");
         person.middle_name = "Lynn".to_string();
         person.nickname = "Addy".to_string();
-        person.notes = "Nearest relation of the mayor.".to_string();
         let mut dates = HashMap::new();
         dates.insert(
             person.id.clone(),
@@ -122,13 +121,11 @@ mod tests {
         assert_eq!(form.birth_place, "London");
         assert_eq!(form.death, "1852");
         assert_eq!(form.death_place, "Cuckfield");
-        assert_eq!(form.notes, "Nearest relation of the mayor.");
 
         let mut edited = form.clone();
         edited.given_name = "Augusta".to_string();
         edited.birth = "  ".to_string();
         edited.birth_place = " ".to_string();
-        edited.notes = "  Edited.  ".to_string();
         let details = edited.to_details();
         assert_eq!(details.given_name, "Augusta");
         assert_eq!(details.middle_name, "Lynn", "middle name survives saves");
@@ -137,7 +134,6 @@ mod tests {
         assert_eq!(details.birth_place, None, "blank places clear the event");
         assert_eq!(details.death_date.as_deref(), Some("1852"));
         assert_eq!(details.death_place.as_deref(), Some("Cuckfield"));
-        assert_eq!(details.notes, "Edited.", "notes are trimmed");
         assert_eq!(details.display_name(), "Augusta Lynn King");
     }
 

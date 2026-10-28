@@ -632,12 +632,19 @@ fn init_db_upgrades_a_legacy_people_table() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     conn.execute(
-        "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender, notes)
-         VALUES ('p1', 'Ivan', 'Petrovich', 'Ivanov', 'Vanya', 'M', 'Lived in Tver')",
+        "INSERT INTO people (id, given_name, middle_name, surname, nickname, gender)
+         VALUES ('p1', 'Ivan', 'Petrovich', 'Ivanov', 'Vanya', 'M')",
         [],
     )?;
+    crate::db::notes::add_note(
+        &conn,
+        &crate::db::notes::NoteOwner::Person("p1".to_string()),
+        "Lived in Tver",
+    )
+    .expect("note saves");
     let person: (String, String) = conn.query_row(
-        "SELECT middle_name || '/' || nickname, notes FROM people WHERE id = 'p1'",
+        "SELECT p.middle_name || '/' || p.nickname, n.body
+         FROM people p JOIN notes n ON n.person_id = p.id WHERE p.id = 'p1'",
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
@@ -1206,6 +1213,53 @@ fn init_db_migrates_tree_settings_and_notes_to_v13() -> rusqlite::Result<()> {
     assert_eq!(
         scalar_count(&conn, "SELECT COUNT(*) FROM tree_settings")?,
         0
+    );
+    Ok(())
+}
+
+#[test]
+fn init_db_moves_legacy_notes_into_the_notes_table() -> rusqlite::Result<()> {
+    let conn = Connection::open_in_memory()?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    init_db(&conn)?;
+    conn.execute_batch(
+        "DROP TABLE notes;
+         ALTER TABLE people ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+         ALTER TABLE citations ADD COLUMN notes TEXT;
+         ALTER TABLE places ADD COLUMN notes TEXT;
+         PRAGMA user_version = 12;
+         INSERT INTO people (id, given_name, surname, gender, notes)
+         VALUES ('p1', 'Ada', 'King', 'F', 'Person note');
+         INSERT INTO sources (id, title) VALUES ('s1', 'Source');
+         INSERT INTO events (id, event_type, person_id) VALUES ('e1', 'BIRTH', 'p1');
+         INSERT INTO citations (id, source_id, notes) VALUES ('c1', 's1', 'Citation note');
+         INSERT INTO places (id, name, notes) VALUES ('pl1', 'Uppsala', 'Place note');",
+    )?;
+
+    init_db(&conn)?;
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 13);
+    assert!(!has_column(&conn, "people", "notes")?);
+    assert!(!has_column(&conn, "citations", "notes")?);
+    assert!(!has_column(&conn, "places", "notes")?);
+    let rows: Vec<(String, String)> = conn
+        .prepare(
+            "SELECT body, CASE
+                 WHEN person_id IS NOT NULL THEN 'person'
+                 WHEN citation_id IS NOT NULL THEN 'citation'
+                 ELSE 'place' END
+             FROM notes ORDER BY rowid",
+        )?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    assert_eq!(
+        rows,
+        [
+            ("Person note".to_string(), "person".to_string()),
+            ("Citation note".to_string(), "citation".to_string()),
+            ("Place note".to_string(), "place".to_string()),
+        ]
     );
     Ok(())
 }

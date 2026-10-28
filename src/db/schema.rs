@@ -501,7 +501,8 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 fn ensure_v13(conn: &Connection) -> rusqlite::Result<()> {
-    ensure_v1_columns(conn)?;
+    ensure_column(conn, "people", "middle_name", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "people", "nickname", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
     conn.execute_batch(LINK_TABLES_SQL)?;

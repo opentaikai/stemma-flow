@@ -59,7 +59,6 @@ mod tests {
             name_prefix: String::new(),
             name_suffix: String::new(),
             gender: "U".to_string(),
-            notes: String::new(),
             created_at: String::new(),
             updated_at: String::new(),
         }

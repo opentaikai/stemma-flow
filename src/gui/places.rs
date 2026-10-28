@@ -45,7 +45,6 @@ impl SortColumn {
 pub struct PlaceEdit {
     pub id: Option<String>,
     pub name: String,
-    pub notes: String,
     pub latitude: String,
     pub longitude: String,
 }
@@ -69,7 +68,6 @@ pub fn draft_from_record(record: &PlaceRecord) -> PlaceEdit {
     PlaceEdit {
         id: Some(record.id.clone()),
         name: record.name.clone(),
-        notes: record.notes.clone().unwrap_or_default(),
         latitude: format_coordinate(record.latitude),
         longitude: format_coordinate(record.longitude),
     }
@@ -81,7 +79,6 @@ impl PlaceEdit {
         Ok(PlaceDraft {
             id: self.id.clone(),
             name: self.name.clone(),
-            notes: self.notes.clone(),
             latitude: parse_coordinate(&self.latitude, 90.0, "Latitude")?,
             longitude: parse_coordinate(&self.longitude, 180.0, "Longitude")?,
         })
@@ -384,7 +381,6 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
                 *event = Some(PlacesEvent::Save(Box::new(PlaceDraft {
                     id: state.draft.id.clone(),
                     name: state.draft.name.clone(),
-                    notes: state.draft.notes.clone(),
                     latitude,
                     longitude,
                 })));
@@ -553,7 +549,6 @@ mod tests {
         PlaceRecord {
             id: "p1".to_string(),
             name: "Uppsala, Sweden".to_string(),
-            notes: Some("Cathedral archive".to_string()),
             latitude: Some(59.8586),
             longitude: Some(17.6389),
         }

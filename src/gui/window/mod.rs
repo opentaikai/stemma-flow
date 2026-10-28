@@ -443,12 +443,12 @@ mod tests {
         );
         {
             let conn = db::open_connection(&db_file).expect("connection opens");
-            conn.execute_batch("ALTER TABLE people DROP COLUMN notes")
-                .expect("simulated legacy schema must be writable");
-            assert!(
-                db::load_family_tree(&conn).is_err(),
-                "a pre-notes database fails to load before migration"
-            );
+            conn.execute_batch(
+                "ALTER TABLE people ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+                 UPDATE people SET notes = 'Legacy note';
+                 PRAGMA user_version = 12;",
+            )
+            .expect("simulated legacy schema must be writable");
         }
 
         assert!(loadable(&db_file), "opening migrates the schema in place");
@@ -461,11 +461,15 @@ mod tests {
                 |_| Ok(()),
             )
             .is_ok();
-        assert!(has_notes, "the notes column comes back on open");
+        assert!(!has_notes, "the legacy notes column is dropped");
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))
             .expect("rows must be countable");
         assert_eq!(count, 1, "rows survive the migration");
+        let note: String = conn
+            .query_row("SELECT body FROM notes", [], |row| row.get(0))
+            .expect("legacy note migrates");
+        assert_eq!(note, "Legacy note");
 
         let _ = std::fs::remove_file(&db_file);
     }
@@ -1311,7 +1315,6 @@ mod tests {
         window.inspector.given_name = "Hans".to_string();
         window.inspector.birth = "1870".to_string();
         window.inspector.birth_place = "Cuckfield".to_string();
-        window.inspector.notes = "Emigrated in 1870.".to_string();
         let details = window.inspector.to_details();
         window.edit_person(&details);
 
@@ -1324,13 +1327,6 @@ mod tests {
             Some("Cuckfield"),
             "places reload with the dates"
         );
-        let person = window
-            .tree
-            .people
-            .iter()
-            .find(|person| person.id == person_id)
-            .expect("person reloaded");
-        assert_eq!(person.notes, "Emigrated in 1870.", "notes persist");
         assert!(matches!(window.app.status(), UiStatus::Success(_)));
 
         let _ = std::fs::remove_file(&db_file);
