@@ -128,8 +128,10 @@ impl ParentRole {
 pub struct VitalDates {
     pub birth: Option<String>,
     pub birth_place: Option<String>,
+    pub birth_event_id: Option<String>,
     pub death: Option<String>,
     pub death_place: Option<String>,
+    pub death_event_id: Option<String>,
 }
 
 fn normalize(details: &PersonDetails) -> Result<PersonDetails, String> {
@@ -568,7 +570,7 @@ fn is_descendant(conn: &Connection, ancestor_id: &str, person_id: &str) -> Resul
 pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>, rusqlite::Error> {
     let mut dates: HashMap<String, VitalDates> = HashMap::new();
     let mut stmt = conn.prepare(
-        "SELECT e.person_id, e.event_type, e.date, p.name
+        "SELECT e.person_id, e.event_type, e.date, p.name, e.id
          FROM events e
          LEFT JOIN places p ON p.id = e.place_id
          WHERE e.person_id IS NOT NULL AND e.event_type IN ('BIRTH', 'DEATH')
@@ -580,10 +582,11 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
             row.get::<_, String>(1)?,
             row.get::<_, Option<String>>(2)?,
             row.get::<_, Option<String>>(3)?,
+            row.get::<_, String>(4)?,
         ))
     })?;
     for row in rows {
-        let (person_id, event_type, date, place) = row?;
+        let (person_id, event_type, date, place, event_id) = row?;
         let entry = dates.entry(person_id).or_default();
         match event_type.as_str() {
             "BIRTH" => {
@@ -593,6 +596,9 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
                 if entry.birth_place.is_none() {
                     entry.birth_place = place;
                 }
+                if entry.birth_event_id.is_none() {
+                    entry.birth_event_id = Some(event_id);
+                }
             }
             "DEATH" => {
                 if entry.death.is_none() {
@@ -600,6 +606,9 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
                 }
                 if entry.death_place.is_none() {
                     entry.death_place = place;
+                }
+                if entry.death_event_id.is_none() {
+                    entry.death_event_id = Some(event_id);
                 }
             }
             _ => {}

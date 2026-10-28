@@ -11,6 +11,7 @@ pub mod inspector;
 pub mod layout;
 pub mod names;
 pub mod nodes;
+pub mod notes;
 pub mod places;
 pub mod repositories;
 pub mod settings;

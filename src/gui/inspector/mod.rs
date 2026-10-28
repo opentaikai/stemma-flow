@@ -6,7 +6,9 @@ mod panel;
 mod participants;
 mod relation;
 
-pub use connections::{Connections, Relative, connections, person_label, reverse_marriage_places};
+pub use connections::{
+    Connections, FamilyLink, Relative, connections, person_label, reverse_marriage_places,
+};
 pub use form::InspectorForm;
 pub use panel::{field_editors, show};
 pub use participants::{ParticipantForm, ParticipantOutcome, show as participant_window};
@@ -16,6 +18,7 @@ use egui::Color32;
 
 use crate::db::citations::CitationEdit;
 use crate::db::names::AlternateNameDraft;
+use crate::db::notes::NoteOwner;
 use crate::db::people::PersonDetails;
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
@@ -64,6 +67,11 @@ pub enum InspectorAction {
         event_id: String,
         private: bool,
     },
+    /// Open the shared notes dialog for one record.
+    OpenNotes {
+        owner: NoteOwner,
+        title: String,
+    },
     /// Save an alternate name.
     SaveAlternateName(Box<AlternateNameDraft>),
     /// Delete an alternate name.
@@ -92,8 +100,10 @@ mod tests {
             VitalDates {
                 birth: Some("1815".to_string()),
                 birth_place: Some("London".to_string()),
+                birth_event_id: Some("e-birth".to_string()),
                 death: Some("1852".to_string()),
                 death_place: Some("Cuckfield".to_string()),
+                death_event_id: Some("e-death".to_string()),
             },
         );
         (person, dates)
@@ -283,6 +293,7 @@ mod tests {
                 ui,
                 Some(&person),
                 &mut form,
+                None,
                 Connections::default(),
                 &mut CitationsState::default(),
                 &facts,
@@ -337,6 +348,7 @@ mod tests {
                 ui,
                 Some(&person),
                 &mut form,
+                None,
                 Connections::default(),
                 &mut CitationsState::default(),
                 &[],

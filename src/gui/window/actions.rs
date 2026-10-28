@@ -2,6 +2,7 @@
 
 use crate::app;
 use crate::app::UiStatus;
+use crate::db::notes::NoteOwner;
 use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
 use crate::gui::citations::CitationDraft;
@@ -14,6 +15,7 @@ use crate::gui::inspector::InspectorForm;
 use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
+use crate::gui::notes::{self as notes_dialog, NotesOutcome};
 use crate::gui::places::{self, PlacesEvent};
 use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::sources::{self, SourcesEvent};
@@ -197,6 +199,9 @@ impl TreeWindow {
             },
             PlacesEvent::SelectPerson(id) => {
                 self.app.set_selected_person(Some(id));
+            }
+            PlacesEvent::Notes { place_id, title } => {
+                self.open_notes(NoteOwner::Place(place_id), title);
             }
         }
     }
@@ -525,6 +530,7 @@ impl TreeWindow {
             ui,
             person,
             &mut self.inspector,
+            self.dates.get(&person_id),
             connections,
             &mut self.citations,
             &facts,
@@ -618,6 +624,7 @@ impl TreeWindow {
                     Err(message) => self.app.set_status(UiStatus::Error(message)),
                 }
             }
+            InspectorAction::OpenNotes { owner, title } => self.open_notes(owner, title),
             InspectorAction::SaveAlternateName(draft) => {
                 match self.app.save_alternate_name(person_id, &draft) {
                     Ok(_) => {
@@ -632,6 +639,45 @@ impl TreeWindow {
                 Ok(()) => self.names.loaded = false,
                 Err(message) => self.names.error = Some(message),
             },
+        }
+    }
+
+    pub(super) fn open_notes(&mut self, owner: NoteOwner, title: String) {
+        match self.app.list_notes(&owner) {
+            Ok(notes) => self.notes.open(owner, title, notes),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn show_notes(&mut self, ctx: &egui::Context) {
+        let Some(outcome) = notes_dialog::show(ctx, &mut self.notes) else {
+            return;
+        };
+        let Some(owner) = self.notes.target.clone() else {
+            return;
+        };
+        let result = match outcome {
+            NotesOutcome::Save { id, body } => match id {
+                Some(id) => self.app.update_note(&id, &body),
+                None => self.app.add_note(&owner, &body),
+            },
+            NotesOutcome::Delete(id) => self.app.delete_note(&id),
+        };
+        match result {
+            Ok(()) => {
+                self.notes.finish_edit();
+                match self.app.list_notes(&owner) {
+                    Ok(notes) => self.notes.replace_notes(notes),
+                    Err(message) => self.notes.error = Some(message),
+                }
+                match owner {
+                    NoteOwner::Place(_) => self.places.loaded = false,
+                    NoteOwner::Citation(_) => self.citations.loaded = false,
+                    NoteOwner::Event(_) => self.reload_scene_quiet(),
+                    NoteOwner::Person(_) | NoteOwner::Family(_) => {}
+                }
+            }
+            Err(message) => self.notes.error = Some(message),
         }
     }
 

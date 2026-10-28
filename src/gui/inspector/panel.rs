@@ -7,6 +7,8 @@ use egui::{RichText, Ui};
 
 use crate::db::Person;
 use crate::db::facts::PersonFact;
+use crate::db::notes::NoteOwner;
+use crate::db::people::VitalDates;
 use crate::db::privacy::PersonPrivacy;
 use crate::model::age;
 
@@ -127,6 +129,7 @@ pub fn show(
     ui: &mut Ui,
     person: Option<&Person>,
     form: &mut InspectorForm,
+    dates: Option<&VitalDates>,
     connections: Connections,
     citations: &mut CitationsState,
     facts: &[PersonFact],
@@ -176,7 +179,39 @@ pub fn show(
                     });
                 }
             });
-            card(ui, "Vital Facts", |ui| vital_editors(ui, form));
+            card(ui, "Vital Facts", |ui| {
+                vital_editors(ui, form);
+                if let Some(dates) = dates {
+                    for (label, event_id) in [
+                        ("Birth", dates.birth_event_id.as_deref()),
+                        ("Death", dates.death_event_id.as_deref()),
+                    ] {
+                        if let Some(event_id) = event_id
+                            && ui.small_button(format!("{label} notes…")).clicked()
+                        {
+                            action = Some(InspectorAction::OpenNotes {
+                                owner: NoteOwner::Event(event_id.to_string()),
+                                title: format!("Notes — {label}"),
+                            });
+                        }
+                    }
+                }
+            });
+            if !connections.families.is_empty() {
+                card(ui, "Families", |ui| {
+                    for family in &connections.families {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&family.label).strong());
+                            if ui.small_button("Notes…").clicked() {
+                                action = Some(InspectorAction::OpenNotes {
+                                    owner: NoteOwner::Family(family.id.clone()),
+                                    title: format!("Notes — {}", family.label),
+                                });
+                            }
+                        });
+                    }
+                });
+            }
             card(ui, "Other Facts", |ui| {
                 if facts.is_empty() {
                     ui.label(RichText::new("(none)").weak().size(12.0));
@@ -247,6 +282,12 @@ pub fn show(
                         };
                         if ui.small_button(label).clicked() {
                             action = Some(InspectorAction::EditParticipants(fact.event_id.clone()));
+                        }
+                        if ui.small_button("Notes…").clicked() {
+                            action = Some(InspectorAction::OpenNotes {
+                                owner: NoteOwner::Event(fact.event_id.clone()),
+                                title: format!("Notes — {}", fact.label),
+                            });
                         }
                     });
                     ui.add_space(4.0);
@@ -383,6 +424,12 @@ pub fn show(
                         CitationsEvent::LoadChoices(source_id) => {
                             InspectorAction::LoadCitationChoices(source_id)
                         }
+                        CitationsEvent::Notes { citation_id, title } => {
+                            InspectorAction::OpenNotes {
+                                owner: NoteOwner::Citation(citation_id),
+                                title,
+                            }
+                        }
                     });
                 }
             });
@@ -458,12 +505,12 @@ pub fn show(
                 });
             });
             card(ui, "Notes", |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(&mut form.notes)
-                        .desired_rows(6)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("Research notes\u{2026}"),
-                );
+                if ui.button("Edit notes\u{2026}").clicked() {
+                    action = Some(InspectorAction::OpenNotes {
+                        owner: NoteOwner::Person(person.id.clone()),
+                        title: format!("Notes — {}", person_label(person, surname_first)),
+                    });
+                }
             });
         });
     ui.separator();

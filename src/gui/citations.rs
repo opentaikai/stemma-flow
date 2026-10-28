@@ -147,6 +147,10 @@ pub enum CitationsEvent {
     },
     Delete(String),
     LoadChoices(String),
+    Notes {
+        citation_id: String,
+        title: String,
+    },
 }
 
 /// Draws the citations card content.
@@ -179,6 +183,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
         ui.push_id(&citation.id, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&citation.source_title).strong());
+                if ui.small_button("Notes\u{2026}").clicked() {
+                    requested = Some(CitationsEvent::Notes {
+                        citation_id: citation.id.clone(),
+                        title: format!("Notes \u{2014} {}", citation.source_title),
+                    });
+                }
                 let facts = if citation.usage == 1 { "fact" } else { "facts" };
                 ui.label(
                     egui::RichText::new(format!("used by {} {facts}", citation.usage))

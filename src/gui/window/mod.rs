@@ -17,6 +17,7 @@ use super::inspector::ParticipantForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
 use super::names;
+use super::notes as notes_dialog;
 use super::places;
 use super::repositories;
 use super::settings;
@@ -59,6 +60,7 @@ pub struct TreeWindow {
     pub(super) watch: watchlist::WatchState,
     pub(super) places: places::PlacesState,
     pub(super) names: names::NamesState,
+    pub(super) notes: notes_dialog::NotesState,
     pub(super) fact_types: fact_types::FactTypesState,
     pub(super) sources: sources::SourcesState,
     pub(super) citations: citations::CitationsState,
@@ -104,6 +106,7 @@ impl TreeWindow {
             watch: watchlist::WatchState::default(),
             places: places::PlacesState::default(),
             names: names::NamesState::default(),
+            notes: notes_dialog::NotesState::default(),
             fact_types: fact_types::FactTypesState::default(),
             sources: sources::SourcesState::default(),
             citations: citations::CitationsState::default(),
@@ -180,6 +183,7 @@ impl App for TreeWindow {
         if self.app.active_db().is_some() {
             self.show_relation_window(ui.ctx());
             self.show_participant_window(ui.ctx());
+            self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
         }
         if self.show_settings
