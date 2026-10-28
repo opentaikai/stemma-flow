@@ -32,6 +32,9 @@ use crate::db::settings::{self as settings_store, TreeSettings};
 use crate::db::sources::{
     self as source_store, SourceDraft, SourceMergeReport, SourceRecord, SourceSummary,
 };
+use crate::db::tasks::{
+    self as task_store, TaskDraft, TaskLinkSummary, TaskOwner, TaskRecord, TaskSummary,
+};
 use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options};
 use crate::gui::dialogs;
 use crate::model::source_template::SourceTemplate;
@@ -444,6 +447,81 @@ impl StemmaApp {
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
         Ok(())
+    }
+
+    /// Lists every task with its link count.
+    pub fn list_tasks(&self) -> Result<Vec<TaskSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        task_store::list_tasks(&conn)
+    }
+
+    /// Loads one task for editing.
+    pub fn load_task(&self, id: &str) -> Result<Option<TaskRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        task_store::load_task(&conn, id)
+    }
+
+    /// Inserts or updates a task.
+    pub fn save_task(&mut self, draft: &TaskDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = task_store::save_task(&conn, draft)?;
+        self.set_status(UiStatus::Success("Task saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes one task and its links.
+    pub fn delete_task(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        task_store::delete_task(&conn, id)?;
+        self.set_status(UiStatus::Success("Task deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists the distinct task folders.
+    pub fn list_task_folders(&self) -> Result<Vec<String>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        task_store::list_folders(&conn)
+    }
+
+    /// Lists tasks linked to one record.
+    pub fn list_owner_tasks(&self, owner: &TaskOwner) -> Result<Vec<TaskSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        task_store::list_owner_tasks(&conn, owner)
+    }
+
+    /// Attaches a task to one record.
+    pub fn attach_task(&mut self, task_id: &str, owner: &TaskOwner) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        task_store::attach_task(&conn, task_id, owner)?;
+        self.set_status(UiStatus::Success("Task attached".to_string()));
+        Ok(())
+    }
+
+    /// Detaches a task from one record.
+    pub fn detach_task(&mut self, task_id: &str, owner: &TaskOwner) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        task_store::detach_task(&conn, task_id, owner)?;
+        self.set_status(UiStatus::Success("Task detached".to_string()));
+        Ok(())
+    }
+
+    /// Lists the records linked to one task.
+    pub fn list_task_links(
+        &self,
+        task_id: &str,
+        surname_first: bool,
+    ) -> Result<Vec<TaskLinkSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        task_store::list_task_links(&conn, task_id, surname_first)
     }
 
     /// Lists every media record.
