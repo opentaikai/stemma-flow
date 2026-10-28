@@ -14,6 +14,12 @@ pub struct Person {
     pub surname: String,
     /// Preferred given name or nickname (GEDCOM `_PGVN`/`NICK`).
     pub nickname: String,
+    /// GEDCOM `NPFX` name prefix.
+    #[serde(default)]
+    pub name_prefix: String,
+    /// GEDCOM `NSFX` name suffix.
+    #[serde(default)]
+    pub name_suffix: String,
     /// One of `"M"`, `"F"`, `"U"` (enforced by a CHECK constraint).
     pub gender: String,
     /// Free-form research notes attached to this person.
@@ -70,6 +76,8 @@ impl Person {
             middle_name: String::new(),
             surname: surname.into(),
             nickname: String::new(),
+            name_prefix: String::new(),
+            name_suffix: String::new(),
             gender: gender.into(),
             notes: String::new(),
             created_at: String::new(),

@@ -699,10 +699,13 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
             "SELECT ep.person_id, e.id, e.event_type,
                     COALESCE(f.label, e.event_type), e.date, pl.name, e.description,
                     COALESCE(r.label, ep.role_key),
-                    e.person_id, person.given_name, person.middle_name, person.surname,
+                    e.person_id, person.name_prefix, person.given_name,
+                    person.middle_name, person.surname, person.name_suffix,
                     e.family_id,
-                    fam.husband_id, h.given_name, h.middle_name, h.surname,
-                    fam.wife_id, w.given_name, w.middle_name, w.surname
+                    fam.husband_id, h.name_prefix, h.given_name, h.middle_name,
+                    h.surname, h.name_suffix,
+                    fam.wife_id, w.name_prefix, w.given_name, w.middle_name,
+                    w.surname, w.name_suffix
              FROM event_participants ep
              JOIN events e ON e.id = ep.event_id
              LEFT JOIN fact_types f ON f.key = e.event_type
@@ -720,9 +723,27 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
         .map_err(|error| error.to_string())?;
     let rows = stmt
         .query_map([], |row| {
-            let event_person = display_name(row.get(9)?, row.get(10)?, row.get(11)?);
-            let husband = display_name(row.get(14)?, row.get(15)?, row.get(16)?);
-            let wife = display_name(row.get(18)?, row.get(19)?, row.get(20)?);
+            let event_person = display_name(
+                row.get(9)?,
+                row.get(10)?,
+                row.get(11)?,
+                row.get(12)?,
+                row.get(13)?,
+            );
+            let husband = display_name(
+                row.get(16)?,
+                row.get(17)?,
+                row.get(18)?,
+                row.get(19)?,
+                row.get(20)?,
+            );
+            let wife = display_name(
+                row.get(22)?,
+                row.get(23)?,
+                row.get(24)?,
+                row.get(25)?,
+                row.get(26)?,
+            );
             let principal = if event_person.is_some() {
                 event_person
             } else {
@@ -773,7 +794,8 @@ fn load_participants_map(
 ) -> Result<HashMap<String, Vec<EventParticipant>>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT ep.event_id, ep.person_id, p.given_name, p.middle_name, p.surname,
+            "SELECT ep.event_id, ep.person_id, p.name_prefix, p.given_name,
+                    p.middle_name, p.surname, p.name_suffix,
                     ep.role_key, COALESCE(r.label, ep.role_key), ep.sort_order
              FROM event_participants ep
              JOIN events e ON e.id = ep.event_id
@@ -790,11 +812,17 @@ fn load_participants_map(
                 row.get::<_, String>(0)?,
                 EventParticipant {
                     person_id: row.get(1)?,
-                    person_name: display_name(row.get(2)?, row.get(3)?, row.get(4)?)
-                        .unwrap_or_else(|| "(unnamed)".to_string()),
-                    role_key: row.get(5)?,
-                    role_label: row.get(6)?,
-                    sort_order: row.get(7)?,
+                    person_name: display_name(
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    )
+                    .unwrap_or_else(|| "(unnamed)".to_string()),
+                    role_key: row.get(7)?,
+                    role_label: row.get(8)?,
+                    sort_order: row.get(9)?,
                 },
             ))
         })
@@ -808,11 +836,13 @@ fn load_participants_map(
 }
 
 fn display_name(
+    prefix: Option<String>,
     given: Option<String>,
     middle: Option<String>,
     surname: Option<String>,
+    suffix: Option<String>,
 ) -> Option<String> {
-    let parts = [given, middle, surname]
+    let parts = [prefix, given, middle, surname, suffix]
         .into_iter()
         .flatten()
         .map(|part| part.trim().to_string())

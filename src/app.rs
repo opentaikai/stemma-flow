@@ -15,6 +15,7 @@ use crate::db::citations::{
 use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
+use crate::db::names::{self as name_store, AlternateName, AlternateNameDraft};
 use crate::db::participants::{self as participant_store, EventContext, ParticipantDraft};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
@@ -436,6 +437,35 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists a person's alternate names.
+    pub fn alternate_names(&self, person_id: &str) -> Result<Vec<AlternateName>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        name_store::list_alternate_names(&conn, person_id)
+    }
+
+    /// Inserts or updates an alternate name.
+    pub fn save_alternate_name(
+        &mut self,
+        person_id: &str,
+        draft: &AlternateNameDraft,
+    ) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = name_store::save_alternate_name(&mut conn, person_id, draft)?;
+        self.set_status(UiStatus::Success("Alternate name saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes an alternate name.
+    pub fn delete_alternate_name(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        name_store::delete_alternate_name(&conn, id)?;
+        self.set_status(UiStatus::Success("Alternate name deleted".to_string()));
         Ok(())
     }
 

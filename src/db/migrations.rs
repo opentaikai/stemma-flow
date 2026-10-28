@@ -6,10 +6,11 @@ use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use uuid::Uuid;
 
 use super::schema::{
-    CITATION_LINKS_INDEXES_SQL, CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL,
-    EVENT_PARTICIPANTS_INDEX_SQL, EVENT_PARTICIPANTS_TABLE_SQL, FACT_ROLES_TABLE_SQL,
-    FACT_TAG_INDEX_SQL, INDEXES_SQL, LINK_TABLES_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL,
-    V4_TABLES_SQL, V5_COLUMNS, ensure_column, seed_source_templates,
+    ALTERNATE_NAMES_INDEX_SQL, ALTERNATE_NAMES_TABLE_SQL, CITATION_LINKS_INDEXES_SQL,
+    CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL, EVENT_PARTICIPANTS_INDEX_SQL,
+    EVENT_PARTICIPANTS_TABLE_SQL, FACT_ROLES_TABLE_SQL, FACT_TAG_INDEX_SQL, INDEXES_SQL,
+    LINK_TABLES_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS,
+    ensure_column, seed_source_templates,
 };
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
@@ -145,6 +146,17 @@ pub(super) fn migrate_v9_to_v10(conn: &Connection) -> rusqlite::Result<()> {
         "INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1))",
     )?;
     tx.pragma_update(None, "user_version", 10)?;
+    tx.commit()
+}
+
+/// Adds primary name pieces and alternate names.
+pub(super) fn migrate_v10_to_v11(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    ensure_column(&tx, "people", "name_prefix", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&tx, "people", "name_suffix", "TEXT NOT NULL DEFAULT ''")?;
+    tx.execute_batch(ALTERNATE_NAMES_TABLE_SQL)?;
+    tx.execute_batch(ALTERNATE_NAMES_INDEX_SQL)?;
+    tx.pragma_update(None, "user_version", 11)?;
     tx.commit()
 }
 
