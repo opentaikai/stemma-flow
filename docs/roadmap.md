@@ -51,7 +51,7 @@ Priority:
 | Sources and citations | partial | P0 | Source and citation editors, reusable citations and source merge |
 | Facts and events | partial | P0 | Read-only facts with witness editing; generic editor pending |
 | Places | partial | P0 | Place records in schema v2; no place page yet |
-| Names | partial | P0 | Given, middle, surname, nickname only |
+| Names | done | P0 | Primary pieces, alternates and married names |
 | Notes | partial | P1 | Person level only, no rich text or spell check |
 | Search | partial | P1 | Watch-list name filter and relation picker only |
 | Media, maps, tasks, groups, merge, reports, backups | planned | P1 | See milestones |
@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v10: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy |
+| Schema v2-v11: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
@@ -92,7 +92,7 @@ places, facts, alternate names and notes as first-class records.
 | Shared events and witnesses | done | P2 | Participant roles and _WITN/_ROLE GEDCOM round-trip |
 | Age at event | done | P1 | Exact, approximate, bounded and ranged ages from dates |
 | Private facts and privacy suppression on export | done | P1 | Private people/facts, living detection and opt-in export |
-| Alternate names and name pieces (prefix, suffix) | planned | P1 | Also married names |
+| Alternate names and name pieces (prefix, suffix) | done | P1 | Primary pieces, typed alternates and married names |
 | Surname-first display option | planned | P2 | Per-file preference |
 | Notes on person, family, fact, citation and place | planned | P0 | Current person notes migrate |
 | Associations (friends, associates, neighbours) | planned | P2 | With relationship labels |
