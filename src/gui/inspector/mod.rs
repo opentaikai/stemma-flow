@@ -36,6 +36,8 @@ pub enum InspectorAction {
     OpenEditor,
     /// Switch to the Groups pane in the Research tab.
     OpenGroups,
+    /// Switch the pinned editor to another person.
+    SwitchEditor(String),
     /// Select `person_id` and re-centre the graph on it.
     Focus(String),
     /// Close the inspector by clearing the selection.

@@ -172,6 +172,10 @@ unsaved_hint = "Save changes to this person before closing?"
 save = "Save"
 discard = "Discard"
 
+focus = "Focus"
+switch_hint = "Switch editor to this person"
+focus_hint = "Show on graph"
+
 [inspector]
 parents = "Parents"
 siblings = "Siblings"

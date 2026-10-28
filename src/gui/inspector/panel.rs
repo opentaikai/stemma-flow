@@ -539,19 +539,36 @@ pub fn show(
                             .marriage
                             .as_ref()
                             .and_then(|marriage| marriage.event_id.clone());
+                        let switch = editor_mode
+                            && matches!(kind, Some(RelationKind::Parent | RelationKind::Spouse));
+                        let hint = if switch {
+                            tr("editor.switch_hint")
+                        } else {
+                            tr("editor.focus_hint")
+                        };
                         let row = egui::Label::new(RichText::new(text).strong())
                             .sense(egui::Sense::click())
                             .truncate();
                         ui.horizontal(|ui| {
                             let width = if event_id.is_some() {
                                 (ui.available_width() - 86.0).max(80.0)
+                            } else if switch {
+                                (ui.available_width() - 52.0).max(80.0)
                             } else {
                                 ui.available_width()
                             };
                             if ui
                                 .add_sized([width, ui.spacing().interact_size.y], row)
+                                .on_hover_text(hint)
                                 .clicked()
                             {
+                                action = Some(if switch {
+                                    InspectorAction::SwitchEditor(relative.id.clone())
+                                } else {
+                                    InspectorAction::Focus(relative.id.clone())
+                                });
+                            }
+                            if switch && ui.small_button(tr("editor.focus")).clicked() {
                                 action = Some(InspectorAction::Focus(relative.id.clone()));
                             }
                             if let Some(event_id) = event_id
