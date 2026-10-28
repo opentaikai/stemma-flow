@@ -88,6 +88,54 @@ struct MediaLinkRow {
     family_id: Option<String>,
     event_id: Option<String>,
     source_id: Option<String>,
+    citation_id: Option<String>,
+    place_id: Option<String>,
+}
+
+struct TaskRow {
+    id: String,
+    title: String,
+    description: Option<String>,
+    status: String,
+    priority: Option<i64>,
+    folder: Option<String>,
+    due_date: Option<String>,
+    completed_at: Option<String>,
+}
+
+struct GroupRow {
+    id: String,
+    name: String,
+    description: Option<String>,
+}
+
+struct GroupMemberRow {
+    group_id: String,
+    person_id: String,
+}
+
+struct PlaceRow {
+    id: String,
+    name: String,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+}
+
+struct TaskLinkRow {
+    task_id: String,
+    person_id: Option<String>,
+    family_id: Option<String>,
+    event_id: Option<String>,
+    source_id: Option<String>,
+    citation_id: Option<String>,
+    place_id: Option<String>,
+    media_id: Option<String>,
+}
+
+struct EventAssociationRow {
+    event_id: String,
+    associate_id: String,
+    relationship: String,
 }
 
 struct AssociationRow {
@@ -212,6 +260,10 @@ fn push_event(
     notes: &HashMap<String, Vec<String>>,
     citation_notes: &HashMap<String, Vec<String>>,
     media: &HashMap<&str, Vec<&str>>,
+    citation_media: &HashMap<&str, Vec<&str>>,
+    event_associations: &HashMap<&str, Vec<(&str, &str)>>,
+    tasks: &HashMap<&str, Vec<&str>>,
+    citation_tasks: &HashMap<&str, Vec<&str>>,
     write_markers: bool,
 ) {
     let tag = facts
@@ -260,6 +312,16 @@ fn push_event(
                     push_text(out, 3, "NOTE", note);
                 }
             }
+            if let Some(media) = citation_media.get(citation.id.as_str()) {
+                for xref in media {
+                    out.push_str(&format!("3 OBJE {xref}\n"));
+                }
+            }
+            if let Some(tasks) = citation_tasks.get(citation.id.as_str()) {
+                for xref in tasks {
+                    out.push_str(&format!("3 _TASK {xref}\n"));
+                }
+            }
             if let Some(media) = &citation.media_type {
                 out.push_str(&format!("3 MEDI {media}\n"));
             }
@@ -282,6 +344,17 @@ fn push_event(
     if let Some(media) = media.get(event.id.as_str()) {
         for xref in media {
             out.push_str(&format!("2 OBJE {xref}\n"));
+        }
+    }
+    if let Some(associations) = event_associations.get(event.id.as_str()) {
+        for (xref, relationship) in associations {
+            out.push_str(&format!("2 ASSO {xref}\n"));
+            push_text(out, 3, "RELA", relationship);
+        }
+    }
+    if let Some(tasks) = tasks.get(event.id.as_str()) {
+        for xref in tasks {
+            out.push_str(&format!("2 _TASK {xref}\n"));
         }
     }
     if let Some(witnesses) = participants.get(event.id.as_str()) {
@@ -621,7 +694,7 @@ pub fn export_to_gedcom_with_options(
 
     let mut media_links = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT media_id, person_id, family_id, event_id, source_id
+        "SELECT media_id, person_id, family_id, event_id, source_id, citation_id, place_id
          FROM media_links
          ORDER BY (SELECT m.rowid FROM media m WHERE m.id = media_id), rowid",
     )?;
@@ -632,10 +705,112 @@ pub fn export_to_gedcom_with_options(
             family_id: row.get(2)?,
             event_id: row.get(3)?,
             source_id: row.get(4)?,
+            citation_id: row.get(5)?,
+            place_id: row.get(6)?,
         })
     })?;
     for row in rows {
         media_links.push(row?);
+    }
+
+    let mut event_associations = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT event_id, associate_id, relationship FROM event_associations
+         ORDER BY event_id, rowid",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(EventAssociationRow {
+            event_id: row.get(0)?,
+            associate_id: row.get(1)?,
+            relationship: row.get(2)?,
+        })
+    })?;
+    for row in rows {
+        event_associations.push(row?);
+    }
+
+    let mut tasks = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT id, title, description, status, priority, folder, due_date, completed_at
+         FROM tasks ORDER BY rowid",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(TaskRow {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            description: row.get(2)?,
+            status: row.get(3)?,
+            priority: row.get(4)?,
+            folder: row.get(5)?,
+            due_date: row.get(6)?,
+            completed_at: row.get(7)?,
+        })
+    })?;
+    for row in rows {
+        tasks.push(row?);
+    }
+
+    let mut groups = Vec::new();
+    let mut stmt = conn.prepare("SELECT id, name, description FROM groups ORDER BY rowid")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(GroupRow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
+        })
+    })?;
+    for row in rows {
+        groups.push(row?);
+    }
+
+    let mut group_members = Vec::new();
+    let mut stmt =
+        conn.prepare("SELECT group_id, person_id FROM group_members ORDER BY group_id, rowid")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(GroupMemberRow {
+            group_id: row.get(0)?,
+            person_id: row.get(1)?,
+        })
+    })?;
+    for row in rows {
+        group_members.push(row?);
+    }
+
+    let mut places = Vec::new();
+    let mut stmt =
+        conn.prepare("SELECT id, name, latitude, longitude FROM places ORDER BY rowid")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(PlaceRow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            latitude: row.get(2)?,
+            longitude: row.get(3)?,
+        })
+    })?;
+    for row in rows {
+        places.push(row?);
+    }
+
+    let mut task_links = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT task_id, person_id, family_id, event_id, source_id, citation_id,
+                place_id, media_id
+         FROM task_links ORDER BY rowid",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(TaskLinkRow {
+            task_id: row.get(0)?,
+            person_id: row.get(1)?,
+            family_id: row.get(2)?,
+            event_id: row.get(3)?,
+            source_id: row.get(4)?,
+            citation_id: row.get(5)?,
+            place_id: row.get(6)?,
+            media_id: row.get(7)?,
+        })
+    })?;
+    for row in rows {
+        task_links.push(row?);
     }
 
     let mut person_xref: HashMap<&str, String> = HashMap::new();
@@ -686,7 +861,15 @@ pub fn export_to_gedcom_with_options(
             || link
                 .source_id
                 .as_deref()
-                .is_some_and(|id| source_xref.contains_key(id));
+                .is_some_and(|id| source_xref.contains_key(id))
+            || link
+                .citation_id
+                .as_deref()
+                .is_some_and(|id| citations.iter().any(|citation| citation.id == id))
+            || link
+                .place_id
+                .as_deref()
+                .is_some_and(|id| places.iter().any(|place| place.id == id));
         if visible {
             visible_media_ids.insert(link.media_id.as_str());
         }
@@ -703,6 +886,12 @@ pub fn export_to_gedcom_with_options(
     let mut media_by_family: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut media_by_event: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut media_by_source: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut media_by_citation: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut media_by_place: HashMap<&str, Vec<&str>> = HashMap::new();
+    let citation_ids: HashSet<&str> = citations
+        .iter()
+        .map(|citation| citation.id.as_str())
+        .collect();
     for link in &media_links {
         let Some(xref) = media_xref.get(link.media_id.as_str()).map(String::as_str) else {
             continue;
@@ -719,6 +908,14 @@ pub fn export_to_gedcom_with_options(
             && visible_event_ids.contains(id)
         {
             media_by_event.entry(id).or_default().push(xref);
+        } else if let Some(id) = link.citation_id.as_deref()
+            && citation_ids.contains(id)
+        {
+            media_by_citation.entry(id).or_default().push(xref);
+        } else if let Some(id) = link.place_id.as_deref()
+            && places.iter().any(|place| place.id == id)
+        {
+            media_by_place.entry(id).or_default().push(xref);
         } else if let Some(id) = link.source_id.as_deref()
             && source_xref.contains_key(id)
         {
@@ -738,6 +935,86 @@ pub fn export_to_gedcom_with_options(
             .or_default()
             .push(association);
     }
+
+    let mut event_associations_by_event: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
+    for association in &event_associations {
+        if !visible_event_ids.contains(association.event_id.as_str()) {
+            continue;
+        }
+        let Some(xref) = person_xref.get(association.associate_id.as_str()) else {
+            continue;
+        };
+        event_associations_by_event
+            .entry(association.event_id.as_str())
+            .or_default()
+            .push((xref.as_str(), association.relationship.as_str()));
+    }
+
+    let mut task_xref: HashMap<&str, String> = HashMap::new();
+    for (index, task) in tasks.iter().enumerate() {
+        task_xref.insert(&task.id, format!("@T{}@", index + 1));
+    }
+    let mut group_xref: HashMap<&str, String> = HashMap::new();
+    for (index, group) in groups.iter().enumerate() {
+        group_xref.insert(&group.id, format!("@G{}@", index + 1));
+    }
+    let mut place_xref: HashMap<&str, String> = HashMap::new();
+    for (index, place) in places.iter().enumerate() {
+        place_xref.insert(&place.id, format!("@P{}@", index + 1));
+    }
+
+    let mut tasks_by_person: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut tasks_by_family: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut tasks_by_event: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut tasks_by_source: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut tasks_by_citation: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut tasks_by_place: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut tasks_by_media: HashMap<&str, Vec<&str>> = HashMap::new();
+    for link in &task_links {
+        let Some(xref) = task_xref.get(link.task_id.as_str()).map(String::as_str) else {
+            continue;
+        };
+        if let Some(id) = link.person_id.as_deref()
+            && person_xref.contains_key(id)
+        {
+            tasks_by_person.entry(id).or_default().push(xref);
+        } else if let Some(id) = link.family_id.as_deref()
+            && family_xref.contains_key(id)
+        {
+            tasks_by_family.entry(id).or_default().push(xref);
+        } else if let Some(id) = link.event_id.as_deref()
+            && visible_event_ids.contains(id)
+        {
+            tasks_by_event.entry(id).or_default().push(xref);
+        } else if let Some(id) = link.source_id.as_deref()
+            && source_xref.contains_key(id)
+        {
+            tasks_by_source.entry(id).or_default().push(xref);
+        } else if let Some(id) = link.citation_id.as_deref()
+            && citations.iter().any(|citation| citation.id == id)
+        {
+            tasks_by_citation.entry(id).or_default().push(xref);
+        } else if let Some(id) = link.place_id.as_deref()
+            && places.iter().any(|place| place.id == id)
+        {
+            tasks_by_place.entry(id).or_default().push(xref);
+        } else if let Some(id) = link.media_id.as_deref()
+            && media_xref.contains_key(id)
+        {
+            tasks_by_media.entry(id).or_default().push(xref);
+        }
+    }
+    let mut members_by_group: HashMap<&str, Vec<&str>> = HashMap::new();
+    for member in &group_members {
+        let Some(xref) = person_xref.get(member.person_id.as_str()) else {
+            continue;
+        };
+        members_by_group
+            .entry(member.group_id.as_str())
+            .or_default()
+            .push(xref.as_str());
+    }
+    let place_notes = load_notes(conn, "place_id")?;
 
     let mut alternate_names_by_person: HashMap<&str, Vec<&AlternateNameRow>> = HashMap::new();
     for name in &alternate_names {
@@ -852,6 +1129,11 @@ pub fn export_to_gedcom_with_options(
                 out.push_str(&format!("1 OBJE {xref}\n"));
             }
         }
+        if let Some(tasks) = tasks_by_source.get(source.id.as_str()) {
+            for xref in tasks {
+                out.push_str(&format!("1 _TASK {xref}\n"));
+            }
+        }
         if source.data_date.is_some() || source.data_text.is_some() {
             out.push_str("1 DATA\n");
             if let Some(date) = &source.data_date {
@@ -874,6 +1156,84 @@ pub fn export_to_gedcom_with_options(
         }
         if let Some(notes) = &media.notes {
             push_text(&mut out, 1, "NOTE", notes);
+        }
+        if let Some(tasks) = tasks_by_media.get(media.id.as_str()) {
+            for xref in tasks {
+                out.push_str(&format!("1 _TASK {xref}\n"));
+            }
+        }
+    }
+
+    for (index, task) in tasks.iter().enumerate() {
+        out.push_str(&format!("0 @T{}@ _TASK\n", index + 1));
+        push_text(&mut out, 1, "TITL", &task.title);
+        if let Some(description) = &task.description {
+            push_text(&mut out, 1, "NOTE", description);
+        }
+        out.push_str(&format!("1 _STATUS {}\n", task.status));
+        if let Some(priority) = task.priority {
+            out.push_str(&format!("1 _PRIO {priority}\n"));
+        }
+        if let Some(folder) = &task.folder {
+            push_text(&mut out, 1, "_FOLDER", folder);
+        }
+        if let Some(due) = &task.due_date {
+            push_text(&mut out, 1, "_DUE", due);
+        }
+        if let Some(completed) = &task.completed_at {
+            push_text(&mut out, 1, "_DONE", completed);
+        }
+    }
+
+    for group in &groups {
+        let members = members_by_group.get(group.id.as_str());
+        let had_members = group_members
+            .iter()
+            .any(|member| member.group_id == group.id);
+        if had_members && members.is_none() {
+            continue;
+        }
+        let Some(xref) = group_xref.get(group.id.as_str()) else {
+            continue;
+        };
+        out.push_str(&format!("0 {xref} _GROUP\n"));
+        push_text(&mut out, 1, "NAME", &group.name);
+        if let Some(description) = &group.description {
+            push_text(&mut out, 1, "NOTE", description);
+        }
+        if let Some(members) = members {
+            for member in members {
+                out.push_str(&format!("1 _MEMBER {member}\n"));
+            }
+        }
+    }
+
+    for place in &places {
+        let Some(xref) = place_xref.get(place.id.as_str()) else {
+            continue;
+        };
+        out.push_str(&format!("0 {xref} _PLACE\n"));
+        push_text(&mut out, 1, "NAME", &place.name);
+        if let Some(latitude) = place.latitude {
+            out.push_str(&format!("1 _LATI {}\n", format_latitude(latitude)));
+        }
+        if let Some(longitude) = place.longitude {
+            out.push_str(&format!("1 _LONG {}\n", format_longitude(longitude)));
+        }
+        if let Some(notes) = place_notes.get(&place.id) {
+            for note in notes {
+                push_text(&mut out, 1, "NOTE", note);
+            }
+        }
+        if let Some(media) = media_by_place.get(place.id.as_str()) {
+            for xref in media {
+                out.push_str(&format!("1 OBJE {xref}\n"));
+            }
+        }
+        if let Some(tasks) = tasks_by_place.get(place.id.as_str()) {
+            for xref in tasks {
+                out.push_str(&format!("1 _TASK {xref}\n"));
+            }
         }
     }
 
@@ -947,6 +1307,10 @@ pub fn export_to_gedcom_with_options(
                     &event_notes,
                     &citation_notes,
                     &media_by_event,
+                    &media_by_citation,
+                    &event_associations_by_event,
+                    &tasks_by_event,
+                    &tasks_by_citation,
                     options.write_markers,
                 );
             }
@@ -976,6 +1340,11 @@ pub fn export_to_gedcom_with_options(
         if let Some(media) = media_by_person.get(person.id.as_str()) {
             for xref in media {
                 out.push_str(&format!("1 OBJE {xref}\n"));
+            }
+        }
+        if let Some(tasks) = tasks_by_person.get(person.id.as_str()) {
+            for xref in tasks {
+                out.push_str(&format!("1 _TASK {xref}\n"));
             }
         }
     }
@@ -1009,6 +1378,11 @@ pub fn export_to_gedcom_with_options(
                 out.push_str(&format!("1 OBJE {xref}\n"));
             }
         }
+        if let Some(tasks) = tasks_by_family.get(family.id.as_str()) {
+            for xref in tasks {
+                out.push_str(&format!("1 _TASK {xref}\n"));
+            }
+        }
         if let Some(family_events) = events_by_family.get(family.id.as_str()) {
             for event in family_events {
                 push_event(
@@ -1021,6 +1395,10 @@ pub fn export_to_gedcom_with_options(
                     &event_notes,
                     &citation_notes,
                     &media_by_event,
+                    &media_by_citation,
+                    &event_associations_by_event,
+                    &tasks_by_event,
+                    &tasks_by_citation,
                     options.write_markers,
                 );
             }

@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::db::facts::FactLookup;
 use crate::db::media::MediaOwner;
+use crate::db::tasks::TaskOwner;
 use crate::gedcom::{GedcomError, ImportReport};
 use crate::model::fact::FactScope;
 
@@ -40,6 +41,10 @@ pub(crate) struct SourceRef {
     pub quality: Option<String>,
     /// Citation-level notes (`3 NOTE`).
     pub notes: Vec<String>,
+    /// Citation-level media pointers (`3 OBJE`).
+    pub media: Vec<String>,
+    /// Citation-level task pointers (`3 _TASK`).
+    pub tasks: Vec<String>,
     pub media_type: Option<String>,
     pub data_date: Option<String>,
     pub data_text: Option<String>,
@@ -61,6 +66,8 @@ pub(crate) struct ParsedEvent {
     pub source_refs: Vec<SourceRef>,
     pub notes: Vec<String>,
     pub media: Vec<ParsedMediaRef>,
+    pub associations: Vec<ParsedAssociation>,
+    pub tasks: Vec<String>,
 }
 
 /// A `_WITN @X@` participant reference on an event.
@@ -84,6 +91,7 @@ pub(crate) struct ParsedMedia {
     pub format: Option<String>,
     pub caption: Option<String>,
     pub notes: Vec<String>,
+    pub tasks: Vec<String>,
 }
 
 /// A pointer to a shared media record or an inline media block.
@@ -124,6 +132,7 @@ pub(crate) struct IndiRecord {
     pub alternate_names: Vec<ParsedAlternateName>,
     pub associations: Vec<ParsedAssociation>,
     pub media: Vec<ParsedMediaRef>,
+    pub tasks: Vec<String>,
     pub gender: String,
     /// Every `1 NOTE` block, including `2 CONT`/`2 CONC` continuations.
     pub notes: Vec<String>,
@@ -155,6 +164,7 @@ pub(crate) struct FamRecord {
     pub events: Vec<ParsedEvent>,
     pub notes: Vec<String>,
     pub media: Vec<ParsedMediaRef>,
+    pub tasks: Vec<String>,
 }
 
 /// One `1 REPO @R@` link on a source.
@@ -178,6 +188,7 @@ pub(crate) struct SourRecord {
     pub data_date: Option<String>,
     pub data_text: Option<String>,
     pub media: Vec<ParsedMediaRef>,
+    pub tasks: Vec<String>,
 }
 
 impl SourRecord {
@@ -193,6 +204,7 @@ impl SourRecord {
             data_date: None,
             data_text: None,
             media: Vec::new(),
+            tasks: Vec::new(),
         }
     }
 }
@@ -225,13 +237,67 @@ pub(crate) enum Record {
     Sour(SourRecord),
     Repo(RepositoryRecord),
     Media(MediaRecordParse),
+    Note(NoteRecordParse),
+    Task(TaskParse),
+    Group(GroupParse),
+    Place(PlaceParse),
+}
+
+/// A parsed shared level-0 `NOTE` record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NoteRecordParse {
+    pub xref: String,
+    pub body: String,
+}
+
+/// A Stemma Flow `0 @T@ _TASK` record.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct TaskParse {
+    pub xref: String,
+    pub title: String,
+    pub description: String,
+    pub status: String,
+    pub priority: Option<i64>,
+    pub folder: String,
+    pub due_date: String,
+    pub completed_at: String,
+}
+
+/// A Stemma Flow `0 @G@ _GROUP` record.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct GroupParse {
+    pub xref: String,
+    pub name: String,
+    pub description: String,
+    pub members: Vec<String>,
+}
+
+/// A Stemma Flow `0 @P@ _PLACE` metadata record.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct PlaceParse {
+    pub xref: String,
+    pub name: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub notes: Vec<String>,
+    pub media: Vec<String>,
+    pub tasks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum CustomField {
+    #[default]
+    None,
+    Title,
+    Name,
+    Note,
 }
 
 /// A parsed level-0 `OBJE` record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MediaRecordParse {
     pub xref: String,
-    pub media: ParsedMedia,
+    pub media: Vec<ParsedMedia>,
 }
 
 impl IndiRecord {
@@ -247,6 +313,7 @@ impl IndiRecord {
             alternate_names: Vec::new(),
             associations: Vec::new(),
             media: Vec::new(),
+            tasks: Vec::new(),
             gender: "U".to_string(),
             notes: Vec::new(),
             events: Vec::new(),
@@ -267,6 +334,7 @@ impl FamRecord {
             events: Vec::new(),
             notes: Vec::new(),
             media: Vec::new(),
+            tasks: Vec::new(),
         }
     }
 }
@@ -385,7 +453,7 @@ fn start_media(
 }
 
 fn media_child(
-    media: &mut [ParsedMediaRef],
+    media: &mut Vec<ParsedMediaRef>,
     state: &mut MediaParseState,
     line: Line<'_>,
     line_no: usize,
@@ -395,42 +463,56 @@ fn media_child(
     let Some(slot) = state.slot else {
         return;
     };
-    let Some(ParsedMediaRef::Inline(media)) = media.get_mut(slot) else {
+    let relative = line.level.saturating_sub(obje_level);
+    if relative == 1 && line.tag == "FILE" {
+        let needs_new = matches!(
+            media.get(slot),
+            Some(ParsedMediaRef::Inline(current)) if current.file_path.is_some()
+        );
+        if needs_new {
+            media.push(ParsedMediaRef::Inline(ParsedMedia::default()));
+            state.slot = Some(media.len() - 1);
+        }
+        if let Some(ParsedMediaRef::Inline(current)) = media.get_mut(state.slot.unwrap_or(slot)) {
+            current.file_path = optional_payload(line.payload);
+            state.field = MediaField::File;
+        }
+        return;
+    }
+    let Some(ParsedMediaRef::Inline(current)) = media.get_mut(slot) else {
         state.slot = None;
         return;
     };
-    let relative = line.level.saturating_sub(obje_level);
     match (relative, line.tag) {
-        (1, "FILE") => {
-            if media.file_path.is_some() {
-                *warning = Some(format!("line {line_no}: extra FILE in one OBJE ignored"));
-            } else {
-                media.file_path = optional_payload(line.payload);
-                state.field = MediaField::File;
+        (1, "_TASK") => {
+            if is_pointer(line.payload) {
+                current.tasks.push(line.payload.trim().to_string());
             }
         }
         (1 | 2, "FORM") => {
-            media.format = optional_payload(line.payload);
+            current.format = optional_payload(line.payload);
             state.field = MediaField::Format;
         }
         (1..=3, "TITL") => {
-            media.caption = Some(line.payload.to_string());
+            current.caption = Some(line.payload.to_string());
             state.field = MediaField::Caption;
         }
         (1 | 2, "NOTE") => {
-            media.notes.push(line.payload.to_string());
+            current.notes.push(line.payload.to_string());
             state.field = MediaField::Note;
         }
         (2 | 3, "CONT" | "CONC") => {
             let new_line = line.tag == "CONT";
             match state.field {
-                MediaField::File => append_optional(&mut media.file_path, line.payload, new_line),
-                MediaField::Format => append_optional(&mut media.format, line.payload, new_line),
+                MediaField::File => append_optional(&mut current.file_path, line.payload, new_line),
+                MediaField::Format => {
+                    append_optional(&mut current.format, line.payload, new_line);
+                }
                 MediaField::Caption => {
-                    append_optional(&mut media.caption, line.payload, new_line);
+                    append_optional(&mut current.caption, line.payload, new_line);
                 }
                 MediaField::Note => {
-                    if let Some(note) = media.notes.last_mut() {
+                    if let Some(note) = current.notes.last_mut() {
                         append_text(note, line.payload, new_line);
                     }
                 }
@@ -492,6 +574,7 @@ enum Current {
         association_slot: Option<usize>,
         media: MediaParseState,
         event_media: MediaParseState,
+        event_association: Option<usize>,
     },
     Fam {
         rec: Box<FamRecord>,
@@ -500,6 +583,7 @@ enum Current {
         note_slot: Option<usize>,
         media: MediaParseState,
         event_media: MediaParseState,
+        event_association: Option<usize>,
     },
     Sour {
         rec: SourRecord,
@@ -510,6 +594,22 @@ enum Current {
         xref: String,
         media: Vec<ParsedMediaRef>,
         state: MediaParseState,
+    },
+    Note {
+        xref: String,
+        body: String,
+    },
+    Task {
+        rec: TaskParse,
+        field: CustomField,
+    },
+    Group {
+        rec: GroupParse,
+        field: CustomField,
+    },
+    Place {
+        rec: PlaceParse,
+        field: CustomField,
     },
     Repo(RepositoryRecord),
     Skipped,
@@ -828,6 +928,7 @@ impl<R: BufRead> RecordReader<R> {
                         association_slot: None,
                         media: MediaParseState::default(),
                         event_media: MediaParseState::default(),
+                        event_association: None,
                     }),
                     None => {
                         let message =
@@ -845,6 +946,7 @@ impl<R: BufRead> RecordReader<R> {
                         note_slot: None,
                         media: MediaParseState::default(),
                         event_media: MediaParseState::default(),
+                        event_association: None,
                     }),
                     None => {
                         let message =
@@ -901,6 +1003,56 @@ impl<R: BufRead> RecordReader<R> {
                     }
                 };
             }
+            "NOTE" => {
+                self.current = match line.xref {
+                    Some(xref) => Some(Current::Note {
+                        xref: xref.to_string(),
+                        body: line.payload.to_string(),
+                    }),
+                    None => {
+                        let message =
+                            format!("line {}: NOTE record without @XREF@ skipped", self.line_no);
+                        self.warnings.push(message);
+                        Some(Current::Skipped)
+                    }
+                };
+            }
+            "_TASK" => {
+                self.current = match line.xref {
+                    Some(xref) => Some(Current::Task {
+                        rec: TaskParse {
+                            xref: xref.to_string(),
+                            ..TaskParse::default()
+                        },
+                        field: CustomField::None,
+                    }),
+                    None => Some(Current::Skipped),
+                };
+            }
+            "_GROUP" => {
+                self.current = match line.xref {
+                    Some(xref) => Some(Current::Group {
+                        rec: GroupParse {
+                            xref: xref.to_string(),
+                            ..GroupParse::default()
+                        },
+                        field: CustomField::None,
+                    }),
+                    None => Some(Current::Skipped),
+                };
+            }
+            "_PLACE" => {
+                self.current = match line.xref {
+                    Some(xref) => Some(Current::Place {
+                        rec: PlaceParse {
+                            xref: xref.to_string(),
+                            ..PlaceParse::default()
+                        },
+                        field: CustomField::None,
+                    }),
+                    None => Some(Current::Skipped),
+                };
+            }
             "TRLR" => {
                 self.saw_trlr = true;
                 self.done = true;
@@ -940,6 +1092,11 @@ impl<R: BufRead> RecordReader<R> {
                         "DATA" => *section = SourSection::Data,
                         "OBJE" => {
                             start_media(&mut rec.media, media, line.payload, line_no, &mut warning);
+                        }
+                        "_TASK" => {
+                            if is_pointer(line.payload) {
+                                rec.tasks.push(line.payload.trim().to_string());
+                            }
                         }
                         "REPO" => {
                             if is_pointer(line.payload) {
@@ -997,6 +1154,91 @@ impl<R: BufRead> RecordReader<R> {
                     warning = Some(unknown_tag_warning(line_no, &line));
                 }
             }
+            Some(Current::Note { body, .. }) => match (line.level, line.tag) {
+                (1, "CONT") => append_text(body, line.payload, true),
+                (1, "CONC") => append_text(body, line.payload, false),
+                _ => warning = Some(unknown_tag_warning(line_no, &line)),
+            },
+            Some(Current::Task { rec, field }) => match (line.level, line.tag) {
+                (1, "TITL") => {
+                    rec.title = line.payload.to_string();
+                    *field = CustomField::Title;
+                }
+                (1, "NOTE") => {
+                    rec.description = line.payload.to_string();
+                    *field = CustomField::Note;
+                }
+                (1, "_STATUS") => rec.status = line.payload.trim().to_ascii_lowercase(),
+                (1, "_PRIO") => rec.priority = line.payload.trim().parse().ok(),
+                (1, "_FOLDER") => rec.folder = line.payload.to_string(),
+                (1, "_DUE") => rec.due_date = line.payload.to_string(),
+                (1, "_DONE") => rec.completed_at = line.payload.to_string(),
+                (2, "CONT") | (2, "CONC") => match *field {
+                    CustomField::Title => {
+                        append_text(&mut rec.title, line.payload, line.tag == "CONT")
+                    }
+                    CustomField::Note => {
+                        append_text(&mut rec.description, line.payload, line.tag == "CONT")
+                    }
+                    _ => {}
+                },
+                _ => warning = Some(unknown_tag_warning(line_no, &line)),
+            },
+            Some(Current::Group { rec, field }) => match (line.level, line.tag) {
+                (1, "NAME") => {
+                    rec.name = line.payload.to_string();
+                    *field = CustomField::Name;
+                }
+                (1, "NOTE") => {
+                    rec.description = line.payload.to_string();
+                    *field = CustomField::Note;
+                }
+                (1, "_MEMBER") => {
+                    if is_pointer(line.payload) {
+                        rec.members.push(line.payload.trim().to_string());
+                    }
+                }
+                (2, "CONT") | (2, "CONC") => match *field {
+                    CustomField::Name => {
+                        append_text(&mut rec.name, line.payload, line.tag == "CONT")
+                    }
+                    CustomField::Note => {
+                        append_text(&mut rec.description, line.payload, line.tag == "CONT")
+                    }
+                    _ => {}
+                },
+                _ => warning = Some(unknown_tag_warning(line_no, &line)),
+            },
+            Some(Current::Place { rec, field }) => match (line.level, line.tag) {
+                (1, "NAME") => {
+                    rec.name = line.payload.to_string();
+                    *field = CustomField::Name;
+                }
+                (1, "NOTE") => {
+                    rec.notes.push(line.payload.to_string());
+                    *field = CustomField::Note;
+                }
+                (1, "OBJE") => {
+                    if is_pointer(line.payload) {
+                        rec.media.push(line.payload.trim().to_string());
+                    }
+                }
+                (1, "_TASK") => {
+                    if is_pointer(line.payload) {
+                        rec.tasks.push(line.payload.trim().to_string());
+                    }
+                }
+                (1, "_LATI") => rec.latitude = parse_latitude(line.payload),
+                (1, "_LONG") => rec.longitude = parse_longitude(line.payload),
+                (2, "CONT") | (2, "CONC") => {
+                    if *field == CustomField::Note
+                        && let Some(note) = rec.notes.last_mut()
+                    {
+                        append_text(note, line.payload, line.tag == "CONT");
+                    }
+                }
+                _ => warning = Some(unknown_tag_warning(line_no, &line)),
+            },
             Some(Current::Repo(repo)) => {
                 if line.level == 1 {
                     match line.tag {
@@ -1041,6 +1283,7 @@ impl<R: BufRead> RecordReader<R> {
                 association_slot,
                 media,
                 event_media,
+                event_association,
             }) => {
                 if line.level == 1 {
                     *event_slot = None;
@@ -1048,6 +1291,7 @@ impl<R: BufRead> RecordReader<R> {
                     *association_slot = None;
                     *media = MediaParseState::default();
                     *event_media = MediaParseState::default();
+                    *event_association = None;
                     *in_name = line.tag == "NAME";
                     match line.tag {
                         "NAME" => {
@@ -1089,6 +1333,11 @@ impl<R: BufRead> RecordReader<R> {
                         "OBJE" => {
                             start_media(&mut rec.media, media, line.payload, line_no, &mut warning);
                         }
+                        "_TASK" => {
+                            if is_pointer(line.payload) {
+                                rec.tasks.push(line.payload.trim().to_string());
+                            }
+                        }
                         "NOTE" => {
                             rec.notes.push(line.payload.to_string());
                             *note_slot = Some(rec.notes.len() - 1);
@@ -1107,6 +1356,8 @@ impl<R: BufRead> RecordReader<R> {
                                     source_refs: Vec::new(),
                                     notes: Vec::new(),
                                     media: Vec::new(),
+                                    associations: Vec::new(),
+                                    tasks: Vec::new(),
                                 });
                                 *event_slot = Some(rec.events.len() - 1);
                             } else {
@@ -1186,6 +1437,7 @@ impl<R: BufRead> RecordReader<R> {
                         line,
                         line_no,
                         event_media,
+                        event_association,
                         &mut warning,
                     );
                 }
@@ -1196,12 +1448,14 @@ impl<R: BufRead> RecordReader<R> {
                 note_slot,
                 media,
                 event_media,
+                event_association,
             }) => {
                 if line.level == 1 {
                     *event_slot = None;
                     *note_slot = None;
                     *media = MediaParseState::default();
                     *event_media = MediaParseState::default();
+                    *event_association = None;
                     match line.tag {
                         "HUSB" => {
                             rec.husband = optional_pointer(line, "HUSB", line_no, &mut warning)
@@ -1212,6 +1466,11 @@ impl<R: BufRead> RecordReader<R> {
                         }
                         "OBJE" => {
                             start_media(&mut rec.media, media, line.payload, line_no, &mut warning);
+                        }
+                        "_TASK" => {
+                            if is_pointer(line.payload) {
+                                rec.tasks.push(line.payload.trim().to_string());
+                            }
                         }
                         "NOTE" => {
                             rec.notes.push(line.payload.to_string());
@@ -1231,6 +1490,8 @@ impl<R: BufRead> RecordReader<R> {
                                     source_refs: Vec::new(),
                                     notes: Vec::new(),
                                     media: Vec::new(),
+                                    associations: Vec::new(),
+                                    tasks: Vec::new(),
                                 });
                                 *event_slot = Some(rec.events.len() - 1);
                             } else {
@@ -1257,6 +1518,7 @@ impl<R: BufRead> RecordReader<R> {
                         line,
                         line_no,
                         event_media,
+                        event_association,
                         &mut warning,
                     );
                 }
@@ -1272,15 +1534,23 @@ impl<R: BufRead> RecordReader<R> {
             Some(Current::Indi { rec, .. }) => Some(Record::Indi(*rec)),
             Some(Current::Fam { rec, .. }) => Some(Record::Fam(*rec)),
             Some(Current::Sour { rec, .. }) => Some(Record::Sour(rec)),
-            Some(Current::Obj {
-                xref, mut media, ..
-            }) => match media.pop() {
-                Some(ParsedMediaRef::Inline(media)) => {
-                    Some(Record::Media(MediaRecordParse { xref, media }))
-                }
-                _ => None,
-            },
+            Some(Current::Obj { xref, media, .. }) => {
+                let media = media
+                    .into_iter()
+                    .filter_map(|media| match media {
+                        ParsedMediaRef::Inline(media) => Some(media),
+                        ParsedMediaRef::Pointer(_) => None,
+                    })
+                    .collect();
+                Some(Record::Media(MediaRecordParse { xref, media }))
+            }
             Some(Current::Repo(repo)) => Some(Record::Repo(repo)),
+            Some(Current::Note { xref, body }) => {
+                Some(Record::Note(NoteRecordParse { xref, body }))
+            }
+            Some(Current::Task { rec, .. }) => Some(Record::Task(rec)),
+            Some(Current::Group { rec, .. }) => Some(Record::Group(rec)),
+            Some(Current::Place { rec, .. }) => Some(Record::Place(rec)),
             Some(Current::Skipped) | None => None,
         }
     }
@@ -1335,11 +1605,50 @@ fn fill_event(
     line: Line<'_>,
     line_no: usize,
     media: &mut MediaParseState,
+    association: &mut Option<usize>,
     warning: &mut Option<String>,
 ) {
     let Some(event) = events.get_mut(slot) else {
         return;
     };
+    if line.level == 2 && line.tag == "ASSO" {
+        if is_pointer(line.payload) {
+            event.associations.push(ParsedAssociation {
+                xref: line.payload.trim().to_string(),
+                relationship: "Associate".to_string(),
+            });
+            *association = Some(event.associations.len() - 1);
+        } else {
+            *warning = Some(format!("line {line_no}: ASSO without pointer ignored"));
+        }
+        return;
+    }
+    if line.level == 2 && line.tag != "ASSO" {
+        *association = None;
+    }
+    if association.is_some() && line.level >= 3 {
+        let slot = association.unwrap_or(0);
+        let Some(assoc) = event.associations.get_mut(slot) else {
+            *association = None;
+            return;
+        };
+        match (line.level, line.tag) {
+            (3, "RELA") => assoc.relationship = line.payload.trim().to_string(),
+            (4, "CONT") => append_text(&mut assoc.relationship, line.payload, true),
+            (4, "CONC") => append_text(&mut assoc.relationship, line.payload, false),
+            _ => {
+                *association = None;
+                *warning = Some(unknown_tag_warning(line_no, &line));
+            }
+        }
+        return;
+    }
+    if line.level == 2 && line.tag == "_TASK" {
+        if is_pointer(line.payload) {
+            event.tasks.push(line.payload.trim().to_string());
+        }
+        return;
+    }
     if line.level == 2 && line.tag == "OBJE" {
         start_media(&mut event.media, media, line.payload, line_no, warning);
         return;
@@ -1376,6 +1685,8 @@ fn fill_event(
                     page: None,
                     quality: None,
                     notes: Vec::new(),
+                    media: Vec::new(),
+                    tasks: Vec::new(),
                     media_type: None,
                     data_date: None,
                     data_text: None,
@@ -1420,6 +1731,32 @@ fn fill_event(
                 } else {
                     *warning = Some(format!(
                         "line {line_no}: _ROLE without a preceding _WITN ignored"
+                    ));
+                }
+            }
+            "OBJE" => {
+                if let Some(source) = event.source_refs.last_mut() {
+                    if is_pointer(line.payload) {
+                        source.media.push(line.payload.trim().to_string());
+                    } else {
+                        *warning = Some(format!(
+                            "line {line_no}: citation OBJE without pointer ignored"
+                        ));
+                    }
+                } else {
+                    *warning = Some(format!(
+                        "line {line_no}: OBJE without a preceding SOUR ignored"
+                    ));
+                }
+            }
+            "_TASK" => {
+                if let Some(source) = event.source_refs.last_mut() {
+                    if is_pointer(line.payload) {
+                        source.tasks.push(line.payload.trim().to_string());
+                    }
+                } else {
+                    *warning = Some(format!(
+                        "line {line_no}: _TASK without a preceding SOUR ignored"
                     ));
                 }
             }
@@ -1523,9 +1860,30 @@ struct PendingCitation {
     page: Option<String>,
     quality: Option<String>,
     notes: Vec<String>,
+    media: Vec<String>,
+    tasks: Vec<String>,
     media_type: Option<String>,
     data_date: Option<String>,
     data_text: Option<String>,
+}
+
+/// An `ASSO @X@` pointer waiting for its event association target.
+struct PendingEventAssociation {
+    event_id: String,
+    xref: String,
+    relationship: String,
+}
+
+/// A `_TASK @T@` pointer waiting for its task record.
+struct PendingTaskLink {
+    owner: TaskOwner,
+    xref: String,
+}
+
+/// A `_MEMBER @I@` pointer waiting for its person record.
+struct PendingGroupMember {
+    group_id: String,
+    xref: String,
 }
 
 /// An `OBJE @X@` pointer waiting for its media record.
@@ -1582,8 +1940,14 @@ pub fn import_gedcom_with_base<R: BufRead>(
     let mut pending_participants: Vec<PendingParticipant> = Vec::new();
     let mut pending_associations: Vec<PendingAssociation> = Vec::new();
     let mut place_cache: HashMap<String, String> = HashMap::new();
-    let mut media_ids: HashMap<String, String> = HashMap::new();
+    let mut media_ids: HashMap<String, Vec<String>> = HashMap::new();
+    let mut shared_notes: HashMap<String, String> = HashMap::new();
+    let mut pending_shared_notes: Vec<(String, String)> = Vec::new();
     let mut pending_media: Vec<PendingMedia> = Vec::new();
+    let mut pending_event_associations: Vec<PendingEventAssociation> = Vec::new();
+    let mut task_ids: HashMap<String, String> = HashMap::new();
+    let mut pending_task_links: Vec<PendingTaskLink> = Vec::new();
+    let mut pending_group_members: Vec<PendingGroupMember> = Vec::new();
 
     // Pass 1: stream records into the tables, recording xref -> UUID mappings.
     while let Some(record) = reader.next_record()? {
@@ -1612,16 +1976,28 @@ pub fn import_gedcom_with_base<R: BufRead>(
                         indi.private as i64
                     ],
                 )?;
-                insert_notes(&tx, "person_id", &id, &indi.notes)?;
+                insert_notes(
+                    &tx,
+                    "person_id",
+                    &id,
+                    &indi.notes,
+                    &mut pending_shared_notes,
+                )?;
                 collect_media(
                     &tx,
                     &indi.media,
                     MediaOwner::Person(id.clone()),
                     &media_ids,
                     &mut pending_media,
+                    &mut pending_task_links,
                     base_dir,
                     &mut report,
                 )?;
+                collect_task_refs(
+                    &indi.tasks,
+                    TaskOwner::Person(id.clone()),
+                    &mut pending_task_links,
+                );
                 report.people += 1;
                 for association in &indi.associations {
                     pending_associations.push(PendingAssociation {
@@ -1651,17 +2027,37 @@ pub fn import_gedcom_with_base<R: BufRead>(
                     )?;
                 }
                 for event in &indi.events {
-                    let event_id =
-                        insert_event(&tx, event, Some(&id), None, &mut report, &mut place_cache)?;
+                    let event_id = insert_event(
+                        &tx,
+                        event,
+                        Some(&id),
+                        None,
+                        &mut pending_shared_notes,
+                        &mut report,
+                        &mut place_cache,
+                    )?;
+                    for association in &event.associations {
+                        pending_event_associations.push(PendingEventAssociation {
+                            event_id: event_id.clone(),
+                            xref: association.xref.clone(),
+                            relationship: association.relationship.clone(),
+                        });
+                    }
                     collect_media(
                         &tx,
                         &event.media,
                         MediaOwner::Event(event_id.clone()),
                         &media_ids,
                         &mut pending_media,
+                        &mut pending_task_links,
                         base_dir,
                         &mut report,
                     )?;
+                    collect_task_refs(
+                        &event.tasks,
+                        TaskOwner::Event(event_id.clone()),
+                        &mut pending_task_links,
+                    );
                     collect_participants(event, &event_id, &mut pending_participants);
                     collect_source_refs(
                         &tx,
@@ -1670,6 +2066,9 @@ pub fn import_gedcom_with_base<R: BufRead>(
                         &mut report,
                         &mut pending_citations,
                         &mut inline_sources,
+                        &mut pending_shared_notes,
+                        &mut pending_media,
+                        &mut pending_task_links,
                     )?;
                 }
                 id_map.insert(indi.xref.clone(), id.clone());
@@ -1689,29 +2088,55 @@ pub fn import_gedcom_with_base<R: BufRead>(
                 }
                 let id = Uuid::new_v4().to_string();
                 tx.execute("INSERT INTO families (id) VALUES (?1)", [&id])?;
-                insert_notes(&tx, "family_id", &id, &fam.notes)?;
+                insert_notes(&tx, "family_id", &id, &fam.notes, &mut pending_shared_notes)?;
                 collect_media(
                     &tx,
                     &fam.media,
                     MediaOwner::Family(id.clone()),
                     &media_ids,
                     &mut pending_media,
+                    &mut pending_task_links,
                     base_dir,
                     &mut report,
                 )?;
+                collect_task_refs(
+                    &fam.tasks,
+                    TaskOwner::Family(id.clone()),
+                    &mut pending_task_links,
+                );
                 report.families += 1;
                 for event in &fam.events {
-                    let event_id =
-                        insert_event(&tx, event, None, Some(&id), &mut report, &mut place_cache)?;
+                    let event_id = insert_event(
+                        &tx,
+                        event,
+                        None,
+                        Some(&id),
+                        &mut pending_shared_notes,
+                        &mut report,
+                        &mut place_cache,
+                    )?;
+                    for association in &event.associations {
+                        pending_event_associations.push(PendingEventAssociation {
+                            event_id: event_id.clone(),
+                            xref: association.xref.clone(),
+                            relationship: association.relationship.clone(),
+                        });
+                    }
                     collect_media(
                         &tx,
                         &event.media,
                         MediaOwner::Event(event_id.clone()),
                         &media_ids,
                         &mut pending_media,
+                        &mut pending_task_links,
                         base_dir,
                         &mut report,
                     )?;
+                    collect_task_refs(
+                        &event.tasks,
+                        TaskOwner::Event(event_id.clone()),
+                        &mut pending_task_links,
+                    );
                     collect_participants(event, &event_id, &mut pending_participants);
                     collect_source_refs(
                         &tx,
@@ -1720,6 +2145,9 @@ pub fn import_gedcom_with_base<R: BufRead>(
                         &mut report,
                         &mut pending_citations,
                         &mut inline_sources,
+                        &mut pending_shared_notes,
+                        &mut pending_media,
+                        &mut pending_task_links,
                     )?;
                 }
                 id_map.insert(fam.xref.clone(), id.clone());
@@ -1731,6 +2159,15 @@ pub fn import_gedcom_with_base<R: BufRead>(
                     children: fam.children,
                 });
             }
+            Record::Note(note) => {
+                if shared_notes.contains_key(&note.xref) {
+                    report
+                        .warnings
+                        .push(format!("duplicate NOTE {} skipped", note.xref));
+                    continue;
+                }
+                shared_notes.insert(note.xref, note.body);
+            }
             Record::Media(media) => {
                 if media_ids.contains_key(&media.xref) {
                     report
@@ -1738,8 +2175,124 @@ pub fn import_gedcom_with_base<R: BufRead>(
                         .push(format!("duplicate OBJE {} skipped", media.xref));
                     continue;
                 }
-                if let Some(id) = insert_media(&tx, &media.media, base_dir, &mut report)? {
-                    media_ids.insert(media.xref, id);
+                let mut ids = Vec::new();
+                for parsed in &media.media {
+                    if let Some(id) = insert_media(&tx, parsed, base_dir, &mut report)? {
+                        for xref in &parsed.tasks {
+                            pending_task_links.push(PendingTaskLink {
+                                owner: TaskOwner::Media(id.clone()),
+                                xref: xref.clone(),
+                            });
+                        }
+                        ids.push(id);
+                    }
+                }
+                media_ids.insert(media.xref, ids);
+            }
+            Record::Task(task) => {
+                if task_ids.contains_key(&task.xref) {
+                    report
+                        .warnings
+                        .push(format!("duplicate _TASK {} skipped", task.xref));
+                    continue;
+                }
+                let id = Uuid::new_v4().to_string();
+                let title = task.title.trim();
+                if title.is_empty() {
+                    report
+                        .warnings
+                        .push(format!("_TASK {} without TITL skipped", task.xref));
+                    continue;
+                }
+                let status = if task.status == "done" {
+                    "done"
+                } else {
+                    "open"
+                };
+                tx.execute(
+                    "INSERT INTO tasks
+                     (id, title, description, status, priority, folder, due_date, completed_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        id,
+                        title,
+                        optional_payload(&task.description),
+                        status,
+                        task.priority,
+                        optional_payload(&task.folder),
+                        optional_payload(&task.due_date),
+                        optional_payload(&task.completed_at)
+                    ],
+                )?;
+                task_ids.insert(task.xref, id);
+            }
+            Record::Group(group) => {
+                let id = Uuid::new_v4().to_string();
+                let name = group.name.trim();
+                if name.is_empty() {
+                    report
+                        .warnings
+                        .push(format!("_GROUP {} without NAME skipped", group.xref));
+                    continue;
+                }
+                if tx.execute(
+                    "INSERT OR IGNORE INTO groups (id, name, description) VALUES (?1, ?2, ?3)",
+                    params![id, name, optional_payload(&group.description)],
+                )? == 0
+                {
+                    report
+                        .warnings
+                        .push(format!("duplicate group name {} skipped", name));
+                    continue;
+                }
+                for member in &group.members {
+                    pending_group_members.push(PendingGroupMember {
+                        group_id: id.clone(),
+                        xref: member.clone(),
+                    });
+                }
+            }
+            Record::Place(place) => {
+                let name = place.name.trim();
+                if name.is_empty() {
+                    report
+                        .warnings
+                        .push(format!("_PLACE {} without NAME skipped", place.xref));
+                    continue;
+                }
+                if let Some(place_id) = resolve_place(
+                    &tx,
+                    &mut place_cache,
+                    Some(name),
+                    place.latitude,
+                    place.longitude,
+                )? {
+                    if place.latitude.is_some() || place.longitude.is_some() {
+                        tx.execute(
+                            "UPDATE places SET latitude = COALESCE(latitude, ?1),
+                                longitude = COALESCE(longitude, ?2) WHERE id = ?3",
+                            params![place.latitude, place.longitude, place_id],
+                        )?;
+                    }
+                    insert_notes(
+                        &tx,
+                        "place_id",
+                        &place_id,
+                        &place.notes,
+                        &mut pending_shared_notes,
+                    )?;
+                    for xref in &place.media {
+                        pending_media.push(PendingMedia {
+                            owner: MediaOwner::Place(place_id.clone()),
+                            xref: xref.clone(),
+                        });
+                    }
+                    for xref in &place.tasks {
+                        pending_task_links.push(PendingTaskLink {
+                            owner: TaskOwner::Place(place_id.clone()),
+                            xref: xref.clone(),
+                        });
+                    }
                 }
             }
             Record::Sour(sour) => {
@@ -1908,9 +2461,15 @@ pub fn import_gedcom_with_base<R: BufRead>(
             MediaOwner::Source(source_id.clone()),
             &media_ids,
             &mut pending_media,
+            &mut pending_task_links,
             base_dir,
             &mut report,
         )?;
+        collect_task_refs(
+            &source.tasks,
+            TaskOwner::Source(source_id.clone()),
+            &mut pending_task_links,
+        );
         source_ids.insert(xref.as_str(), source_id);
     }
     for citation in &pending_citations {
@@ -1921,10 +2480,15 @@ pub fn import_gedcom_with_base<R: BufRead>(
                 citation.page.as_deref(),
                 citation.quality.as_deref(),
                 &citation.notes,
+                &citation.media,
+                &citation.tasks,
                 citation.media_type.as_deref(),
                 citation.data_date.as_deref(),
                 citation.data_text.as_deref(),
                 Some(&citation.event_id),
+                &mut pending_shared_notes,
+                &mut pending_media,
+                &mut pending_task_links,
                 &mut report,
             )?,
             None => report
@@ -1963,9 +2527,86 @@ pub fn import_gedcom_with_base<R: BufRead>(
         }
     }
 
+    for association in pending_event_associations {
+        match id_map.get(&association.xref) {
+            Some(associate_id) => {
+                let relationship = association.relationship.trim();
+                let relationship = if relationship.is_empty() {
+                    "Associate"
+                } else {
+                    relationship
+                };
+                tx.execute(
+                    "INSERT OR IGNORE INTO event_associations
+                     (id, event_id, associate_id, relationship)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        Uuid::new_v4().to_string(),
+                        association.event_id,
+                        associate_id,
+                        relationship
+                    ],
+                )?;
+            }
+            None => report
+                .warnings
+                .push(format!("dangling event ASSO pointer {}", association.xref)),
+        }
+    }
+
+    for link in pending_task_links {
+        match task_ids.get(&link.xref) {
+            Some(task_id) => {
+                let sql = format!(
+                    "INSERT OR IGNORE INTO task_links (task_id, {}) VALUES (?1, ?2)",
+                    link.owner.column()
+                );
+                tx.execute(&sql, params![task_id, link.owner.id()])?;
+            }
+            None => report
+                .warnings
+                .push(format!("dangling _TASK pointer {}", link.xref)),
+        }
+    }
+
+    for member in pending_group_members {
+        match id_map.get(&member.xref) {
+            Some(person_id) => {
+                tx.execute(
+                    "INSERT OR IGNORE INTO group_members (group_id, person_id) VALUES (?1, ?2)",
+                    params![member.group_id, person_id],
+                )?;
+            }
+            None => report
+                .warnings
+                .push(format!("dangling _MEMBER pointer {}", member.xref)),
+        }
+    }
+
+    for (note_id, xref) in pending_shared_notes {
+        match shared_notes.get(&xref) {
+            Some(body) => {
+                tx.execute(
+                    "UPDATE notes SET body = ?1 WHERE id = ?2",
+                    params![body, note_id],
+                )?;
+            }
+            None => {
+                tx.execute("DELETE FROM notes WHERE id = ?1", params![note_id])?;
+                report
+                    .warnings
+                    .push(format!("dangling NOTE pointer {xref}"));
+            }
+        }
+    }
+
     for link in pending_media {
         match media_ids.get(&link.xref) {
-            Some(media_id) => link_media(&tx, media_id, &link.owner)?,
+            Some(media_ids) => {
+                for media_id in media_ids {
+                    link_media(&tx, media_id, &link.owner)?;
+                }
+            }
             None => report
                 .warnings
                 .push(format!("dangling OBJE pointer {}", link.xref)),
@@ -1992,6 +2633,7 @@ fn collect_participants(
 
 /// Persists inline source texts immediately and queues `@X@` pointers for the
 /// SOUR resolution pass.
+#[allow(clippy::too_many_arguments)]
 fn collect_source_refs(
     conn: &Connection,
     event: &ParsedEvent,
@@ -1999,6 +2641,9 @@ fn collect_source_refs(
     report: &mut ImportReport,
     pending: &mut Vec<PendingCitation>,
     inline_sources: &mut HashMap<String, String>,
+    pending_shared_notes: &mut Vec<(String, String)>,
+    pending_media: &mut Vec<PendingMedia>,
+    pending_task_links: &mut Vec<PendingTaskLink>,
 ) -> rusqlite::Result<()> {
     for source in &event.source_refs {
         if let Some(xref) = &source.xref {
@@ -2008,6 +2653,8 @@ fn collect_source_refs(
                 page: source.page.clone(),
                 quality: source.quality.clone(),
                 notes: source.notes.clone(),
+                media: source.media.clone(),
+                tasks: source.tasks.clone(),
                 media_type: source.media_type.clone(),
                 data_date: source.data_date.clone(),
                 data_text: source.data_text.clone(),
@@ -2020,10 +2667,15 @@ fn collect_source_refs(
                 source.page.as_deref(),
                 source.quality.as_deref(),
                 &source.notes,
+                &source.media,
+                &source.tasks,
                 source.media_type.as_deref(),
                 source.data_date.as_deref(),
                 source.data_text.as_deref(),
                 Some(event_id),
+                pending_shared_notes,
+                pending_media,
+                pending_task_links,
                 report,
             )?;
         }
@@ -2038,10 +2690,15 @@ fn insert_citation(
     page_or_reference: Option<&str>,
     quality: Option<&str>,
     notes: &[String],
+    media: &[String],
+    tasks: &[String],
     media_type: Option<&str>,
     data_date: Option<&str>,
     data_text: Option<&str>,
     event_id: Option<&str>,
+    pending_shared_notes: &mut Vec<(String, String)>,
+    pending_media: &mut Vec<PendingMedia>,
+    pending_task_links: &mut Vec<PendingTaskLink>,
     report: &mut ImportReport,
 ) -> rusqlite::Result<()> {
     let citation_id = Uuid::new_v4().to_string();
@@ -2059,7 +2716,25 @@ fn insert_citation(
             data_text
         ],
     )?;
-    insert_notes(conn, "citation_id", &citation_id, notes)?;
+    insert_notes(
+        conn,
+        "citation_id",
+        &citation_id,
+        notes,
+        pending_shared_notes,
+    )?;
+    for xref in media {
+        pending_media.push(PendingMedia {
+            owner: MediaOwner::Citation(citation_id.clone()),
+            xref: xref.clone(),
+        });
+    }
+    for xref in tasks {
+        pending_task_links.push(PendingTaskLink {
+            owner: TaskOwner::Citation(citation_id.clone()),
+            xref: xref.clone(),
+        });
+    }
     if let Some(event_id) = event_id {
         conn.execute(
             "INSERT INTO citation_links (citation_id, event_id) VALUES (?1, ?2)",
@@ -2137,6 +2812,7 @@ fn insert_event(
     event: &ParsedEvent,
     person_id: Option<&str>,
     family_id: Option<&str>,
+    pending_shared_notes: &mut Vec<(String, String)>,
     report: &mut ImportReport,
     places: &mut HashMap<String, String>,
 ) -> rusqlite::Result<String> {
@@ -2163,9 +2839,18 @@ fn insert_event(
             event.private as i64
         ],
     )?;
-    insert_notes(conn, "event_id", &id, &event.notes)?;
+    insert_notes(conn, "event_id", &id, &event.notes, pending_shared_notes)?;
     report.events += 1;
     Ok(id)
+}
+
+fn collect_task_refs(refs: &[String], owner: TaskOwner, pending: &mut Vec<PendingTaskLink>) {
+    for xref in refs {
+        pending.push(PendingTaskLink {
+            owner: owner.clone(),
+            xref: xref.clone(),
+        });
+    }
 }
 
 fn resolve_media_path(path: &str, base_dir: Option<&Path>) -> String {
@@ -2220,12 +2905,14 @@ fn link_media(conn: &Connection, media_id: &str, owner: &MediaOwner) -> rusqlite
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_media(
     conn: &Connection,
     media: &[ParsedMediaRef],
     owner: MediaOwner,
-    ids: &HashMap<String, String>,
+    ids: &HashMap<String, Vec<String>>,
     pending: &mut Vec<PendingMedia>,
+    pending_tasks: &mut Vec<PendingTaskLink>,
     base_dir: Option<&Path>,
     report: &mut ImportReport,
 ) -> rusqlite::Result<()> {
@@ -2239,6 +2926,12 @@ fn collect_media(
             ParsedMediaRef::Inline(media) => {
                 if let Some(media_id) = insert_media(conn, media, base_dir, report)? {
                     link_media(conn, &media_id, &owner)?;
+                    for xref in &media.tasks {
+                        pending_tasks.push(PendingTaskLink {
+                            owner: TaskOwner::Media(media_id.clone()),
+                            xref: xref.clone(),
+                        });
+                    }
                 }
             }
         }
@@ -2252,16 +2945,18 @@ fn insert_notes(
     column: &str,
     owner_id: &str,
     notes: &[String],
+    pending_shared: &mut Vec<(String, String)>,
 ) -> rusqlite::Result<()> {
     let sql = format!("INSERT INTO notes (id, body, sort_order, {column}) VALUES (?1, ?2, ?3, ?4)");
     for (index, body) in notes.iter().enumerate() {
         if body.trim().is_empty() {
             continue;
         }
-        conn.execute(
-            &sql,
-            params![Uuid::new_v4().to_string(), body, index as i64, owner_id],
-        )?;
+        let id = Uuid::new_v4().to_string();
+        conn.execute(&sql, params![id, body, index as i64, owner_id])?;
+        if is_pointer(body) {
+            pending_shared.push((id, body.trim().to_string()));
+        }
     }
     Ok(())
 }
