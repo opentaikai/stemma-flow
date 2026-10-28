@@ -74,6 +74,12 @@ impl Default for ExportOptions {
     }
 }
 
+struct AssociationRow {
+    person_id: String,
+    associate_id: String,
+    relationship: String,
+}
+
 struct ParticipantRow {
     event_id: String,
     person_id: String,
@@ -560,6 +566,21 @@ pub fn export_to_gedcom_with_options(
         participants.push(row?);
     }
 
+    let mut associations = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT person_id, associate_id, relationship FROM associations ORDER BY person_id, rowid",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(AssociationRow {
+            person_id: row.get(0)?,
+            associate_id: row.get(1)?,
+            relationship: row.get(2)?,
+        })
+    })?;
+    for row in rows {
+        associations.push(row?);
+    }
+
     let mut person_xref: HashMap<&str, String> = HashMap::new();
     for (index, person) in visible_people.iter().enumerate() {
         person_xref.insert(&person.id, format!("@I{}@", index + 1));
@@ -589,6 +610,19 @@ pub fn export_to_gedcom_with_options(
     let mut source_xref: HashMap<&str, String> = HashMap::new();
     for (index, source) in sources.iter().enumerate() {
         source_xref.insert(&source.id, format!("@S{}@", index + 1));
+    }
+
+    let mut associations_by_person: HashMap<&str, Vec<&AssociationRow>> = HashMap::new();
+    for association in &associations {
+        if !person_xref.contains_key(association.person_id.as_str())
+            || !person_xref.contains_key(association.associate_id.as_str())
+        {
+            continue;
+        }
+        associations_by_person
+            .entry(association.person_id.as_str())
+            .or_default()
+            .push(association);
     }
 
     let mut alternate_names_by_person: HashMap<&str, Vec<&AlternateNameRow>> = HashMap::new();
@@ -794,6 +828,14 @@ pub fn export_to_gedcom_with_options(
             for family_id in families {
                 if let Some(xref) = family_xref.get(family_id) {
                     out.push_str(&format!("1 FAMS {xref}\n"));
+                }
+            }
+        }
+        if let Some(associations) = associations_by_person.get(person.id.as_str()) {
+            for association in associations {
+                if let Some(xref) = person_xref.get(association.associate_id.as_str()) {
+                    out.push_str(&format!("1 ASSO {xref}\n"));
+                    push_text(&mut out, 2, "RELA", &association.relationship);
                 }
             }
         }

@@ -9,6 +9,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use crate::db;
+use crate::db::associations::{self, AssociationDraft, AssociationRecord};
 use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
@@ -439,6 +440,35 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::delete_source(&mut conn, id)?;
         self.set_status(UiStatus::Success("Source deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists the outgoing associations of a person.
+    pub fn list_associations(
+        &self,
+        person_id: &str,
+        surname_first: bool,
+    ) -> Result<Vec<AssociationRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        associations::list_associations(&conn, person_id, surname_first)
+    }
+
+    /// Adds or updates a person association.
+    pub fn save_association(&mut self, draft: &AssociationDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = associations::save_association(&mut conn, draft)?;
+        self.set_status(UiStatus::Success("Association saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes one person association.
+    pub fn delete_association(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        associations::delete_association(&conn, id)?;
+        self.set_status(UiStatus::Success("Association deleted".to_string()));
         Ok(())
     }
 

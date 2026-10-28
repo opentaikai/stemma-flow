@@ -1,5 +1,6 @@
 //! Native desktop integrations used by the future egui shell.
 
+pub mod associations;
 pub mod canvas;
 pub mod citations;
 pub mod connectors;

@@ -1241,6 +1241,143 @@ fn family_fact_and_citation_notes_round_trip() -> Result<(), GedcomError> {
     Ok(())
 }
 
+#[test]
+fn person_associations_round_trip() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 ASSO @I2@
+2 RELA Friend
+1 ASSO @I3@
+2 RELA God
+3 CONC parent
+0 @I2@ INDI
+1 NAME Charles /Babbage/
+0 @I3@ INDI
+1 NAME Mary /Somerville/
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let ada: String = conn
+        .query_row(
+            "SELECT id FROM people WHERE given_name = 'Ada'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(GedcomError::Db)?;
+    let relationships: Vec<(String, String)> = conn
+        .prepare(
+            "SELECT a.relationship, p.given_name FROM associations a
+             JOIN people p ON p.id = a.associate_id
+             WHERE a.person_id = ?1 ORDER BY a.rowid",
+        )
+        .map_err(GedcomError::Db)?
+        .query_map([&ada], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(GedcomError::Db)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(GedcomError::Db)?;
+    assert_eq!(
+        relationships,
+        [
+            ("Friend".to_string(), "Charles".to_string()),
+            ("Godparent".to_string(), "Mary".to_string()),
+        ]
+    );
+
+    let ged = export_to_gedcom(&conn)?;
+    assert!(ged.contains("1 ASSO @I2@\n2 RELA Friend\n"), "{ged}");
+    assert!(ged.contains("1 ASSO @I3@\n2 RELA Godparent\n"), "{ged}");
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(export_to_gedcom(&fresh)?, ged);
+    Ok(())
+}
+
+#[test]
+fn association_import_defaults_and_warns_on_bad_pointers() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 ASSO @I2@
+1 ASSO @I1@
+1 ASSO @I9@
+0 @I2@ INDI
+1 NAME Charles /Babbage/
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+
+    let relationship: String = conn
+        .query_row("SELECT relationship FROM associations", [], |row| {
+            row.get(0)
+        })
+        .map_err(GedcomError::Db)?;
+    assert_eq!(relationship, "Associate", "missing RELA defaults");
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("self ASSO pointer @I1@")),
+        "{:?}",
+        report.warnings
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("dangling ASSO pointer @I9@")),
+        "{:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn association_export_skips_hidden_people() -> Result<(), GedcomError> {
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let ada = crate::db::people::insert_person(
+        &mut conn,
+        &crate::db::people::PersonDetails::new("Ada", "", "King", "", "F", None, None),
+    )
+    .expect("Ada inserts");
+    let charles = crate::db::people::insert_person(
+        &mut conn,
+        &crate::db::people::PersonDetails::new("Charles", "", "Babbage", "", "M", None, None),
+    )
+    .expect("Charles inserts");
+    crate::db::associations::save_association(
+        &mut conn,
+        &crate::db::associations::AssociationDraft {
+            id: None,
+            person_id: ada,
+            associate_id: charles,
+            relationship: "Friend".to_string(),
+        },
+    )
+    .expect("association saves");
+    conn.execute(
+        "UPDATE people SET private = 1 WHERE surname = 'Babbage'",
+        [],
+    )
+    .map_err(GedcomError::Db)?;
+
+    let ged = crate::gedcom::export_to_gedcom_with_options(
+        &conn,
+        &crate::gedcom::ExportOptions::default(),
+    )?;
+    assert!(
+        !ged.contains("1 ASSO"),
+        "hidden associate is omitted: {ged}"
+    );
+    Ok(())
+}
+
 /// "Иван" and "Иванов" encoded as Windows-1251 bytes.
 const CP1251_IVAN: [u8; 4] = [0xC8, 0xE2, 0xE0, 0xED];
 const CP1251_IVANOV: [u8; 6] = [0xC8, 0xE2, 0xE0, 0xED, 0xEE, 0xE2];

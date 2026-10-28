@@ -8,6 +8,7 @@ mod panels;
 
 use loading::{empty_scene, loadable};
 
+use super::associations as associations_dialog;
 use super::canvas::ViewportState;
 use super::citations;
 use super::fact_types;
@@ -30,6 +31,7 @@ use crate::app::UiStatus;
 use crate::config::AppConfig;
 use crate::db::FamilyTree;
 use crate::db::MarriageInfo;
+use crate::db::associations::AssociationRecord;
 use crate::db::facts::PersonFact;
 use crate::db::people::VitalDates;
 use crate::db::privacy::PersonPrivacy;
@@ -69,6 +71,9 @@ pub struct TreeWindow {
     pub(super) dates: HashMap<String, VitalDates>,
     pub(super) marriages: HashMap<String, MarriageInfo>,
     pub(super) person_facts: HashMap<String, Vec<PersonFact>>,
+    pub(super) associations: Vec<AssociationRecord>,
+    pub(super) associations_owner: Option<String>,
+    pub(super) pending_association: Option<associations_dialog::AssociationForm>,
     pub(super) tree_settings: TreeSettings,
     pub(super) person_privacy: Option<PersonPrivacy>,
     pub(super) rows: Vec<PersonRow>,
@@ -115,6 +120,9 @@ impl TreeWindow {
             dates: HashMap::new(),
             marriages: HashMap::new(),
             person_facts: HashMap::new(),
+            associations: Vec::new(),
+            associations_owner: None,
+            pending_association: None,
             tree_settings: TreeSettings::default(),
             person_privacy: None,
             rows: Vec::new(),
@@ -183,6 +191,7 @@ impl App for TreeWindow {
         if self.app.active_db().is_some() {
             self.show_relation_window(ui.ctx());
             self.show_participant_window(ui.ctx());
+            self.show_association_window(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
         }
@@ -935,6 +944,62 @@ mod tests {
             window.rows.first().expect("one person").display_name(),
             "Ada Lynn King"
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn associations_load_and_refresh_for_the_selected_person() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n\
+             0 @I2@ INDI\n1 NAME Charles /Babbage/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window
+            .rows
+            .iter()
+            .find(|row| row.surname == "King")
+            .expect("Ada imported")
+            .id
+            .clone();
+        let associate_id = window
+            .rows
+            .iter()
+            .find(|row| row.surname == "Babbage")
+            .expect("Charles imported")
+            .id
+            .clone();
+        window.app.set_selected_person(Some(person_id.clone()));
+        window.sync_associations();
+        assert!(window.associations.is_empty());
+
+        let mut draft = crate::db::associations::AssociationDraft::new(person_id.clone());
+        draft.associate_id = associate_id;
+        draft.relationship = "Friend".to_string();
+        window
+            .app
+            .save_association(&draft)
+            .expect("association saves");
+        window.associations_owner = None;
+        window.sync_associations();
+
+        assert_eq!(window.associations.len(), 1);
+        assert_eq!(window.associations[0].relationship, "Friend");
+        assert_eq!(window.associations[0].associate_name, "Charles Babbage");
+
+        let id = window.associations[0].id.clone();
+        window
+            .app
+            .delete_association(&id)
+            .expect("association deletes");
+        window.associations_owner = None;
+        window.sync_associations();
+        assert!(window.associations.is_empty());
 
         let _ = std::fs::remove_file(&db_file);
     }

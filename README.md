@@ -20,9 +20,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (25 tables, 42
-  indexes) and records its version in `PRAGMA user_version` (currently 13):
-  `people`, `alternate_names`, `tree_settings`, `notes`, `families`, `family_children`, `repositories`, `sources`,
+- `db::init_db(&conn)` creates or upgrades the schema (26 tables, 44
+  indexes) and records its version in `PRAGMA user_version` (currently 14):
+  `people`, `alternate_names`, `tree_settings`, `notes`, `associations`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
   `events`, `event_participants`, `citations`, `citation_links`, `media`,
@@ -34,8 +34,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   catalogue, v8 per-fact-type roles plus unique GEDCOM tags, v9 shared
   event participants, v10 person/event privacy with living overrides,
   v11 primary name pieces plus alternate names, v12 per-tree display
-  settings, and v13 first-class notes migrated out of the person, place and
-  citation columns.
+  settings, v13 first-class notes migrated out of the person, place and
+  citation columns, and v14 directed person associations.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -53,6 +53,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   longitude and are shared by every event that mentions them. `notes` stores
   ordered plain-text notes for people, families, events/facts, citations and
   places; each note has exactly one owner and cascades with it.
+  `associations` stores directed person-to-person links with a free-text
+  relationship label such as Friend, Neighbour or Godparent.
   `fact_types` carries the 61 built-in person/family event and attribute
   definitions, including their GEDCOM tags and scope; `fact_type_roles`
   holds user-defined roles for each type. `event_participants` links
@@ -128,9 +130,11 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   byte-identical). Every inline `NOTE` on an `INDI`, `FAM`, event/fact or
   citation — including its `CONT`/`CONC` continuations — becomes an ordered
   row in `notes`; multiple notes are kept. Place notes remain app-only.
-  Shared `0 @N@ NOTE` records and every other tag the importer recognises
-  but does not model — `REFN`, `OBJE`, unknown level-0 records — are
-  logged as a
+  Person-level `1 ASSO @I@` links keep their `2 RELA` label, including
+  `CONT`/`CONC` continuations; missing labels default to `Associate`.
+  Shared `0 @N@ NOTE` records, event-level `ASSO` and every other tag the
+  importer recognises but does not model — `REFN`, `OBJE`, unknown level-0
+  records — are logged as a
   non-fatal `Line N: Tag recognized/unsupported or ignored [TAG value]`
   warning (payload truncated to 100 characters) and the import continues.
 - Source records are first class: every `0 @S@ SOUR` keeps its own
@@ -169,7 +173,9 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   when included, and family links are limited to visible people. Stored
   notes travel as inline `NOTE` lines with `CONT` continuations on
   people, families, facts and citations, so notes round-trip losslessly;
-  place notes remain local to the tree. Dates are canonicalised on the way out
+  place notes remain local to the tree. Associations export as `1 ASSO` +
+  `2 RELA` after the person's family links and are omitted when either
+  person is filtered out. Dates are canonicalised on the way out
   (`12 jan 1850` → `12 JAN 1850`), and stored text that does not parse is
   written as a single-line `(date phrase)` instead, so a dirty date can
   never corrupt a record.
@@ -349,7 +355,9 @@ views (the app always launches on Graph View):
   person** (filtered by role; duplicates, self links and cycles are
   rejected) or create a new one in one step (parents choose a
   Father/Mother role that presets the gender). A **Families** card lists
-  every family the person belongs to, **Vital Facts** and **Other Facts**
+  every family the person belongs to, an **Associations** card lists
+  directed links with relationship labels and opens a dialog to search
+  people and add, edit or delete them, **Vital Facts** and **Other Facts**
   expose their event notes, and the **Notes** card opens a shared dialog
   for adding, editing and deleting notes. Profile and vital fields still
   commit together on save; notes save independently.
