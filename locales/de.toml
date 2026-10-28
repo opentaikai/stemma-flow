@@ -196,3 +196,6 @@ no_matches = "(keine Treffer)"
 matches_refine = "{count} Treffer — Suche eingrenzen"
 link = "Verknüpfen"
 create_new = "Neue Person erstellen"
+
+[watchlist]
+double_click_edit = "Zum Bearbeiten doppelklicken"

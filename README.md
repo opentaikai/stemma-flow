@@ -278,14 +278,16 @@ views (the app always launches on Graph View):
   middle mouse button or by dragging the background with the left button
   (drags that start on a person do not pan), **Zoom** with the mouse
   wheel, cursor-anchored, 0.02x - 3.0x, and **Select** with a left click;
-  the selected node gets a blue accent border. Clicking empty space clears
-  the selection.
+  the selected node gets a blue accent border. **Double-click** a node to
+  select it and open the pinned full person editor. Clicking empty space
+  clears the selection.
 - **Watch List** — an `egui_extras::TableBuilder` grid listing every
   person with Given Name, Surname, Gender, Birth Date, Death Date and an
   Actions cell. The filter box narrows rows by either name
   (case-insensitive), header clicks toggle ascending/descending sort, rows
-  are virtualized for large trees, and clicking a row (or **Edit**)
-  selects the person. **Delete** asks for confirmation before the cascading
+  are virtualized for large trees. Clicking a row selects the person;
+  double-clicking a cell or pressing **Edit** selects them and opens the
+  pinned full person editor. **Delete** asks for confirmation before the cascading
   delete removes the person, their events, citations and child links.
   **+ Add Independent Person** inserts an unnamed draft and focuses it; a
   first or last name is required before it can be saved.

@@ -196,3 +196,6 @@ no_matches = "(no matches)"
 matches_refine = "{count} matches — refine the search"
 link = "Link"
 create_new = "Create a new person"
+
+[watchlist]
+double_click_edit = "Double-click to edit"

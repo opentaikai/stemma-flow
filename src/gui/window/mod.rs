@@ -970,6 +970,26 @@ mod tests {
     }
 
     #[test]
+    fn watch_list_edit_opens_and_selects_the_person() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+
+        window.apply_watch_event(crate::gui::watchlist::WatchEvent::Edit(person_id.clone()));
+
+        assert_eq!(window.app.selected_person_id(), Some(person_id.as_str()));
+        assert_eq!(
+            window.person_editor.as_ref().expect("editor").person_id,
+            person_id
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn parent_slot_actions_open_the_picker_with_the_selected_role() {
         let db_file = temp_path("db");
         import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
