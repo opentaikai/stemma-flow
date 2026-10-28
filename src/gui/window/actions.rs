@@ -6,6 +6,7 @@ use crate::db::media::{MediaDraft, MediaOwner};
 use crate::db::notes::NoteOwner;
 use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
+use crate::db::tasks::TaskOwner;
 use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
 use crate::gui::citations::CitationDraft;
 use crate::gui::dialogs;
@@ -21,8 +22,10 @@ use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, 
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
 use crate::gui::places::{self, PlacesEvent};
 use crate::gui::repositories::{self, RepositoriesEvent};
+use crate::gui::research::{self as research_ui, ResearchEvent};
 use crate::gui::sources::{self, SourcesEvent};
 use crate::gui::tabs;
+use crate::gui::tasks::{self as task_ui, TaskAttachOutcome, TaskAttachState, TaskEvent};
 use crate::gui::watchlist;
 use crate::gui::watchlist::WatchEvent;
 use crate::gui::welcome;
@@ -131,8 +134,12 @@ impl TreeWindow {
             SourcesEvent::Media { source_id, title } => {
                 self.open_media(MediaOwner::Source(source_id), title);
             }
+            SourcesEvent::Tasks { source_id, title } => {
+                self.open_tasks(TaskOwner::Source(source_id), title);
+            }
             SourcesEvent::Delete(id) => match self.app.delete_source(&id) {
                 Ok(()) => {
+                    self.research.tasks.loaded = false;
                     self.sources.selected = None;
                     self.sources.draft = SourceDraft::default();
                     self.sources.merge_open = false;
@@ -192,6 +199,7 @@ impl TreeWindow {
             },
             PlacesEvent::Delete(id) => match self.app.delete_place(&id) {
                 Ok(()) => {
+                    self.research.tasks.loaded = false;
                     self.places.selected = None;
                     self.places.draft = places::PlaceEdit::default();
                     self.places.usage.clear();
@@ -211,6 +219,9 @@ impl TreeWindow {
             }
             PlacesEvent::Media { place_id, title } => {
                 self.open_media(MediaOwner::Place(place_id), title);
+            }
+            PlacesEvent::Tasks { place_id, title } => {
+                self.open_tasks(TaskOwner::Place(place_id), title);
             }
         }
     }
@@ -251,6 +262,283 @@ impl TreeWindow {
                 self.places.editing = false;
             }
             (Err(message), _) | (_, Err(message)) => self.places.error = Some(message),
+        }
+    }
+
+    pub(super) fn research_tab(&mut self, ui: &mut Ui) {
+        if !self.research.tasks.loaded {
+            self.reload_tasks();
+        }
+        if !self.research.groups.loaded {
+            self.reload_groups();
+        }
+        if let Some(event) = research_ui::show(
+            ui,
+            &mut self.research,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            self.apply_research_event(event);
+        }
+    }
+
+    pub(super) fn reload_tasks(&mut self) {
+        match (self.app.list_tasks(), self.app.list_task_folders()) {
+            (Ok(tasks), Ok(folders)) => {
+                self.research.tasks.tasks = tasks;
+                self.research.tasks.folders = folders;
+                self.research.tasks.loaded = true;
+                self.research.tasks.error = None;
+                if let Some(id) = self.research.tasks.selected.clone() {
+                    self.load_task_draft(&id);
+                }
+            }
+            (Err(message), _) | (_, Err(message)) => {
+                self.research.tasks.error = Some(message);
+                self.research.tasks.loaded = true;
+            }
+        }
+    }
+
+    pub(super) fn load_task_draft(&mut self, id: &str) {
+        match (
+            self.app.load_task(id),
+            self.app
+                .list_task_links(id, self.tree_settings.surname_first),
+        ) {
+            (Ok(Some(record)), Ok(links)) => {
+                self.research.tasks.selected = Some(id.to_string());
+                self.research.tasks.draft = task_ui::TaskEdit::from_record(&record);
+                self.research.tasks.links = links;
+                self.research.tasks.editing = true;
+                self.research.tasks.error = None;
+            }
+            (Ok(None), _) => {
+                self.research.tasks.selected = None;
+                self.research.tasks.draft = task_ui::TaskEdit::default();
+                self.research.tasks.links.clear();
+                self.research.tasks.editing = false;
+            }
+            (Err(message), _) | (_, Err(message)) => {
+                self.research.tasks.error = Some(message);
+            }
+        }
+    }
+
+    pub(super) fn reload_groups(&mut self) {
+        match self.app.list_groups() {
+            Ok(groups) => {
+                self.research.groups.groups = groups;
+                self.research.groups.loaded = true;
+                self.research.groups.error = None;
+                if let Some(id) = self.research.groups.selected.clone() {
+                    self.load_group_draft(&id);
+                }
+            }
+            Err(message) => {
+                self.research.groups.error = Some(message);
+                self.research.groups.loaded = true;
+            }
+        }
+    }
+
+    pub(super) fn load_group_draft(&mut self, id: &str) {
+        match (
+            self.app.load_group(id),
+            self.app
+                .list_group_members(id, self.tree_settings.surname_first),
+        ) {
+            (Ok(Some(record)), Ok(members)) => {
+                self.research.groups.selected = Some(id.to_string());
+                self.research.groups.draft = task_ui_group_edit(&record);
+                self.research.groups.members = members;
+                self.research.groups.editing = true;
+                self.research.groups.error = None;
+            }
+            (Ok(None), _) => {
+                self.research.groups.selected = None;
+                self.research.groups.draft = Default::default();
+                self.research.groups.members.clear();
+                self.research.groups.editing = false;
+            }
+            (Err(message), _) | (_, Err(message)) => {
+                self.research.groups.error = Some(message);
+            }
+        }
+    }
+
+    pub(super) fn apply_research_event(&mut self, event: ResearchEvent) {
+        match event {
+            ResearchEvent::Task(event) => self.apply_task_event(event),
+            ResearchEvent::Group(event) => self.apply_group_event(event),
+        }
+    }
+
+    fn apply_task_event(&mut self, event: TaskEvent) {
+        match event {
+            TaskEvent::New => {
+                self.research.tasks.selected = None;
+                self.research.tasks.draft = task_ui::TaskEdit::default();
+                self.research.tasks.links.clear();
+                self.research.tasks.editing = true;
+                self.research.tasks.error = None;
+            }
+            TaskEvent::Select(id) => self.load_task_draft(&id),
+            TaskEvent::Save(draft) => match self.app.save_task(&draft) {
+                Ok(id) => {
+                    self.research.tasks.selected = Some(id);
+                    self.research.tasks.loaded = false;
+                    self.reload_tasks();
+                }
+                Err(message) => self.research.tasks.error = Some(message),
+            },
+            TaskEvent::Delete(id) => match self.app.delete_task(&id) {
+                Ok(()) => {
+                    self.research.tasks.selected = None;
+                    self.research.tasks.draft = task_ui::TaskEdit::default();
+                    self.research.tasks.links.clear();
+                    self.research.tasks.editing = false;
+                    self.research.tasks.loaded = false;
+                    self.reload_tasks();
+                }
+                Err(message) => self.research.tasks.error = Some(message),
+            },
+            TaskEvent::Detach {
+                owner_type,
+                owner_id,
+            } => {
+                let Some(owner) = task_owner(&owner_type, &owner_id) else {
+                    return;
+                };
+                let Some(task_id) = self.research.tasks.selected.clone() else {
+                    return;
+                };
+                match self.app.detach_task(&task_id, &owner) {
+                    Ok(()) => {
+                        self.research.tasks.loaded = false;
+                        self.load_task_draft(&task_id);
+                    }
+                    Err(message) => self.research.tasks.error = Some(message),
+                }
+            }
+        }
+    }
+
+    fn apply_group_event(&mut self, event: crate::gui::groups::GroupEvent) {
+        use crate::gui::groups::GroupEvent;
+        match event {
+            GroupEvent::New => {
+                self.research.groups.selected = None;
+                self.research.groups.draft = Default::default();
+                self.research.groups.members.clear();
+                self.research.groups.editing = true;
+                self.research.groups.error = None;
+            }
+            GroupEvent::Select(id) => self.load_group_draft(&id),
+            GroupEvent::Save(draft) => match self.app.save_group(&draft) {
+                Ok(id) => {
+                    self.research.groups.selected = Some(id);
+                    self.research.groups.loaded = false;
+                    self.reload_groups();
+                }
+                Err(message) => self.research.groups.error = Some(message),
+            },
+            GroupEvent::Delete(id) => match self.app.delete_group(&id) {
+                Ok(()) => {
+                    self.research.groups.selected = None;
+                    self.research.groups.draft = Default::default();
+                    self.research.groups.members.clear();
+                    self.research.groups.editing = false;
+                    self.research.groups.loaded = false;
+                    self.reload_groups();
+                }
+                Err(message) => self.research.groups.error = Some(message),
+            },
+            GroupEvent::AddMember(person_id) => {
+                let Some(group_id) = self.research.groups.selected.clone() else {
+                    return;
+                };
+                match self.app.add_group_member(&group_id, &person_id) {
+                    Ok(()) => {
+                        self.research.groups.loaded = false;
+                        self.load_group_draft(&group_id);
+                    }
+                    Err(message) => self.research.groups.error = Some(message),
+                }
+            }
+            GroupEvent::RemoveMember(person_id) => {
+                let Some(group_id) = self.research.groups.selected.clone() else {
+                    return;
+                };
+                match self.app.remove_group_member(&group_id, &person_id) {
+                    Ok(()) => {
+                        self.research.groups.loaded = false;
+                        self.load_group_draft(&group_id);
+                    }
+                    Err(message) => self.research.groups.error = Some(message),
+                }
+            }
+        }
+    }
+
+    pub(super) fn open_tasks(&mut self, owner: TaskOwner, title: String) {
+        let mut state = TaskAttachState::new(owner, title);
+        self.load_task_attach(&mut state);
+        self.task_attach = Some(state);
+    }
+
+    fn load_task_attach(&self, state: &mut TaskAttachState) {
+        match (
+            self.app.list_owner_tasks(&state.owner),
+            self.app.list_tasks(),
+        ) {
+            (Ok(attached), Ok(all)) => {
+                let attached_ids: std::collections::HashSet<&str> =
+                    attached.iter().map(|task| task.id.as_str()).collect();
+                state.choices = all
+                    .into_iter()
+                    .filter(|task| !attached_ids.contains(task.id.as_str()))
+                    .collect();
+                state.attached = attached;
+                state.error = None;
+            }
+            (Err(message), _) | (_, Err(message)) => state.error = Some(message),
+        }
+    }
+
+    pub(super) fn show_task_attach(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.task_attach.take() else {
+            return;
+        };
+        match task_ui::show_attach(ctx, &mut state) {
+            None => self.task_attach = Some(state),
+            Some(TaskAttachOutcome::Close) => {}
+            Some(TaskAttachOutcome::Attach(task_id)) => {
+                match self.app.attach_task(&task_id, &state.owner) {
+                    Ok(()) => {
+                        self.research.tasks.loaded = false;
+                        self.load_task_attach(&mut state);
+                        self.task_attach = Some(state);
+                    }
+                    Err(message) => {
+                        state.error = Some(message);
+                        self.task_attach = Some(state);
+                    }
+                }
+            }
+            Some(TaskAttachOutcome::Detach(task_id)) => {
+                match self.app.detach_task(&task_id, &state.owner) {
+                    Ok(()) => {
+                        self.research.tasks.loaded = false;
+                        self.load_task_attach(&mut state);
+                        self.task_attach = Some(state);
+                    }
+                    Err(message) => {
+                        state.error = Some(message);
+                        self.task_attach = Some(state);
+                    }
+                }
+            }
         }
     }
 
@@ -323,6 +611,7 @@ impl TreeWindow {
             },
             MediaEvent::Delete(id) => match self.app.delete_media(&id) {
                 Ok(()) => {
+                    self.research.tasks.loaded = false;
                     self.media.selected = None;
                     self.media.draft = media_ui::MediaEdit::default();
                     self.media.links.clear();
@@ -341,6 +630,9 @@ impl TreeWindow {
                         self.media.draft.caption = draft.caption;
                     }
                 }
+            }
+            MediaEvent::Tasks { media_id, title } => {
+                self.open_tasks(TaskOwner::Media(media_id), title);
             }
             MediaEvent::Detach {
                 owner_type,
@@ -690,6 +982,8 @@ impl TreeWindow {
         match self.app.delete_person(person_id) {
             Ok(()) => {
                 self.places.loaded = false;
+                self.research.tasks.loaded = false;
+                self.research.groups.loaded = false;
                 self.reload_scene();
             }
             Err(message) => self.app.set_status(UiStatus::Error(message)),
@@ -796,6 +1090,7 @@ impl TreeWindow {
             },
             InspectorAction::DeleteCitation(id) => match self.app.delete_citation(&id) {
                 Ok(()) => {
+                    self.research.tasks.loaded = false;
                     self.citations.pending_delete = None;
                     self.citations.loaded = false;
                 }
@@ -842,6 +1137,7 @@ impl TreeWindow {
                 Err(message) => self.app.set_status(UiStatus::Error(message)),
             },
             InspectorAction::ManageMedia { owner, title } => self.open_media(owner, title),
+            InspectorAction::ManageTasks { owner, title } => self.open_tasks(owner, title),
             InspectorAction::OpenNotes { owner, title } => self.open_notes(owner, title),
             InspectorAction::SaveAlternateName(draft) => {
                 match self.app.save_alternate_name(person_id, &draft) {
@@ -1159,6 +1455,8 @@ impl TreeWindow {
                 self.tree_settings.surname_first = surname_first;
                 self.associations_owner = None;
                 self.places.loaded = false;
+                self.research.tasks.loaded = false;
+                self.research.groups.loaded = false;
                 self.pending_participants = None;
                 self.reload_scene_quiet();
             }
@@ -1256,4 +1554,21 @@ fn media_draft_for_path(path: &std::path::Path) -> MediaDraft {
             .to_string(),
         notes: String::new(),
     }
+}
+
+fn task_owner(owner_type: &str, id: &str) -> Option<TaskOwner> {
+    match owner_type {
+        "person" => Some(TaskOwner::Person(id.to_string())),
+        "family" => Some(TaskOwner::Family(id.to_string())),
+        "fact" => Some(TaskOwner::Event(id.to_string())),
+        "source" => Some(TaskOwner::Source(id.to_string())),
+        "citation" => Some(TaskOwner::Citation(id.to_string())),
+        "place" => Some(TaskOwner::Place(id.to_string())),
+        "media" => Some(TaskOwner::Media(id.to_string())),
+        _ => None,
+    }
+}
+
+fn task_ui_group_edit(record: &crate::db::groups::GroupRecord) -> crate::gui::groups::GroupEdit {
+    crate::gui::groups::GroupEdit::from_record(record)
 }

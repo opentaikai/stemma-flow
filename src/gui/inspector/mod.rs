@@ -21,6 +21,7 @@ use crate::db::media::MediaOwner;
 use crate::db::names::AlternateNameDraft;
 use crate::db::notes::NoteOwner;
 use crate::db::people::PersonDetails;
+use crate::db::tasks::TaskOwner;
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 
@@ -74,6 +75,11 @@ pub enum InspectorAction {
     EditAssociation(String),
     /// Delete one association.
     DeleteAssociation(String),
+    /// Open the task attachment dialog for one record.
+    ManageTasks {
+        owner: TaskOwner,
+        title: String,
+    },
     /// Open the media attachment dialog for one record.
     ManageMedia {
         owner: MediaOwner,

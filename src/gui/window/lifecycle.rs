@@ -103,6 +103,8 @@ impl TreeWindow {
             self.pending_association = None;
             self.media = crate::gui::media::MediaState::default();
             self.media_attach = None;
+            self.research = crate::gui::research::ResearchState::default();
+            self.task_attach = None;
         } else if generation_changed {
             self.places.loaded = false;
             self.fact_types.loaded = false;

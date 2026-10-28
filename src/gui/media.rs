@@ -79,6 +79,10 @@ pub enum MediaEvent {
         owner_type: String,
         owner_id: String,
     },
+    Tasks {
+        media_id: String,
+        title: String,
+    },
 }
 
 /// State owned by the window while the Media tab is open.
@@ -244,6 +248,19 @@ pub fn show(ui: &mut Ui, state: &mut MediaState) -> Option<MediaEvent> {
                 .clicked()
             {
                 event = Some(MediaEvent::Save(Box::new(state.draft.to_draft())));
+            }
+            if let Some(id) = state.draft.id.clone()
+                && ui.button("Tasks\u{2026}").clicked()
+            {
+                let label = if state.draft.caption.trim().is_empty() {
+                    state.draft.file_path.trim()
+                } else {
+                    state.draft.caption.trim()
+                };
+                event = Some(MediaEvent::Tasks {
+                    media_id: id,
+                    title: format!("Tasks \u{2014} {label}"),
+                });
             }
             if let Some(id) = state.draft.id.clone()
                 && ui.button("Delete").clicked()

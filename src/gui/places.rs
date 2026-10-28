@@ -17,6 +17,7 @@ pub enum PlacesEvent {
     SelectPerson(String),
     Notes { place_id: String, title: String },
     Media { place_id: String, title: String },
+    Tasks { place_id: String, title: String },
 }
 
 /// Columns the grid header can sort by.
@@ -337,8 +338,14 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
                 }
                 if ui.button("Media\u{2026}").clicked() {
                     *event = Some(PlacesEvent::Media {
-                        place_id: id,
+                        place_id: id.clone(),
                         title: format!("Media \u{2014} {}", state.draft.name.trim()),
+                    });
+                }
+                if ui.button("Tasks\u{2026}").clicked() {
+                    *event = Some(PlacesEvent::Tasks {
+                        place_id: id,
+                        title: format!("Tasks \u{2014} {}", state.draft.name.trim()),
                     });
                 }
             }

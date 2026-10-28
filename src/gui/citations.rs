@@ -151,6 +151,10 @@ pub enum CitationsEvent {
         citation_id: String,
         title: String,
     },
+    Tasks {
+        citation_id: String,
+        title: String,
+    },
 }
 
 /// Draws the citations card content.
@@ -187,6 +191,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
                     requested = Some(CitationsEvent::Notes {
                         citation_id: citation.id.clone(),
                         title: format!("Notes \u{2014} {}", citation.source_title),
+                    });
+                }
+                if ui.small_button("Tasks\u{2026}").clicked() {
+                    requested = Some(CitationsEvent::Tasks {
+                        citation_id: citation.id.clone(),
+                        title: format!("Tasks \u{2014} {}", citation.source_title),
                     });
                 }
                 let facts = if citation.usage == 1 { "fact" } else { "facts" };
