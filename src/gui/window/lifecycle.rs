@@ -3,11 +3,14 @@
 use crate::db;
 use crate::db::FamilyTree;
 use crate::gui::connectors::paint_connectors;
+use crate::gui::inspector;
 use crate::gui::layout;
 use crate::gui::nodes::hit_test;
 use crate::gui::nodes::paint_nodes;
+use crate::gui::pedigree;
 use crate::gui::theme;
 use crate::gui::watchlist;
+use crate::model::pedigree::pedigree_tree;
 use egui::Align2;
 use egui::FontId;
 use egui::PointerButton;
@@ -93,7 +96,6 @@ impl TreeWindow {
                 crate::db::settings::TreeSettings::default(),
             )
         });
-        self.scene = layout::build_scene(&tree, settings.surname_first);
         self.rows = watchlist::rows(&tree, &dates, settings.surname_first);
         self.tree = tree;
         self.dates = dates;
@@ -129,6 +131,24 @@ impl TreeWindow {
             self.repositories.loaded = false;
             self.reload_person_privacy();
         }
+        self.rebuild_scene_layout();
+    }
+
+    /// Rebuilds the canvas scene for the active All or Pedigree mode.
+    pub(super) fn rebuild_scene_layout(&mut self) {
+        let surname_first = self.tree_settings.surname_first;
+        if self.pedigree.mode == pedigree::GraphMode::Pedigree {
+            match self.pedigree.root_id.as_deref() {
+                Some(root) if self.tree.people.iter().any(|person| person.id == root) => {
+                    let filtered =
+                        pedigree_tree(&self.tree, root, self.pedigree.generations.levels());
+                    self.scene = layout::build_scene(&filtered, surname_first);
+                }
+                _ => self.scene = super::loading::empty_scene(),
+            }
+        } else {
+            self.scene = layout::build_scene(&self.tree, surname_first);
+        }
     }
 
     /// Scales and centres the whole loaded scene inside `viewport_rect`
@@ -139,6 +159,23 @@ impl TreeWindow {
     }
 
     pub(super) fn canvas(&mut self, ui: &mut Ui) {
+        let selected = self.app.selected_person_id().map(str::to_string);
+        let root_label = self
+            .pedigree
+            .root_id
+            .as_deref()
+            .and_then(|root| self.tree.people.iter().find(|person| person.id == root))
+            .map(|person| inspector::person_label(person, self.tree_settings.surname_first));
+        if pedigree::show_toolbar(
+            ui,
+            &mut self.pedigree,
+            selected.as_deref(),
+            root_label.as_deref(),
+        ) {
+            self.rebuild_scene_layout();
+            self.pending_framing = true;
+        }
+        ui.separator();
         let (response, painter) =
             ui.allocate_painter(ui.available_size_before_wrap(), Sense::click_and_drag());
         let viewport_rect = response.rect;
@@ -201,10 +238,15 @@ impl TreeWindow {
         );
 
         if self.scene.nodes.is_empty() {
+            let hint = if self.pedigree.mode == pedigree::GraphMode::Pedigree {
+                crate::i18n::tr("pedigree.no_root")
+            } else {
+                HINT_TEXT.to_string()
+            };
             painter.text(
                 viewport_rect.center(),
                 Align2::CENTER_CENTER,
-                HINT_TEXT,
+                hint,
                 FontId::proportional(16.0),
                 HINT_COLOR,
             );

@@ -20,6 +20,7 @@ use super::layout::TreeScene;
 use super::media;
 use super::names;
 use super::notes as notes_dialog;
+use super::pedigree;
 use super::person_editor;
 use super::places;
 use super::repositories;
@@ -73,6 +74,7 @@ pub struct TreeWindow {
     pub(super) names: names::NamesState,
     pub(super) notes: notes_dialog::NotesState,
     pub(super) person_editor: Option<person_editor::PersonEditor>,
+    pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
     pub(super) sources: sources::SourcesState,
     pub(super) citations: citations::CitationsState,
@@ -127,6 +129,7 @@ impl TreeWindow {
             names: names::NamesState::default(),
             notes: notes_dialog::NotesState::default(),
             person_editor: None,
+            pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
             sources: sources::SourcesState::default(),
             citations: citations::CitationsState::default(),
@@ -965,6 +968,64 @@ mod tests {
             window.rows.first().expect("one person").display_name(),
             "Ada Lynn King"
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn pedigree_mode_filters_to_the_pinned_ancestor_tree() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n\
+             0 @I1@ INDI\n1 NAME Root /Person/\n\
+             0 @I2@ INDI\n1 NAME Father /Person/\n\
+             0 @I3@ INDI\n1 NAME Mother /Person/\n\
+             0 @I4@ INDI\n1 NAME Sibling /Person/\n\
+             0 @I5@ INDI\n1 NAME Child /Person/\n\
+             0 @F1@ FAM\n1 HUSB @I2@\n1 WIFE @I3@\n1 CHIL @I1@\n1 CHIL @I4@\n\
+             0 @F2@ FAM\n1 HUSB @I1@\n1 CHIL @I5@\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let id_for = |window: &TreeWindow, given: &str| {
+            window
+                .rows
+                .iter()
+                .find(|row| row.given_name == given)
+                .expect("person")
+                .id
+                .clone()
+        };
+        let root = id_for(&window, "Root");
+        let father = id_for(&window, "Father");
+        let mother = id_for(&window, "Mother");
+        let child = id_for(&window, "Child");
+        let sibling = id_for(&window, "Sibling");
+
+        window.pedigree.mode = crate::gui::pedigree::GraphMode::Pedigree;
+        window.pedigree.root_id = Some(root.clone());
+        window.rebuild_scene_layout();
+        let ids: Vec<&str> = window
+            .scene
+            .nodes
+            .iter()
+            .map(|node| node.person_id.as_str())
+            .collect();
+        assert!(ids.contains(&root.as_str()));
+        assert!(ids.contains(&father.as_str()));
+        assert!(ids.contains(&mother.as_str()));
+        assert!(!ids.contains(&child.as_str()), "descendants are excluded");
+        assert!(!ids.contains(&sibling.as_str()), "siblings are excluded");
+
+        window.pedigree.generations = crate::gui::pedigree::PedigreeGenerations::Six;
+        window.rebuild_scene_layout();
+        assert_eq!(window.scene.nodes.len(), 3, "missing ancestors stay absent");
+
+        window.pedigree.mode = crate::gui::pedigree::GraphMode::All;
+        window.rebuild_scene_layout();
+        assert_eq!(window.scene.nodes.len(), 5, "All restores the full tree");
 
         let _ = std::fs::remove_file(&db_file);
     }

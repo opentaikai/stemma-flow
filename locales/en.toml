@@ -203,3 +203,12 @@ create_new = "Create a new person"
 
 [watchlist]
 double_click_edit = "Double-click to edit"
+
+[pedigree]
+view = "View:"
+all = "All"
+pedigree = "Pedigree"
+generations = "Generations:"
+root = "Root:"
+no_root = "Select a person and set them as root"
+set_root = "Set selected as root"
