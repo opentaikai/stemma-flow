@@ -219,7 +219,10 @@ impl TreeWindow {
     }
 
     pub(super) fn load_place_draft(&mut self, id: &str) {
-        match (self.app.load_place(id), self.app.place_usage(id)) {
+        match (
+            self.app.load_place(id),
+            self.app.place_usage(id, self.tree_settings.surname_first),
+        ) {
             (Ok(Some(record)), Ok(usage)) => {
                 self.places.selected = Some(id.to_string());
                 self.places.draft = places::draft_from_record(&record);
@@ -504,7 +507,12 @@ impl TreeWindow {
             .people
             .iter()
             .find(|person| person.id == person_id);
-        let mut connections = inspector::connections(&self.tree, &person_id, &self.marriages);
+        let mut connections = inspector::connections(
+            &self.tree,
+            &person_id,
+            &self.marriages,
+            self.tree_settings.surname_first,
+        );
         if self.config.reverse_place_names {
             inspector::reverse_marriage_places(&mut connections);
         }
@@ -522,6 +530,7 @@ impl TreeWindow {
             &facts,
             self.person_privacy.as_ref(),
             &mut self.names,
+            self.tree_settings.surname_first,
         ) {
             self.apply_inspector_action(action, &person_id);
         }
@@ -659,7 +668,10 @@ impl TreeWindow {
     }
 
     pub(super) fn open_participants(&mut self, event_id: &str) {
-        match self.app.load_event_context(event_id) {
+        match self
+            .app
+            .load_event_context(event_id, self.tree_settings.surname_first)
+        {
             Ok(Some(context)) => {
                 self.pending_participants = Some(inspector::ParticipantForm::from_context(context));
             }
@@ -683,7 +695,12 @@ impl TreeWindow {
         let Some(mut form) = self.pending_participants.take() else {
             return;
         };
-        match inspector::participant_window(ctx, &mut form, &self.tree) {
+        match inspector::participant_window(
+            ctx,
+            &mut form,
+            &self.tree,
+            self.tree_settings.surname_first,
+        ) {
             None => self.pending_participants = Some(form),
             Some(inspector::ParticipantOutcome::Cancel) => {}
             Some(inspector::ParticipantOutcome::Save {
@@ -826,13 +843,27 @@ impl TreeWindow {
         }
     }
 
+    /// Applies the surname-first preference to the active tree and refreshes
+    /// every label derived from person names.
+    pub(super) fn set_surname_first(&mut self, surname_first: bool) {
+        match self.app.set_surname_first(surname_first) {
+            Ok(()) => {
+                self.tree_settings.surname_first = surname_first;
+                self.places.loaded = false;
+                self.pending_participants = None;
+                self.reload_scene_quiet();
+            }
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
     pub(super) fn open_relation(&mut self, target: &str, kind: RelationKind) {
         let target_label = self
             .tree
             .people
             .iter()
             .find(|person| person.id == target)
-            .map(inspector::person_label)
+            .map(|person| inspector::person_label(person, self.tree_settings.surname_first))
             .unwrap_or_else(|| "(unnamed)".to_string());
         self.pending_relation = Some(RelationForm::new(target, kind, &target_label));
     }
@@ -841,7 +872,12 @@ impl TreeWindow {
         let Some(mut form) = self.pending_relation.take() else {
             return;
         };
-        match inspector::relation_window(ctx, &mut form, &self.tree) {
+        match inspector::relation_window(
+            ctx,
+            &mut form,
+            &self.tree,
+            self.tree_settings.surname_first,
+        ) {
             None => self.pending_relation = Some(form),
             Some(RelationOutcome::Cancel) => {}
             Some(RelationOutcome::Submit) => self.submit_relation(form),

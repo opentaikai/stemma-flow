@@ -11,6 +11,7 @@ pub mod places;
 pub mod privacy;
 pub mod repositories;
 pub mod schema;
+pub mod settings;
 pub mod sources;
 
 pub use models::{Citation, Event, Family, Person};

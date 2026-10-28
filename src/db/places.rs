@@ -106,7 +106,11 @@ pub fn load_place(conn: &Connection, id: &str) -> Result<Option<PlaceRecord>, St
 }
 
 /// Lists every event that uses a place, with person and couple names.
-pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUsage>, String> {
+pub fn list_place_usage(
+    conn: &Connection,
+    place_id: &str,
+    surname_first: bool,
+) -> Result<Vec<PlaceUsage>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT e.id, e.event_type, COALESCE(ft.label, e.event_type), e.date,
@@ -141,6 +145,7 @@ pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUs
                     row.get(7)?,
                     row.get(8)?,
                     row.get(9)?,
+                    surname_first,
                 ),
                 family_id: row.get(10)?,
                 husband_id: row.get(11)?,
@@ -150,6 +155,7 @@ pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUs
                     row.get(14)?,
                     row.get(15)?,
                     row.get(16)?,
+                    surname_first,
                 ),
                 wife_id: row.get(17)?,
                 wife_name: display_name(
@@ -158,6 +164,7 @@ pub fn list_place_usage(conn: &Connection, place_id: &str) -> Result<Vec<PlaceUs
                     row.get(20)?,
                     row.get(21)?,
                     row.get(22)?,
+                    surname_first,
                 ),
             })
         })
@@ -173,18 +180,17 @@ fn display_name(
     middle: Option<String>,
     surname: Option<String>,
     suffix: Option<String>,
+    surname_first: bool,
 ) -> Option<String> {
-    let parts = [prefix, given, middle, surname, suffix]
-        .into_iter()
-        .flatten()
-        .map(|part| part.trim().to_string())
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" "))
-    }
+    let name = crate::model::name::format_name(
+        prefix.as_deref().unwrap_or(""),
+        given.as_deref().unwrap_or(""),
+        middle.as_deref().unwrap_or(""),
+        surname.as_deref().unwrap_or(""),
+        suffix.as_deref().unwrap_or(""),
+        surname_first,
+    );
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// Inserts or updates a place.
@@ -482,7 +488,7 @@ mod tests {
             .expect("event insert");
         }
 
-        let usage = list_place_usage(&conn, &place).expect("usage list");
+        let usage = list_place_usage(&conn, &place, false).expect("usage list");
         assert_eq!(usage.len(), 4);
         assert_eq!(usage[0].event_type, "BIRTH");
         assert_eq!(usage[0].event_label, "Birth");
@@ -512,7 +518,11 @@ mod tests {
             },
         )
         .expect("place saves");
-        assert!(list_place_usage(&conn, &id).expect("usage").is_empty());
+        assert!(
+            list_place_usage(&conn, &id, false)
+                .expect("usage")
+                .is_empty()
+        );
     }
 
     #[test]

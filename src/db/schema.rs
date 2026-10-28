@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -259,6 +259,14 @@ pub(super) const V5_COLUMNS: [(&str, &str, &str); 3] = [
     ("sources", "bibliography", "TEXT"),
 ];
 
+/// Per-tree display preferences.
+pub(super) const TREE_SETTINGS_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS tree_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"#;
+
 /// Additional names for a person.
 pub(super) const ALTERNATE_NAMES_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS alternate_names (
@@ -408,7 +416,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v7_to_v8(conn)?;
         super::migrations::migrate_v8_to_v9(conn)?;
         super::migrations::migrate_v9_to_v10(conn)?;
-        return super::migrations::migrate_v10_to_v11(conn);
+        super::migrations::migrate_v10_to_v11(conn)?;
+        return super::migrations::migrate_v11_to_v12(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -442,9 +451,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 10 {
             super::migrations::migrate_v9_to_v10(conn)?;
         }
-        return super::migrations::migrate_v10_to_v11(conn);
+        if version < 11 {
+            super::migrations::migrate_v10_to_v11(conn)?;
+        }
+        return super::migrations::migrate_v11_to_v12(conn);
     }
-    ensure_v11(conn)
+    ensure_v12(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -458,7 +470,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v11(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v12(conn: &Connection) -> rusqlite::Result<()> {
     ensure_v1_columns(conn)?;
     conn.execute_batch(CORE_TABLES_SQL)?;
     conn.execute_batch(CITATIONS_TABLE_SQL)?;
@@ -520,6 +532,7 @@ fn ensure_v11(conn: &Connection) -> rusqlite::Result<()> {
     ensure_column(conn, "people", "name_suffix", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute_batch(ALTERNATE_NAMES_TABLE_SQL)?;
     conn.execute_batch(ALTERNATE_NAMES_INDEX_SQL)?;
+    conn.execute_batch(TREE_SETTINGS_TABLE_SQL)?;
     Ok(())
 }
 

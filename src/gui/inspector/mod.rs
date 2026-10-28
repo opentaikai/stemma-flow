@@ -225,7 +225,7 @@ mod tests {
             },
         );
 
-        let found = connections(&tree, &child.id, &marriages);
+        let found = connections(&tree, &child.id, &marriages, false);
         assert_eq!(
             found
                 .parents
@@ -288,6 +288,7 @@ mod tests {
                 &facts,
                 None,
                 &mut crate::gui::names::NamesState::default(),
+                false,
             );
         });
         output.textures_delta.clear();
@@ -302,7 +303,7 @@ mod tests {
         };
         let mut outcome = Some(RelationOutcome::Submit);
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            outcome = relation_window(ui.ctx(), &mut relation, &tree);
+            outcome = relation_window(ui.ctx(), &mut relation, &tree, false);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the pop-up paints");
@@ -341,6 +342,7 @@ mod tests {
                 &[],
                 Some(&privacy),
                 &mut crate::gui::names::NamesState::default(),
+                false,
             );
         });
         output.textures_delta.clear();

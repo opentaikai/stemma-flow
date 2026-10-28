@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v11: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names |
+| Schema v2-v12: sources, repositories, places, media, fact catalogue, tasks, groups | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
@@ -93,7 +93,7 @@ places, facts, alternate names and notes as first-class records.
 | Age at event | done | P1 | Exact, approximate, bounded and ranged ages from dates |
 | Private facts and privacy suppression on export | done | P1 | Private people/facts, living detection and opt-in export |
 | Alternate names and name pieces (prefix, suffix) | done | P1 | Primary pieces, typed alternates and married names |
-| Surname-first display option | planned | P2 | Per-file preference |
+| Surname-first display option | done | P2 | Per-tree View toggle across composed names |
 | Notes on person, family, fact, citation and place | planned | P0 | Current person notes migrate |
 | Associations (friends, associates, neighbours) | planned | P2 | With relationship labels |
 | Media records and links to people, families, facts, sources and places | partial | P1 | Schema and cascading link tables; UI in M4 |

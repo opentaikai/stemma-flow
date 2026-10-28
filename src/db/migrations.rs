@@ -9,8 +9,8 @@ use super::schema::{
     ALTERNATE_NAMES_INDEX_SQL, ALTERNATE_NAMES_TABLE_SQL, CITATION_LINKS_INDEXES_SQL,
     CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL, EVENT_PARTICIPANTS_INDEX_SQL,
     EVENT_PARTICIPANTS_TABLE_SQL, FACT_ROLES_TABLE_SQL, FACT_TAG_INDEX_SQL, INDEXES_SQL,
-    LINK_TABLES_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS,
-    ensure_column, seed_source_templates,
+    LINK_TABLES_SQL, TREE_SETTINGS_TABLE_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL,
+    V4_TABLES_SQL, V5_COLUMNS, ensure_column, seed_source_templates,
 };
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
@@ -157,6 +157,14 @@ pub(super) fn migrate_v10_to_v11(conn: &Connection) -> rusqlite::Result<()> {
     tx.execute_batch(ALTERNATE_NAMES_TABLE_SQL)?;
     tx.execute_batch(ALTERNATE_NAMES_INDEX_SQL)?;
     tx.pragma_update(None, "user_version", 11)?;
+    tx.commit()
+}
+
+/// Adds the per-tree settings table.
+pub(super) fn migrate_v11_to_v12(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch(TREE_SETTINGS_TABLE_SQL)?;
+    tx.pragma_update(None, "user_version", 12)?;
     tx.commit()
 }
 

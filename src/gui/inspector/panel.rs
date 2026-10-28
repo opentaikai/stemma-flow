@@ -132,6 +132,7 @@ pub fn show(
     facts: &[PersonFact],
     privacy: Option<&PersonPrivacy>,
     names: &mut NamesState,
+    surname_first: bool,
 ) -> Option<InspectorAction> {
     let Some(person) = person else {
         ui.label(RichText::new("Selected person not found.").weak());
@@ -159,7 +160,7 @@ pub fn show(
         .auto_shrink([false, false])
         .max_height(body_height)
         .show(ui, |ui| {
-            card(ui, &person_label(person), |ui| {
+            card(ui, &person_label(person, surname_first), |ui| {
                 ui.label(
                     RichText::new(gender_word(person.gender.as_str()))
                         .weak()
@@ -168,7 +169,7 @@ pub fn show(
             });
             card(ui, "Profile", |ui| name_editors(ui, form));
             card(ui, "Names", |ui| {
-                if let Some(event) = names::show(ui, names) {
+                if let Some(event) = names::show(ui, names, surname_first) {
                     action = Some(match event {
                         NamesEvent::Save(draft) => InspectorAction::SaveAlternateName(draft),
                         NamesEvent::Delete(id) => InspectorAction::DeleteAlternateName(id),

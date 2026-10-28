@@ -17,6 +17,7 @@ pub struct PersonRow {
     pub id: String,
     pub given_name: String,
     pub surname: String,
+    pub display_name: String,
     pub gender: String,
     pub birth: Option<String>,
     pub death: Option<String>,
@@ -24,18 +25,16 @@ pub struct PersonRow {
 
 impl PersonRow {
     pub fn display_name(&self) -> String {
-        let combined = format!("{} {}", self.given_name, self.surname);
-        let combined = combined.trim();
-        if combined.is_empty() {
-            "(unnamed)".to_string()
-        } else {
-            combined.to_string()
-        }
+        self.display_name.clone()
     }
 }
 
 /// Flattens the loaded tree plus vitals into grid rows in rowid order.
-pub fn rows(tree: &FamilyTree, dates: &HashMap<String, VitalDates>) -> Vec<PersonRow> {
+pub fn rows(
+    tree: &FamilyTree,
+    dates: &HashMap<String, VitalDates>,
+    surname_first: bool,
+) -> Vec<PersonRow> {
     let mut rows = Vec::with_capacity(tree.people.len());
     for person in &tree.people {
         let vitals = dates.get(&person.id);
@@ -55,10 +54,24 @@ pub fn rows(tree: &FamilyTree, dates: &HashMap<String, VitalDates>) -> Vec<Perso
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join(" ");
+        let display_name = crate::model::name::format_name(
+            &person.name_prefix,
+            &person.given_name,
+            &person.middle_name,
+            &person.surname,
+            &person.name_suffix,
+            surname_first,
+        );
+        let display_name = if display_name.is_empty() {
+            "(unnamed)".to_string()
+        } else {
+            display_name
+        };
         rows.push(PersonRow {
             id: person.id.clone(),
             given_name,
             surname,
+            display_name,
             gender: person.gender.clone(),
             birth: vitals.and_then(|vitals| vitals.birth.clone()),
             death: vitals.and_then(|vitals| vitals.death.clone()),
@@ -369,7 +382,7 @@ mod tests {
         for (given, surname) in names {
             tree.people.push(Person::new(*given, *surname, "U"));
         }
-        rows(&tree, &HashMap::new())
+        rows(&tree, &HashMap::new(), false)
     }
 
     #[test]
@@ -389,7 +402,7 @@ mod tests {
             },
         );
 
-        let built = rows(&tree, &dates);
+        let built = rows(&tree, &dates, false);
         assert_eq!(built.len(), 1);
         let row = built.first().expect("one row");
         assert_eq!(row.id, id);

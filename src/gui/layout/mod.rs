@@ -34,8 +34,8 @@ const V_GAP: f32 = 120.0;
 const NAME_MAX_CHARS: usize = 16;
 
 /// Builds the canvas scene for `tree`.
-pub fn build_scene(tree: &FamilyTree) -> TreeScene {
-    let mut builder = LayoutBuilder::new(tree);
+pub fn build_scene(tree: &FamilyTree, surname_first: bool) -> TreeScene {
+    let mut builder = LayoutBuilder::new(tree, surname_first);
     builder.layout();
     builder.finish()
 }
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn children_sit_below_their_parents() {
-        let scene = build_scene(&fixture());
+        let scene = build_scene(&fixture(), false);
         let father = node(&scene, "i1");
         let mother = node(&scene, "i2");
         for child in ["i3", "i4"] {
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn spouses_are_adjacent_and_children_centred() {
-        let scene = build_scene(&fixture());
+        let scene = build_scene(&fixture(), false);
         let father = node(&scene, "i1");
         let mother = node(&scene, "i2");
         assert!(
@@ -255,8 +255,8 @@ mod tests {
     #[test]
     fn layout_is_deterministic() {
         let tree = fixture();
-        let first = build_scene(&tree);
-        let second = build_scene(&tree);
+        let first = build_scene(&tree, false);
+        let second = build_scene(&tree, false);
         assert_eq!(first, second, "repeated builds must be identical");
         assert_eq!(first.nodes.len(), 5);
         assert_eq!(first.unions.len(), 1);
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn unions_carry_spouse_bar_and_child_anchors() {
-        let scene = build_scene(&fixture());
+        let scene = build_scene(&fixture(), false);
         let union = scene
             .unions
             .first()
@@ -289,7 +289,7 @@ mod tests {
     fn single_parent_unions_drop_from_the_node_bottom() {
         let mut tree = fixture();
         tree.families = vec![family("f1", Some("i1"), None)];
-        let scene = build_scene(&tree);
+        let scene = build_scene(&tree, false);
         let union = scene
             .unions
             .first()
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn empty_tree_yields_empty_scene() {
-        let scene = build_scene(&FamilyTree::default());
+        let scene = build_scene(&FamilyTree::default(), false);
         assert!(scene.nodes.is_empty());
         assert!(scene.unions.is_empty());
     }
@@ -313,7 +313,7 @@ mod tests {
             families: vec![family("f1", Some("i1"), None)],
             child_links: vec![("f1".to_string(), "i1".to_string())],
         };
-        let scene = build_scene(&tree);
+        let scene = build_scene(&tree, false);
         assert_eq!(scene.nodes.len(), 1, "cyclic data must not hang");
         assert_eq!(scene.unions.len(), 1);
     }
@@ -335,13 +335,13 @@ mod tests {
         );
         assert_eq!(truncate_name("anything", 0), "");
         assert_eq!(
-            person_display_name(&person("i1", "Anna Maria", "von Rosenfelt")),
+            person_display_name(&person("i1", "Anna Maria", "von Rosenfelt"), false),
             "Anna Maria von…"
         );
         let mut with_middle = person("i2", "Ana", "Lee");
         with_middle.middle_name = "Mar".to_string();
         assert_eq!(
-            person_display_name(&with_middle),
+            person_display_name(&with_middle, false),
             "Ana Mar Lee",
             "canvas labels include the middle name"
         );
@@ -351,7 +351,7 @@ mod tests {
     fn cross_generation_couple_shares_one_rank() {
         // The married-in spouse must not stay on the root rank next to
         // the grandparents.
-        let scene = build_scene(&lineage_tree());
+        let scene = build_scene(&lineage_tree(), false);
         let child = node(&scene, "i3");
         let spouse = node(&scene, "i4");
         assert_eq!(
@@ -375,7 +375,7 @@ mod tests {
     fn second_family_children_stay_in_the_block() {
         // Both children belong under their own family's union, inside
         // the chain block.
-        let scene = build_scene(&remarriage_tree());
+        let scene = build_scene(&remarriage_tree(), false);
         let first = node(&scene, "i1").bounds;
         let second = node(&scene, "i2").bounds;
         let third = node(&scene, "i3").bounds;
@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn spacing_constants_meet_spec_minimums() {
-        let scene = build_scene(&fixture());
+        let scene = build_scene(&fixture(), false);
         let parent = node(&scene, "i1").bounds;
         let mother = node(&scene, "i2").bounds;
         let child = node(&scene, "i3").bounds;
@@ -438,7 +438,7 @@ mod tests {
     fn polygamy_skips_the_crossing_spouse_bar() {
         // i1 has three spouses; the third marriage is not adjacent on the
         // chain, so its bar would cut across the nodes in between.
-        let scene = build_scene(&polygamy_tree());
+        let scene = build_scene(&polygamy_tree(), false);
         assert!(
             union(&scene, "f1").spouse_line.is_some(),
             "the first marriage keeps its bar"
@@ -466,7 +466,7 @@ mod tests {
         // Elsa's three children fan out wider than her own node; the
         // childless sibling must clear her chain by one node gap, not by
         // the whole grandchildren row.
-        let scene = build_scene(&interlock_tree());
+        let scene = build_scene(&interlock_tree(), false);
         let deep = node(&scene, "i3").bounds;
         let tucked = node(&scene, "i4").bounds;
         assert_eq!(
@@ -494,7 +494,7 @@ mod tests {
             interlock_tree(),
             six_couples_tree(),
         ] {
-            assert_no_overlap(&build_scene(&tree));
+            assert_no_overlap(&build_scene(&tree, false));
         }
     }
 
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn component_extent_is_measured_not_summed() {
         let tree = lineage_tree();
-        let mut builder = LayoutBuilder::new(&tree);
+        let mut builder = LayoutBuilder::new(&tree, false);
         let bucket: Vec<usize> = (0..builder.compounds.len()).collect();
         let inflated: f32 = bucket
             .iter()
@@ -524,7 +524,7 @@ mod tests {
 
         let (width, height) = builder.measure_bucket(&bucket);
 
-        let scene = build_scene(&tree);
+        let scene = build_scene(&tree, false);
         assert!(
             (width - scene.bounds.width()).abs() < 0.5,
             "measured width {width} must match the scene {}",
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn trunk_sits_half_a_gap_below_the_rank() {
-        let scene = build_scene(&fixture());
+        let scene = build_scene(&fixture(), false);
         let trunk = union(&scene, "f1").trunk_y;
         let parent = node(&scene, "i1").bounds;
         let child = node(&scene, "i3").bounds;
@@ -549,7 +549,7 @@ mod tests {
             "the trunk row falls in the open gap between the ranks"
         );
 
-        let lineage = build_scene(&lineage_tree());
+        let lineage = build_scene(&lineage_tree(), false);
         let second_rank_trunk = union(&lineage, "f2").trunk_y;
         assert_eq!(
             second_rank_trunk,
@@ -568,7 +568,7 @@ mod tests {
             6,
             "the sample is six separate family groups"
         );
-        let scene = build_scene(&tree);
+        let scene = build_scene(&tree, false);
         let mut ranks: Vec<f32> = scene.nodes.iter().map(|node| node.bounds.min.y).collect();
         ranks.sort_by(f32::total_cmp);
         ranks.dedup();
@@ -646,7 +646,7 @@ mod tests {
             polygamy_tree(),
             interlock_tree(),
         ] {
-            let scene = build_scene(&tree);
+            let scene = build_scene(&tree, false);
             assert!(
                 !crate::gui::connectors::build_segments(&scene.unions).is_empty(),
                 "fixture must produce connectors"
@@ -673,11 +673,15 @@ mod tests {
         let file = std::fs::File::open(sample.path())?;
         crate::gedcom::import_gedcom(&mut conn, std::io::BufReader::new(file))?;
         let tree = crate::db::load_family_tree(&conn)?;
-        let scene = build_scene(&tree);
+        let scene = build_scene(&tree, false);
         assert!(!scene.nodes.is_empty(), "the real export must layout");
         assert_no_overlap(&scene);
         assert_connectors_avoid_nodes(&scene);
-        assert_eq!(scene, build_scene(&tree), "real layouts stay deterministic");
+        assert_eq!(
+            scene,
+            build_scene(&tree, false),
+            "real layouts stay deterministic"
+        );
         Ok(())
     }
 }

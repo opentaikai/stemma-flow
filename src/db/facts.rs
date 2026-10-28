@@ -649,8 +649,11 @@ pub fn delete_fact_type(conn: &mut Connection, key: &str) -> Result<(), String> 
 }
 
 /// Loads the non-vital facts for every person, grouped by person id.
-pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<PersonFact>>, String> {
-    let participants = load_participants_map(conn)?;
+pub fn load_person_facts(
+    conn: &Connection,
+    surname_first: bool,
+) -> Result<HashMap<String, Vec<PersonFact>>, String> {
+    let participants = load_participants_map(conn, surname_first)?;
     let mut facts: HashMap<String, Vec<PersonFact>> = HashMap::new();
 
     let mut stmt = conn
@@ -729,6 +732,7 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
                 row.get(11)?,
                 row.get(12)?,
                 row.get(13)?,
+                surname_first,
             );
             let husband = display_name(
                 row.get(16)?,
@@ -736,6 +740,7 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
                 row.get(18)?,
                 row.get(19)?,
                 row.get(20)?,
+                surname_first,
             );
             let wife = display_name(
                 row.get(22)?,
@@ -743,6 +748,7 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
                 row.get(24)?,
                 row.get(25)?,
                 row.get(26)?,
+                surname_first,
             );
             let principal = if event_person.is_some() {
                 event_person
@@ -791,6 +797,7 @@ pub fn load_person_facts(conn: &Connection) -> Result<HashMap<String, Vec<Person
 
 fn load_participants_map(
     conn: &Connection,
+    surname_first: bool,
 ) -> Result<HashMap<String, Vec<EventParticipant>>, String> {
     let mut stmt = conn
         .prepare(
@@ -818,6 +825,7 @@ fn load_participants_map(
                         row.get(4)?,
                         row.get(5)?,
                         row.get(6)?,
+                        surname_first,
                     )
                     .unwrap_or_else(|| "(unnamed)".to_string()),
                     role_key: row.get(7)?,
@@ -841,18 +849,17 @@ fn display_name(
     middle: Option<String>,
     surname: Option<String>,
     suffix: Option<String>,
+    surname_first: bool,
 ) -> Option<String> {
-    let parts = [prefix, given, middle, surname, suffix]
-        .into_iter()
-        .flatten()
-        .map(|part| part.trim().to_string())
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" "))
-    }
+    let name = crate::model::name::format_name(
+        prefix.as_deref().unwrap_or(""),
+        given.as_deref().unwrap_or(""),
+        middle.as_deref().unwrap_or(""),
+        surname.as_deref().unwrap_or(""),
+        suffix.as_deref().unwrap_or(""),
+        surname_first,
+    );
+    if name.is_empty() { None } else { Some(name) }
 }
 
 #[cfg(test)]
@@ -1203,7 +1210,7 @@ mod tests {
         )
         .expect("participant saves");
 
-        let facts = load_person_facts(&conn).expect("facts");
+        let facts = load_person_facts(&conn, false).expect("facts");
         let ada = facts.get("p1").expect("ada facts");
         let birth = ada
             .iter()
@@ -1243,7 +1250,7 @@ mod tests {
         )
         .expect("events insert");
 
-        let facts = load_person_facts(&conn).expect("facts load");
+        let facts = load_person_facts(&conn, false).expect("facts load");
         let person = facts.get("p1").expect("person facts");
         assert_eq!(person.len(), 2, "birth is excluded");
         assert_eq!(person[0].event_type, "CENSUS");

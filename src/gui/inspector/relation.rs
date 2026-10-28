@@ -81,6 +81,7 @@ pub(super) fn relation_candidates<'a>(
     kind: RelationKind,
     role: ParentRole,
     query: &str,
+    surname_first: bool,
 ) -> Vec<&'a Person> {
     let excluded = existing_relatives(tree, target, kind);
     let needle = query.trim().to_lowercase();
@@ -90,9 +91,14 @@ pub(super) fn relation_candidates<'a>(
         .filter(|person| person.id != target)
         .filter(|person| !excluded.contains(person.id.as_str()))
         .filter(|person| role_compatible(kind, role, person.gender.as_str()))
-        .filter(|person| needle.is_empty() || person_label(person).to_lowercase().contains(&needle))
+        .filter(|person| {
+            needle.is_empty()
+                || person_label(person, surname_first)
+                    .to_lowercase()
+                    .contains(&needle)
+        })
         .collect();
-    matches.sort_by_key(|person| person_label(person).to_lowercase());
+    matches.sort_by_key(|person| person_label(person, surname_first).to_lowercase());
     matches
 }
 
@@ -153,6 +159,7 @@ pub fn relation_window(
     ctx: &egui::Context,
     form: &mut RelationForm,
     tree: &FamilyTree,
+    surname_first: bool,
 ) -> Option<RelationOutcome> {
     let mut outcome = None;
     let mut open = true;
@@ -182,8 +189,14 @@ pub fn relation_window(
                 ui.separator();
             }
 
-            let candidates =
-                relation_candidates(tree, &form.target, form.kind, form.role, &form.search);
+            let candidates = relation_candidates(
+                tree,
+                &form.target,
+                form.kind,
+                form.role,
+                &form.search,
+                surname_first,
+            );
             let still_listed = form
                 .selected
                 .as_ref()
@@ -206,7 +219,7 @@ pub fn relation_window(
                     for person in candidates.iter().take(MAX_CANDIDATES) {
                         let selected = form.selected.as_deref() == Some(person.id.as_str());
                         if ui
-                            .selectable_label(selected, person_label(person))
+                            .selectable_label(selected, person_label(person, surname_first))
                             .clicked()
                         {
                             form.selected = Some(person.id.clone());
@@ -309,6 +322,7 @@ mod tests {
             RelationKind::Parent,
             ParentRole::Father,
             "",
+            false,
         );
         let ids = candidate_ids(&father);
         assert!(ids.contains(&"stranger".to_string()));
@@ -322,6 +336,7 @@ mod tests {
             RelationKind::Parent,
             ParentRole::Mother,
             "",
+            false,
         );
         let ids = candidate_ids(&mother);
         assert!(ids.contains(&"female".to_string()));
@@ -337,11 +352,18 @@ mod tests {
             RelationKind::Child,
             ParentRole::Father,
             "zoe stranger",
+            false,
         );
         assert_eq!(candidate_ids(&hits), vec!["stranger".to_string()]);
 
-        let children =
-            relation_candidates(&tree, "target", RelationKind::Child, ParentRole::Father, "");
+        let children = relation_candidates(
+            &tree,
+            "target",
+            RelationKind::Child,
+            ParentRole::Father,
+            "",
+            false,
+        );
         assert!(!candidate_ids(&children).contains(&"child".to_string()));
 
         let spouses = relation_candidates(
@@ -350,6 +372,7 @@ mod tests {
             RelationKind::Spouse,
             ParentRole::Father,
             "",
+            false,
         );
         assert!(!candidate_ids(&spouses).contains(&"spouse".to_string()));
     }

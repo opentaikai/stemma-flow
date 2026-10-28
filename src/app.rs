@@ -23,6 +23,7 @@ use crate::db::privacy::{self as privacy_store, DEFAULT_LIVING_AGE, PersonPrivac
 use crate::db::repositories::{
     self as repository_store, RepositoryDraft, RepositoryRecord, RepositorySummary,
 };
+use crate::db::settings::{self as settings_store, TreeSettings};
 use crate::db::sources::{
     self as source_store, SourceDraft, SourceMergeReport, SourceRecord, SourceSummary,
 };
@@ -440,6 +441,22 @@ impl StemmaApp {
         Ok(())
     }
 
+    /// Loads the active tree's display settings.
+    pub fn tree_settings(&self) -> Result<TreeSettings, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        settings_store::load_tree_settings(&conn)
+    }
+
+    /// Updates the active tree's surname-first preference.
+    pub fn set_surname_first(&mut self, surname_first: bool) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        settings_store::set_surname_first(&conn, surname_first)?;
+        self.set_status(UiStatus::Success("Display preference updated".to_string()));
+        Ok(())
+    }
+
     /// Lists a person's alternate names.
     pub fn alternate_names(&self, person_id: &str) -> Result<Vec<AlternateName>, String> {
         let path = self.require_active_db()?;
@@ -509,10 +526,14 @@ impl StemmaApp {
     }
 
     /// Loads an event with its roles and participants.
-    pub fn load_event_context(&self, event_id: &str) -> Result<Option<EventContext>, String> {
+    pub fn load_event_context(
+        &self,
+        event_id: &str,
+        surname_first: bool,
+    ) -> Result<Option<EventContext>, String> {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        participant_store::load_event_context(&conn, event_id)
+        participant_store::load_event_context(&conn, event_id, surname_first)
     }
 
     /// Replaces an event's participants.
@@ -584,10 +605,10 @@ impl StemmaApp {
     }
 
     /// Lists the events that use a place.
-    pub fn place_usage(&self, id: &str) -> Result<Vec<PlaceUsage>, String> {
+    pub fn place_usage(&self, id: &str, surname_first: bool) -> Result<Vec<PlaceUsage>, String> {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        place_store::list_place_usage(&conn, id)
+        place_store::list_place_usage(&conn, id, surname_first)
     }
 
     /// Inserts or updates a place.

@@ -63,23 +63,26 @@ impl TreeWindow {
                 let tree = db::load_family_tree(&conn).ok()?;
                 let dates = db::people::load_vital_dates(&conn).ok()?;
                 let marriages = db::load_marriage_details(&conn).ok()?;
-                let facts = db::facts::load_person_facts(&conn).ok()?;
-                Some((tree, dates, marriages, facts))
+                let settings = db::settings::load_tree_settings(&conn).ok()?;
+                let facts = db::facts::load_person_facts(&conn, settings.surname_first).ok()?;
+                Some((tree, dates, marriages, facts, settings))
             });
-        let (tree, dates, marriages, facts) = loaded.unwrap_or_else(|| {
+        let (tree, dates, marriages, facts, settings) = loaded.unwrap_or_else(|| {
             (
                 FamilyTree::default(),
                 HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
+                crate::db::settings::TreeSettings::default(),
             )
         });
-        self.scene = layout::build_scene(&tree);
-        self.rows = watchlist::rows(&tree, &dates);
+        self.scene = layout::build_scene(&tree, settings.surname_first);
+        self.rows = watchlist::rows(&tree, &dates, settings.surname_first);
         self.tree = tree;
         self.dates = dates;
         self.marriages = marriages;
         self.person_facts = facts;
+        self.tree_settings = settings;
         self.watch.mark_dirty();
         self.seen_db = self.app.active_db().map(Path::to_path_buf);
         let generation = self.app.import_generation();
