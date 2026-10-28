@@ -4,6 +4,7 @@ use egui::{Context, Window};
 
 use crate::config::{AppConfig, ThemeMode};
 use crate::gui::theme;
+use crate::i18n::{self, tr, tr_args};
 
 /// Renders the settings window while `open` is true.
 ///
@@ -17,21 +18,22 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
     let mut theme_changed = false;
     let mut font_apply = false;
     let mut places_changed = false;
-    Window::new("Settings")
+    let mut language_changed = false;
+    Window::new(tr("app.settings"))
         .id(egui::Id::new("settings_window"))
         .collapsible(false)
         .resizable(false)
         .open(open)
         .show(ctx, |ui| {
-            ui.heading("Appearance");
+            ui.heading(tr("app.appearance"));
             ui.separator();
 
-            ui.label("Theme:");
+            ui.label(tr("settings.theme"));
             ui.horizontal(|ui| {
                 for (mode, label) in [
-                    (ThemeMode::Light, "Light"),
-                    (ThemeMode::Dark, "Dark"),
-                    (ThemeMode::System, "System"),
+                    (ThemeMode::Light, tr("common.light")),
+                    (ThemeMode::Dark, tr("common.dark")),
+                    (ThemeMode::System, tr("common.system")),
                 ] {
                     if ui
                         .selectable_value(&mut config.theme, mode, label)
@@ -43,7 +45,7 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
             });
 
             ui.horizontal(|ui| {
-                ui.label("Font size:");
+                ui.label(tr("settings.font_size"));
                 let response = ui.add(
                     egui::Slider::new(&mut config.font_size, 10.0..=24.0)
                         .suffix("pt")
@@ -59,32 +61,58 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
             });
 
             ui.separator();
-            ui.heading("Places");
+            ui.label(tr("app.language"));
+            let languages = i18n::available_languages();
+            let current = languages
+                .iter()
+                .find(|language| language.code == config.language)
+                .map(|language| language.name.clone())
+                .unwrap_or_else(|| config.language.clone());
+            egui::ComboBox::from_id_salt("settings_language")
+                .selected_text(current)
+                .show_ui(ui, |ui| {
+                    for language in languages {
+                        if ui
+                            .selectable_value(
+                                &mut config.language,
+                                language.code.clone(),
+                                &language.name,
+                            )
+                            .changed()
+                        {
+                            i18n::set_language(&language.code);
+                            language_changed = true;
+                        }
+                    }
+                });
+            ui.separator();
+            ui.heading(tr("settings.places"));
             if ui
                 .checkbox(
                     &mut config.reverse_place_names,
-                    "Reverse place-name order",
+                    tr("settings.reverse_places"),
                 )
                 .changed()
             {
                 places_changed = true;
             }
             ui.label(
-                egui::RichText::new(
-                    "Read-only place displays show country first; editors and GEDCOM keep the stored order.",
-                )
-                .weak()
-                .small(),
+                egui::RichText::new(tr("settings.reverse_places_hint"))
+                    .weak()
+                    .small(),
             );
         });
 
-    if !(theme_changed || font_apply || places_changed) {
+    if !(theme_changed || font_apply || places_changed || language_changed) {
         return None;
     }
     theme::apply_config_to_ctx(ctx, config);
+    if language_changed {
+        ctx.request_repaint();
+    }
     match config.save() {
         Ok(()) => None,
-        Err(error) => Some(format!("Settings could not be saved: {error}")),
+        Err(error) => Some(tr_args("settings.could_not_save", &[("error", error)])),
     }
 }
 

@@ -42,10 +42,12 @@ mod tests {
         let ctx = Context::default();
         let dark = AppConfig {
             theme: ThemeMode::Dark,
+            language: "en".to_string(),
             ..AppConfig::default()
         };
         let light = AppConfig {
             theme: ThemeMode::Light,
+            language: "en".to_string(),
             ..AppConfig::default()
         };
 
@@ -63,6 +65,7 @@ mod tests {
             theme: ThemeMode::Light,
             font_size: 21.0,
             reverse_place_names: false,
+            language: "en".to_string(),
         };
 
         apply_config_to_ctx(&ctx, &config);
