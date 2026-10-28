@@ -970,6 +970,29 @@ mod tests {
     }
 
     #[test]
+    fn parent_slot_actions_open_the_picker_with_the_selected_role() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+
+        window.apply_inspector_action(
+            crate::gui::inspector::InspectorAction::AddParentAs(
+                crate::db::people::ParentRole::Mother,
+            ),
+            &person_id,
+        );
+        let form = window.pending_relation.as_ref().expect("relation form");
+        assert_eq!(form.kind, crate::gui::inspector::RelationKind::Parent);
+        assert_eq!(form.role, crate::db::people::ParentRole::Mother);
+        assert_eq!(form.details.gender, "F");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn modeless_editor_stays_pinned_while_browsing_and_saves_its_person() {
         let db_file = temp_path("db");
         import_people(

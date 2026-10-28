@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use crate::db::people::ParentRole;
 use crate::db::{FamilyTree, Person};
+use crate::i18n::{tr, tr_args};
 
 use super::connections::person_label;
 use super::form::InspectorForm;
@@ -21,12 +22,14 @@ pub enum RelationKind {
 }
 
 impl RelationKind {
-    fn title(self, target: &str) -> String {
-        match self {
-            Self::Parent => format!("Add Parent for {target}"),
-            Self::Spouse => format!("Add Spouse for {target}"),
-            Self::Child => format!("Add Child for {target}"),
-        }
+    fn title(self, target: &str, role: ParentRole) -> String {
+        let key = match (self, role) {
+            (Self::Parent, ParentRole::Father) => "relation.father_title",
+            (Self::Parent, ParentRole::Mother) => "relation.mother_title",
+            (Self::Spouse, _) => "relation.spouse_title",
+            (Self::Child, _) => "relation.child_title",
+        };
+        tr_args(key, &[("name", target.to_string())])
     }
 }
 
@@ -47,7 +50,15 @@ pub struct RelationForm {
 impl RelationForm {
     /// Opens against `target`'s label; parent forms preset the father role.
     pub fn new(target: &str, kind: RelationKind, target_label: &str) -> Self {
-        let role = ParentRole::Father;
+        Self::new_with_role(target, kind, target_label, ParentRole::Father)
+    }
+
+    pub fn new_with_role(
+        target: &str,
+        kind: RelationKind,
+        target_label: &str,
+        role: ParentRole,
+    ) -> Self {
         let mut details = InspectorForm::default();
         if kind == RelationKind::Parent {
             details.gender = role.gender().to_string();
@@ -163,7 +174,7 @@ pub fn relation_window(
 ) -> Option<RelationOutcome> {
     let mut outcome = None;
     let mut open = true;
-    egui::Window::new(form.kind.title(&form.target_label))
+    egui::Window::new(form.kind.title(&form.target_label, form.role))
         .id(egui::Id::new("relation_form_window"))
         .collapsible(false)
         .resizable(false)
@@ -172,15 +183,15 @@ pub fn relation_window(
         .show(ctx, |ui| {
             if form.kind == RelationKind::Parent {
                 ui.horizontal(|ui| {
-                    ui.label("Role:");
+                    ui.label(tr("relation.role"));
                     if ui
-                        .selectable_value(&mut form.role, ParentRole::Father, "Father")
+                        .selectable_value(&mut form.role, ParentRole::Father, tr("relation.father"))
                         .clicked()
                     {
                         form.details.gender = ParentRole::Father.gender().to_string();
                     }
                     if ui
-                        .selectable_value(&mut form.role, ParentRole::Mother, "Mother")
+                        .selectable_value(&mut form.role, ParentRole::Mother, tr("relation.mother"))
                         .clicked()
                     {
                         form.details.gender = ParentRole::Mother.gender().to_string();
@@ -205,16 +216,16 @@ pub fn relation_window(
                 form.selected = None;
             }
 
-            ui.label(egui::RichText::new("Link an existing person").strong());
+            ui.label(egui::RichText::new(tr("relation.link_existing")).strong());
             ui.add(
-                egui::TextEdit::singleline(&mut form.search).hint_text("Search by name\u{2026}"),
+                egui::TextEdit::singleline(&mut form.search).hint_text(tr("relation.search_hint")),
             );
             egui::ScrollArea::vertical()
                 .id_salt("relation_candidates")
                 .max_height(150.0)
                 .show(ui, |ui| {
                     if candidates.is_empty() {
-                        ui.label(egui::RichText::new("(no matches)").weak());
+                        ui.label(egui::RichText::new(tr("relation.no_matches")).weak());
                     }
                     for person in candidates.iter().take(MAX_CANDIDATES) {
                         let selected = form.selected.as_deref() == Some(person.id.as_str());
@@ -228,16 +239,19 @@ pub fn relation_window(
                 });
             if candidates.len() > MAX_CANDIDATES {
                 ui.label(
-                    egui::RichText::new(format!(
-                        "{} matches \u{2014} refine the search",
-                        candidates.len()
+                    egui::RichText::new(tr_args(
+                        "relation.matches_refine",
+                        &[("count", candidates.len().to_string())],
                     ))
                     .weak()
                     .small(),
                 );
             }
             if ui
-                .add_enabled(form.selected.is_some(), egui::Button::new("Link"))
+                .add_enabled(
+                    form.selected.is_some(),
+                    egui::Button::new(tr("relation.link")),
+                )
                 .clicked()
                 && let Some(person_id) = form.selected.clone()
             {
@@ -245,19 +259,22 @@ pub fn relation_window(
             }
 
             ui.separator();
-            egui::CollapsingHeader::new("Create a new person")
+            egui::CollapsingHeader::new(tr("relation.create_new"))
                 .default_open(false)
                 .show(ui, |ui| {
                     field_editors(ui, &mut form.details);
                     ui.separator();
                     let can_add = form.details.has_name() && form.details.dates_valid();
-                    if ui.add_enabled(can_add, egui::Button::new("Add")).clicked() {
+                    if ui
+                        .add_enabled(can_add, egui::Button::new(tr("common.add")))
+                        .clicked()
+                    {
                         outcome = Some(RelationOutcome::Submit);
                     }
                 });
 
             ui.separator();
-            if ui.button("Cancel").clicked() {
+            if ui.button(tr("common.cancel")).clicked() {
                 outcome = Some(RelationOutcome::Cancel);
             }
         });
@@ -311,6 +328,26 @@ mod tests {
 
     fn candidate_ids(people: &[&Person]) -> Vec<String> {
         people.iter().map(|person| person.id.clone()).collect()
+    }
+
+    #[test]
+    fn role_specific_form_presets_the_parent_gender() {
+        let father = RelationForm::new_with_role(
+            "target",
+            RelationKind::Parent,
+            "Target",
+            ParentRole::Father,
+        );
+        assert_eq!(father.role, ParentRole::Father);
+        assert_eq!(father.details.gender, "M");
+        let mother = RelationForm::new_with_role(
+            "target",
+            RelationKind::Parent,
+            "Target",
+            ParentRole::Mother,
+        );
+        assert_eq!(mother.role, ParentRole::Mother);
+        assert_eq!(mother.details.gender, "F");
     }
 
     #[test]
