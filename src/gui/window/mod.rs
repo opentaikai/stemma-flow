@@ -40,6 +40,7 @@ use crate::db::people::VitalDates;
 use crate::db::privacy::PersonPrivacy;
 use crate::db::settings::TreeSettings;
 use crate::gedcom::ImportReport;
+use crate::i18n;
 use eframe::{App, Frame};
 use egui::Color32;
 use egui::Ui;
@@ -149,6 +150,7 @@ impl TreeWindow {
             import_report: None,
             show_import_report: false,
         };
+        i18n::set_language(&window.config.language);
         if let Some(last) = window.recent.first().cloned() {
             if loadable(&last) {
                 window.app.activate_tree(last);

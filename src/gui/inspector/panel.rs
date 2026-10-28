@@ -13,6 +13,7 @@ use crate::db::notes::NoteOwner;
 use crate::db::people::VitalDates;
 use crate::db::privacy::PersonPrivacy;
 use crate::db::tasks::TaskOwner;
+use crate::i18n::fact_label;
 use crate::model::age;
 
 use super::ACCENT;
@@ -249,8 +250,9 @@ pub fn show(
                 }
                 for fact in facts {
                     ui.push_id(&fact.event_id, |ui| {
+                        let fact_label = fact_label(&fact.event_type, &fact.label);
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new(&fact.label).strong());
+                            ui.label(RichText::new(fact_label.clone()).strong());
                             if let Some(role) = &fact.role {
                                 ui.label(RichText::new(format!("as {role} for")).weak().small());
                                 if let Some(principal) = &fact.principal {
@@ -317,7 +319,7 @@ pub fn show(
                         if ui.small_button("Notes…").clicked() {
                             action = Some(InspectorAction::OpenNotes {
                                 owner: NoteOwner::Event(fact.event_id.clone()),
-                                title: format!("Notes — {}", fact.label),
+                                title: format!("Notes — {}", fact_label),
                             });
                         }
                     });
@@ -405,8 +407,11 @@ pub fn show(
                             ui.horizontal(|ui| {
                                 let mut private = event.private;
                                 let label = match event.date.as_deref() {
-                                    Some(date) => format!("{} ({date})", event.label),
-                                    None => event.label.clone(),
+                                    Some(date) => format!(
+                                        "{} ({date})",
+                                        fact_label(&event.event_type, &event.label)
+                                    ),
+                                    None => fact_label(&event.event_type, &event.label),
                                 };
                                 if ui.checkbox(&mut private, label).changed() {
                                     action = Some(InspectorAction::SetEventPrivate {

@@ -2,6 +2,7 @@
 
 use std::cmp::Ordering;
 
+use crate::i18n::fact_label;
 use egui::{RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
@@ -192,7 +193,8 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                     row.set_selected(selected);
                     row.col(|ui| {
                         ui.horizontal(|ui| {
-                            selectable_cell(ui, &fact.label, &fact.key, &mut event);
+                            let label = fact_label(&fact.key, &fact.label);
+                            selectable_cell(ui, &label, &fact.key, &mut event);
                             if fact.is_builtin {
                                 ui.label(RichText::new("built-in").weak().small());
                             }
@@ -265,7 +267,10 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                                         ));
                                 } else {
                                     ui.menu_button("Delete", |ui| {
-                                        ui.label(format!("Delete {}?", fact.label));
+                                        ui.label(format!(
+                                            "Delete {}?",
+                                            fact_label(&fact.key, &fact.label)
+                                        ));
                                         if ui.button("Confirm").clicked() {
                                             event = Some(FactTypesEvent::Delete(fact.key.clone()));
                                             ui.close();

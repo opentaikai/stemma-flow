@@ -3,6 +3,7 @@
 use egui::{Context, RichText, Window};
 
 use crate::gedcom::ExportOptions;
+use crate::i18n::tr;
 
 /// Renders the export dialog. Returns `Some(true)` for Export, `Some(false)`
 /// for Cancel, and `None` while the dialog stays open.
@@ -12,49 +13,36 @@ pub fn show(ctx: &Context, options: &mut ExportOptions, open: &mut bool) -> Opti
     }
     let mut outcome = None;
     let mut visible = true;
-    Window::new("Export GEDCOM")
+    Window::new(tr("export.title"))
         .id(egui::Id::new("export_options_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut visible)
         .show(ctx, |ui| {
-            ui.label(
-                RichText::new(
-                    "Living people and private people/facts are excluded by default.",
-                )
-                .weak()
-                .small(),
-            );
+            ui.label(RichText::new(tr("export.privacy_hint")).weak().small());
             ui.separator();
-            ui.checkbox(&mut options.include_living, "Include living people");
-            ui.checkbox(
-                &mut options.include_private,
-                "Include private people and facts",
-            );
+            ui.checkbox(&mut options.include_living, tr("export.include_living"));
+            ui.checkbox(&mut options.include_private, tr("export.include_private"));
             ui.horizontal(|ui| {
-                ui.label("Living-age threshold:");
+                ui.label(tr("export.threshold"));
                 ui.add(
                     egui::DragValue::new(&mut options.living_age)
                         .range(80..=130)
-                        .suffix(" years"),
+                        .suffix(format!(" {}", tr("export.years"))),
                 );
             });
-            ui.label(
-                RichText::new(
-                    "The threshold is used only for automatic living detection; manual overrides win.",
-                )
-                .weak()
-                .small(),
-            );
+            ui.label(RichText::new(tr("export.threshold_hint")).weak().small());
             ui.separator();
             ui.horizontal(|ui| {
                 if ui
-                    .add(egui::Button::new(RichText::new("Export").strong()))
+                    .add(egui::Button::new(
+                        RichText::new(tr("export.export")).strong(),
+                    ))
                     .clicked()
                 {
                     outcome = Some(true);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     outcome = Some(false);
                 }
             });

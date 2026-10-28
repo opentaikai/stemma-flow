@@ -215,7 +215,7 @@ long research sessions.
 | Multiple tree windows | deferred | P2 | Up to four, multi-monitor |
 | Large-tree performance (10,000+ people) | planned | P1 | Layout, search and rendering budgets |
 | Virtualized lists and charts | planned | P1 | Avoid rendering off-screen rows and nodes |
-| Internationalisation | deferred | P2 | Externalised strings |
+| Internationalisation | partial | P2 | External TOML catalogs, English/German core UI; remaining editor strings pending |
 | Accessibility and keyboard navigation | deferred | P2 | Focus order, labels, KeyTips |
 | High-contrast themes and text scaling | partial | P2 | Font scaling exists, themes extend |
 | WebTag and URL links on records | deferred | P2 | External references |

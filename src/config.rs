@@ -23,6 +23,8 @@ pub struct AppConfig {
     /// Show comma-separated place names from largest to smallest in
     /// read-only displays. Stored places and GEDCOM keep the original order.
     pub reverse_place_names: bool,
+    /// BCP 47-style locale code for the interface language.
+    pub language: String,
 }
 
 impl Default for AppConfig {
@@ -31,6 +33,7 @@ impl Default for AppConfig {
             theme: ThemeMode::Light,
             font_size: 14.0,
             reverse_place_names: false,
+            language: "en".to_string(),
         }
     }
 }
@@ -83,6 +86,9 @@ impl AppConfig {
         if !self.font_size.is_finite() || !(10.0..=24.0).contains(&self.font_size) {
             self.font_size = 14.0;
         }
+        if !crate::i18n::is_supported(&self.language) {
+            self.language = "en".to_string();
+        }
     }
 }
 
@@ -119,6 +125,7 @@ mod tests {
             theme: ThemeMode::Dark,
             font_size: 18.5,
             reverse_place_names: true,
+            language: "de".to_string(),
         };
         let text = toml::to_string_pretty(&config).expect("serialize");
         let back: AppConfig = toml::from_str(&text).expect("parse");
@@ -184,6 +191,7 @@ mod tests {
             theme: ThemeMode::System,
             font_size: 16.0,
             reverse_place_names: false,
+            language: "en".to_string(),
         };
 
         config.save_to(&path).expect("save");
@@ -206,6 +214,17 @@ mod tests {
         assert!(!loaded.reverse_place_names);
         assert_eq!(loaded.theme, ThemeMode::Dark);
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn language_defaults_to_english_and_rejects_unknown_codes() {
+        let dir = temp_dir("language");
+        let path = dir.join("config.toml");
+        fs::write(&path, "language = \"de\"\n").expect("write");
+        assert_eq!(AppConfig::load_from(&path).language, "de");
+        fs::write(&path, "language = \"xx\"\n").expect("write");
+        assert_eq!(AppConfig::load_from(&path).language, "en");
         let _ = fs::remove_dir_all(&dir);
     }
 
