@@ -7,6 +7,7 @@ use rusqlite::{Connection, params};
 use super::import::parse_name;
 use super::{
     ExportOptions, GedcomError, export_to_gedcom, export_to_gedcom_with_options, import_gedcom,
+    import_gedcom_with_base,
 };
 use crate::db::init_db;
 
@@ -982,7 +983,7 @@ fn imports_the_local_test_data_sample_when_present() -> Result<(), GedcomError> 
     assert!(noted > 0, "INDI notes must land in the notes table");
     assert_eq!(
         report.warnings.len(),
-        2324,
+        2293,
         "every unmapped tag must be listed for the report window"
     );
     Ok(())
@@ -1378,6 +1379,172 @@ fn association_export_skips_hidden_people() -> Result<(), GedcomError> {
     Ok(())
 }
 
+#[test]
+fn media_records_and_links_round_trip() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 OBJE @M1@
+1 OBJE
+2 FILE photos/inline.jpg
+3 FORM jpg
+3 TITL Inline photo
+1 BIRT
+2 DATE 1900
+2 OBJE @M1@
+0 @F1@ FAM
+1 HUSB @I1@
+1 OBJE @M1@
+0 @S1@ SOUR
+1 TITL Source
+1 OBJE @M1@
+0 @M1@ OBJE
+1 FILE photos/shared.jpg
+2 FORM jpg
+1 TITL Shared photo
+1 NOTE Media note
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom_with_base(
+        &mut conn,
+        Cursor::new(sample),
+        Some(std::path::Path::new("/data/tree")),
+    )?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+
+    let records: Vec<(String, Option<String>, Option<String>)> = conn
+        .prepare("SELECT file_path, format, caption FROM media ORDER BY rowid")
+        .map_err(GedcomError::Db)?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(GedcomError::Db)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(GedcomError::Db)?;
+    assert_eq!(
+        records,
+        [
+            (
+                "/data/tree/photos/inline.jpg".to_string(),
+                Some("jpg".to_string()),
+                Some("Inline photo".to_string())
+            ),
+            (
+                "/data/tree/photos/shared.jpg".to_string(),
+                Some("jpg".to_string()),
+                Some("Shared photo".to_string())
+            ),
+        ]
+    );
+    let counts: Vec<(String, i64)> = conn
+        .prepare(
+            "SELECT m.caption, COUNT(l.media_id) FROM media m
+             LEFT JOIN media_links l ON l.media_id = m.id
+             GROUP BY m.id ORDER BY m.rowid",
+        )
+        .map_err(GedcomError::Db)?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(GedcomError::Db)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(GedcomError::Db)?;
+    assert_eq!(
+        counts,
+        [
+            ("Inline photo".to_string(), 1),
+            ("Shared photo".to_string(), 4),
+        ]
+    );
+
+    let ged = export_to_gedcom(&conn)?;
+    for expected in [
+        "0 @M1@ OBJE",
+        "0 @M2@ OBJE",
+        "1 FILE /data/tree/photos/inline.jpg",
+        "1 FILE /data/tree/photos/shared.jpg",
+        "2 FORM jpg",
+        "1 TITL Shared photo",
+        "1 NOTE Media note",
+        "1 OBJE @M1@",
+        "2 OBJE @M2@",
+    ] {
+        assert!(ged.contains(expected), "missing {expected:?} in {ged}");
+    }
+
+    let mut fresh = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(export_to_gedcom(&fresh)?, ged, "media stays deterministic");
+    Ok(())
+}
+
+#[test]
+fn media_import_warns_on_dangling_and_empty_records() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 OBJE @M9@
+0 @M1@ OBJE
+1 TITL No file
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let report = import_gedcom(&mut conn, Cursor::new(sample))?;
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("dangling OBJE pointer @M9@")),
+        "{:?}",
+        report.warnings
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning == "OBJE without FILE ignored"),
+        "{:?}",
+        report.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn media_export_skips_hidden_owners() -> Result<(), GedcomError> {
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    let ada = crate::db::people::insert_person(
+        &mut conn,
+        &crate::db::people::PersonDetails::new("Ada", "", "King", "", "F", None, None),
+    )
+    .expect("Ada inserts");
+    let media_id = crate::db::media::save_media(
+        &conn,
+        &crate::db::media::MediaDraft {
+            file_path: "/tmp/private.jpg".to_string(),
+            ..crate::db::media::MediaDraft::default()
+        },
+    )
+    .expect("media saves");
+    crate::db::media::attach_media(
+        &conn,
+        &media_id,
+        &crate::db::media::MediaOwner::Person(ada.clone()),
+    )
+    .expect("media attaches");
+    conn.execute("UPDATE people SET private = 1 WHERE id = ?1", [&ada])
+        .map_err(GedcomError::Db)?;
+
+    let ged = crate::gedcom::export_to_gedcom_with_options(
+        &conn,
+        &crate::gedcom::ExportOptions::default(),
+    )?;
+    assert!(
+        !ged.contains("OBJE"),
+        "hidden media owner is omitted: {ged}"
+    );
+    Ok(())
+}
+
 /// "Иван" and "Иванов" encoded as Windows-1251 bytes.
 const CP1251_IVAN: [u8; 4] = [0xC8, 0xE2, 0xE0, 0xED];
 const CP1251_IVANOV: [u8; 6] = [0xC8, 0xE2, 0xE0, 0xED, 0xEE, 0xE2];
@@ -1516,15 +1683,12 @@ fn import_logs_unknown_tags_without_dropping_records() -> Result<(), GedcomError
     assert_eq!(report.people, 1, "the person still imports");
     assert_eq!(report.families, 1, "the family still imports");
     assert_eq!(report.warnings.len(), 5, "{:?}", report.warnings);
+    assert_eq!(report.warnings[0], "OBJE without FILE ignored");
     assert_eq!(
-        report.warnings[0],
+        report.warnings[1],
         "Line 6: Tag recognized/unsupported or ignored [REFN 42]"
     );
-    assert!(report.warnings[1].contains("[TYPE wikitree.privacy]"));
-    assert_eq!(
-        report.warnings[2],
-        "Line 8: Tag recognized/unsupported or ignored [OBJE]"
-    );
+    assert!(report.warnings[2].contains("[TYPE wikitree.privacy]"));
     assert!(report.warnings[3].contains("[AUTH WikiTree]"));
     assert!(report.warnings[4].contains("[TEXT https://example.com/genealogy/king]"));
     Ok(())

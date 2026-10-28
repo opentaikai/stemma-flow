@@ -32,7 +32,7 @@ use crate::db::settings::{self as settings_store, TreeSettings};
 use crate::db::sources::{
     self as source_store, SourceDraft, SourceMergeReport, SourceRecord, SourceSummary,
 };
-use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options, import_gedcom};
+use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options};
 use crate::gui::dialogs;
 use crate::model::source_template::SourceTemplate;
 
@@ -940,7 +940,12 @@ pub fn perform_import(db_path: &Path, source: &Path) -> Result<ImportReport, Str
     let mut conn = db::open_connection(db_path).map_err(|error| error.to_string())?;
     db::init_db(&conn).map_err(|error| error.to_string())?;
     let file = std::fs::File::open(source).map_err(|error| error.to_string())?;
-    import_gedcom(&mut conn, std::io::BufReader::new(file)).map_err(|error| error.to_string())
+    crate::gedcom::import_gedcom_with_base(
+        &mut conn,
+        std::io::BufReader::new(file),
+        source.parent(),
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// Serializes the database at `db_path` into a UTF-8 GEDCOM file at `dest`.

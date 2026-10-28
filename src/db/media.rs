@@ -18,7 +18,7 @@ pub enum MediaOwner {
 }
 
 impl MediaOwner {
-    fn column(&self) -> &'static str {
+    pub(crate) fn column(&self) -> &'static str {
         match self {
             Self::Person(_) => "person_id",
             Self::Family(_) => "family_id",
@@ -28,7 +28,7 @@ impl MediaOwner {
         }
     }
 
-    fn id(&self) -> &str {
+    pub(crate) fn id(&self) -> &str {
         match self {
             Self::Person(id)
             | Self::Family(id)
