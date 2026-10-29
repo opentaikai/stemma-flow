@@ -39,6 +39,27 @@ impl TreeWindow {
                     self.export_options = crate::gedcom::ExportOptions::default();
                     self.show_export = true;
                 }
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        self.app.active_db().is_some() && !self.app.is_busy(),
+                        egui::Button::new(tr("menu.backup_tree")),
+                    )
+                    .clicked()
+                {
+                    ui.close();
+                    self.app.begin_backup();
+                }
+                if ui
+                    .add_enabled(
+                        !self.app.is_busy(),
+                        egui::Button::new(tr("menu.restore_backup")),
+                    )
+                    .clicked()
+                {
+                    ui.close();
+                    self.app.begin_restore();
+                }
                 if !self.recent.is_empty() {
                     self.recent_menu(ui, frame);
                 }
@@ -143,6 +164,7 @@ impl TreeWindow {
             WelcomeAction::CreateNew => self.create_new_tree(frame),
             WelcomeAction::OpenTree => self.open_tree(frame),
             WelcomeAction::ImportGedcom => self.app.begin_import_new(),
+            WelcomeAction::RestoreBackup => self.app.begin_restore(),
             WelcomeAction::OpenRecent(path) => self.open_tree_at(path, frame),
         }
     }

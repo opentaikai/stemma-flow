@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
+use crate::backup::{self, BackupReport, RestoreReport};
 use crate::db;
 use crate::db::associations::{self, AssociationDraft, AssociationRecord, AssociationViewRow};
 use crate::db::citations::{
@@ -55,6 +56,14 @@ pub enum JobEvent {
         bytes: usize,
         path: PathBuf,
     },
+    BackedUp {
+        path: PathBuf,
+        report: BackupReport,
+    },
+    Restored {
+        path: PathBuf,
+        report: RestoreReport,
+    },
     Cancelled,
     Failed(String),
 }
@@ -75,6 +84,8 @@ enum Job {
     /// Pick a source file and a fresh target database, then import into it.
     ImportNew,
     Export(ExportOptions),
+    Backup,
+    Restore,
 }
 
 /// Application state shared between the UI shell and job workers.
@@ -87,6 +98,8 @@ pub struct StemmaApp {
     import_generation: u64,
     /// Last import's report waiting for the UI layer to consume it once.
     new_import_report: Option<ImportReport>,
+    /// Restored tree waiting for the UI to add it to the recent list.
+    restored_path: Option<PathBuf>,
 }
 
 impl StemmaApp {
@@ -101,6 +114,7 @@ impl StemmaApp {
             selected_person_id: None,
             import_generation: 0,
             new_import_report: None,
+            restored_path: None,
         }
     }
 
@@ -163,6 +177,19 @@ impl StemmaApp {
     /// into it on a worker thread; the resulting tree becomes active.
     pub fn begin_import_new(&mut self) {
         self.begin(Job::ImportNew, None);
+    }
+
+    /// Writes a timestamped backup archive of the active tree and its media.
+    pub fn begin_backup(&mut self) {
+        if self.active_db.is_none() {
+            return;
+        }
+        self.begin(Job::Backup, self.active_db.clone());
+    }
+
+    /// Opens a backup archive in a new tree on a worker thread.
+    pub fn begin_restore(&mut self) {
+        self.begin(Job::Restore, None);
     }
 
     /// Writes the active database as GEDCOM with default privacy options.
@@ -997,6 +1024,8 @@ impl StemmaApp {
         self.status = UiStatus::Running(match job {
             Job::Import | Job::ImportNew => "Choosing file to import\u{2026}",
             Job::Export(_) => "Choosing export destination\u{2026}",
+            Job::Backup => "Choosing backup destination\u{2026}",
+            Job::Restore => "Choosing backup to restore\u{2026}",
         });
         let (tx, rx) = channel();
         self.rx = Some(rx);
@@ -1038,9 +1067,39 @@ impl StemmaApp {
             JobEvent::Exported { bytes, path } => {
                 UiStatus::Success(format!("Exported {bytes} bytes to {}", path.display()))
             }
+            JobEvent::BackedUp { path, report } => {
+                let missing = report.media_missing.len();
+                let suffix = match missing {
+                    0 => String::new(),
+                    1 => ", 1 media file missing".to_string(),
+                    count => format!(", {count} media files missing"),
+                };
+                UiStatus::Success(format!(
+                    "Backed up {} media files to {}{suffix}",
+                    report.media_included,
+                    path.display()
+                ))
+            }
+            JobEvent::Restored { path, report } => {
+                self.activate_tree(path.clone());
+                self.import_generation += 1;
+                self.restored_path = Some(path.clone());
+                let missing = report.media_missing;
+                let suffix = match missing {
+                    0 => String::new(),
+                    1 => ", 1 media file missing".to_string(),
+                    count => format!(", {count} media files missing"),
+                };
+                UiStatus::Success(format!("Restored tree to {}{suffix}", path.display()))
+            }
             JobEvent::Cancelled => UiStatus::Cancelled,
             JobEvent::Failed(message) => UiStatus::Error(message),
         };
+    }
+
+    /// Returns the path of a tree restored since the last UI pass.
+    pub fn take_restored_path(&mut self) -> Option<PathBuf> {
+        self.restored_path.take()
     }
 
     /// Returns the latest import's report exactly once so the UI can open
@@ -1111,6 +1170,42 @@ impl Job {
                     None => JobEvent::Cancelled,
                     Some(dest) => match perform_export(&db_path, &dest, &options) {
                         Ok(bytes) => JobEvent::Exported { bytes, path: dest },
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::Backup => {
+                let Some(db_path) = db_path else {
+                    return JobEvent::Failed("No tree is open".to_string());
+                };
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name = backup::backup_file_name(&db_path, &timestamp);
+                let directory = db_path.parent();
+                match dialogs::prompt_backup_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match backup::backup_tree(&db_path, &dest) {
+                        Ok(report) => JobEvent::BackedUp { path: dest, report },
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::Restore => {
+                let Some(archive) = dialogs::pick_backup_restore_path() else {
+                    return JobEvent::Cancelled;
+                };
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name = backup::restore_file_name(&archive, &timestamp);
+                let directory = archive.parent();
+                match dialogs::prompt_restore_target(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match backup::restore_backup(&archive, &dest) {
+                        Ok(report) => JobEvent::Restored { path: dest, report },
                         Err(message) => JobEvent::Failed(message),
                     },
                 }
@@ -1369,6 +1464,46 @@ mod tests {
         app.busy = true;
         app.apply_event(JobEvent::Failed("disk full".to_string()));
         assert_eq!(app.status(), &UiStatus::Error("disk full".to_string()));
+    }
+
+    #[test]
+    fn backup_and_restore_events_update_status_and_active_tree() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        app.apply_event(JobEvent::BackedUp {
+            path: PathBuf::from("/tmp/tree-backup.zip"),
+            report: BackupReport {
+                media_included: 2,
+                media_missing: vec!["/tmp/missing.jpg".to_string()],
+                database_bytes: 1024,
+            },
+        });
+        assert!(
+            matches!(app.status(), UiStatus::Success(message) if message.contains("2 media") && message.contains("1 media file missing"))
+        );
+
+        app.busy = true;
+        app.apply_event(JobEvent::Restored {
+            path: PathBuf::from("/tmp/restored.db"),
+            report: RestoreReport {
+                media_restored: 2,
+                media_missing: 0,
+            },
+        });
+        assert!(!app.is_busy());
+        assert_eq!(app.active_db(), Some(Path::new("/tmp/restored.db")));
+        assert!(
+            matches!(app.status(), UiStatus::Success(message) if message.contains("Restored tree"))
+        );
+        assert_eq!(
+            app.take_restored_path(),
+            Some(PathBuf::from("/tmp/restored.db"))
+        );
+        assert_eq!(
+            app.take_restored_path(),
+            None,
+            "recent path is consumed once"
+        );
     }
 
     #[test]
