@@ -12,6 +12,7 @@ use super::associations as associations_dialog;
 use super::associations_view;
 use super::canvas::ViewportState;
 use super::citations;
+use super::connectors::ConnectorCache;
 use super::couples;
 use super::database_tools;
 use super::fact_types;
@@ -64,6 +65,7 @@ pub struct TreeWindow {
     pub(super) app: StemmaApp,
     pub(super) viewport: ViewportState,
     pub(super) scene: TreeScene,
+    pub(super) connectors: ConnectorCache,
     pub(super) seen_db: Option<PathBuf>,
     pub(super) seen_generation: u64,
     pub(super) recent: Vec<PathBuf>,
@@ -127,6 +129,7 @@ impl TreeWindow {
             app,
             viewport: ViewportState::default(),
             scene: empty_scene(),
+            connectors: ConnectorCache::default(),
             seen_db: None,
             seen_generation: 0,
             recent,

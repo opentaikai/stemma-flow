@@ -516,7 +516,9 @@ each module's `mod.rs`:
   the window.
 - `gui::connectors::build_segments` routes spouse bars and three-segment
   orthogonal drops (union -> trunk row inside the rank gap -> children)
-  as pure geometry.
+  as pure geometry. `ConnectorCache` builds that geometry once per scene;
+  pan and zoom frames only cull precomputed segment bounds and repaint the
+  visible lines.
 - `gui::nodes` hit-tests clicks back-to-front and paints nodes, borders
   and zoom-scaled names, culling everything outside the viewport.
 - `gui::welcome::show` renders the dashboard card (logo, title, tagline,
