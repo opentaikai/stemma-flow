@@ -20,6 +20,7 @@ use crate::db::groups::{self as group_store, GroupDraft, GroupMember, GroupRecor
 use crate::db::media::{
     self as media_store, MediaDraft, MediaLinkSummary, MediaOwner, MediaRecord, MediaSummary,
 };
+use crate::db::merge::{self as merge_store, MergeDraft, MergePreview, MergeReport};
 use crate::db::names::{self as name_store, AlternateName, AlternateNameDraft};
 use crate::db::notes::{self as note_store, Note, NoteOwner};
 use crate::db::participants::{self as participant_store, EventContext, ParticipantDraft};
@@ -188,6 +189,33 @@ impl StemmaApp {
             details.display_name()
         )));
         Ok(person_id)
+    }
+
+    /// Loads both sides of a potential duplicate merge.
+    pub fn preview_people_merge(
+        &self,
+        keep_id: &str,
+        merge_id: &str,
+    ) -> Result<MergePreview, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        merge_store::preview_merge(&conn, keep_id, merge_id)
+    }
+
+    /// Merges one person into another and deletes the merged record.
+    pub fn merge_people(&mut self, draft: &MergeDraft) -> Result<MergeReport, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let report = merge_store::merge_people(&mut conn, draft)?;
+        if self.selected_person_id.as_deref() == Some(draft.merge_id.as_str()) {
+            self.selected_person_id = Some(draft.keep_id.clone());
+        }
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success(format!(
+            "Merged duplicate into {}",
+            draft.details.display_name()
+        )));
+        Ok(report)
     }
 
     /// Removes a person; FK cascades clean up events, citations and links.

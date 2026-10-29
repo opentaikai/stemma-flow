@@ -5,6 +5,7 @@ pub mod citations;
 pub mod facts;
 pub mod groups;
 pub mod media;
+pub mod merge;
 mod migrations;
 pub mod models;
 pub mod names;

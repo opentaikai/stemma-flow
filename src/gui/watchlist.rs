@@ -132,6 +132,7 @@ pub fn display_gender(code: &str) -> &'static str {
 pub enum WatchEvent {
     Select(String),
     Edit(String),
+    Merge(String),
     AddPerson,
     Delete(String),
     ColumnsChanged(Vec<PeopleColumnConfig>),
@@ -430,6 +431,9 @@ pub fn show(
                             }
                         } else if ui.small_button(tr("root.set")).clicked() {
                             events.push(WatchEvent::SetRoot(person.id.clone()));
+                        }
+                        if ui.small_button(tr("people.merge")).clicked() {
+                            events.push(WatchEvent::Merge(person.id.clone()));
                         }
                         if ui.small_button(tr("common.edit")).clicked() {
                             events.push(WatchEvent::Edit(person.id.clone()));

@@ -515,8 +515,28 @@ runs in the **New Person** dialog opened by the People view's **Add**
 button and in the relation picker's **Create new** form, where a suggestion
 links the existing person through the same role and cycle validation as
 the search picker. **Create blank record** keeps the quick unnamed-draft
-workflow. Alternate names, merge review and side-by-side comparison remain
-separate roadmap items.
+workflow.
+
+## Merging duplicate people
+
+**Tools > Merge People…**, or **Merge…** on a People row, opens a
+side-by-side comparison. Pick the record to keep and the duplicate to merge
+away. Each profile field defaults to the kept value when it is present and
+fills blanks from the duplicate; differing values are highlighted and every
+row can be switched to the other record. Privacy flags, birth/death dates
+and places follow the same choice model, and discarded primary names are
+kept as alternate names unless that option is turned off.
+
+Merging is permanent and asks for a separate confirmation. Notes, media,
+tasks, group memberships, associations, event participants, alternate names
+and the tree root move to the kept person. Facts are moved and exact
+duplicates are combined together with their citations, media, tasks and
+notes. Spouse and parent families are reassigned, and duplicate families
+with the same partner or parent pair are consolidated with their children
+and family events. The merged record is then deleted. Records that are
+directly linked as parent/child or as spouses are refused so the tree
+structure must be corrected first. Unsaved changes in the pinned person
+editor also block merging until they are saved or discarded.
 
 ## Settings & appearance
 

@@ -20,6 +20,7 @@ use super::inspector::ParticipantForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
 use super::media;
+use super::merge as merge_dialog;
 use super::names;
 use super::notes as notes_dialog;
 use super::pedigree;
@@ -73,6 +74,7 @@ pub struct TreeWindow {
     pub(super) couple_rows: Vec<crate::model::couples::Couple>,
     pub(super) association_view: associations_view::AssociationViewState,
     pub(super) relationship_calculator: relationship_calculator::RelationshipCalculatorState,
+    pub(super) merge: merge_dialog::MergeState,
     pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
     pub(super) media: media::MediaState,
@@ -135,6 +137,7 @@ impl TreeWindow {
             association_view: associations_view::AssociationViewState::default(),
             relationship_calculator: relationship_calculator::RelationshipCalculatorState::default(
             ),
+            merge: merge_dialog::MergeState::default(),
             association_rows: Vec::new(),
             places: places::PlacesState::default(),
             media: media::MediaState::default(),
@@ -235,6 +238,7 @@ impl App for TreeWindow {
             self.show_media_attach(ui.ctx());
             self.show_person_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
+            self.show_merge_window(ui.ctx());
             self.show_task_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
@@ -262,6 +266,7 @@ mod tests {
     use super::*;
     use crate::app::JobEvent;
     use crate::db;
+    use crate::db::merge::MergeDraft;
     use crate::db::people::{ParentRole, PersonDetails};
     use crate::db::sources::SourceDraft;
     use crate::gui::fact_types::FactTypesEvent;
@@ -624,6 +629,110 @@ mod tests {
         window.apply_pending_config(&ctx);
         assert!(!window.pending_apply);
 
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn merge_dialog_prefills_the_kept_person() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 @I2@ INDI\n1 NAME Augusta /King/\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let first = window.rows[0].id.clone();
+        window.open_merge_dialog(Some(first.clone()));
+        assert!(window.merge.open);
+        assert_eq!(window.merge.keep.as_deref(), Some(first.as_str()));
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn applying_a_merge_selects_the_kept_person_and_deletes_the_duplicate() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 @I2@ INDI\n1 NAME Augusta /King/\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let keep_id = window.rows[0].id.clone();
+        let merge_id = window.rows[1].id.clone();
+        window.app.set_selected_person(Some(merge_id.clone()));
+        let draft = MergeDraft {
+            keep_id: keep_id.clone(),
+            merge_id: merge_id.clone(),
+            details: PersonDetails::new("Ada", "", "King", "", "U", None, None),
+            private: false,
+            living_override: None,
+            preserve_primary_names: true,
+        };
+
+        window.apply_merge(&draft);
+
+        assert_eq!(
+            window.app.selected_person_id().map(str::to_string),
+            Some(keep_id.clone())
+        );
+        assert!(window.tree.people.iter().any(|person| person.id == keep_id));
+        assert!(
+            window
+                .tree
+                .people
+                .iter()
+                .all(|person| person.id != merge_id),
+            "the duplicate is gone"
+        );
+        assert!(matches!(window.app.status(), UiStatus::Success(_)));
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn a_dirty_editor_blocks_merging() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 @I2@ INDI\n1 NAME Augusta /King/\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let keep_id = window.rows[0].id.clone();
+        let merge_id = window.rows[1].id.clone();
+        window.open_person_editor(&keep_id);
+        window
+            .person_editor
+            .as_mut()
+            .expect("editor")
+            .form
+            .given_name = "Changed".to_string();
+        window.merge.open_with(Some(keep_id.clone()));
+        let draft = MergeDraft {
+            keep_id: keep_id.clone(),
+            merge_id: merge_id.clone(),
+            details: PersonDetails::new("Ada", "", "King", "", "U", None, None),
+            private: false,
+            living_override: None,
+            preserve_primary_names: true,
+        };
+
+        window.apply_merge(&draft);
+
+        assert_eq!(
+            window.merge.error.as_deref(),
+            Some(crate::i18n::tr("merge.editor_dirty").as_str())
+        );
+        assert!(
+            window
+                .tree
+                .people
+                .iter()
+                .any(|person| person.id == merge_id),
+            "nothing was merged"
+        );
         let _ = std::fs::remove_file(&db_file);
     }
 

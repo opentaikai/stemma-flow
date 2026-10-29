@@ -131,7 +131,7 @@ pub struct VitalDates {
     pub death_event_id: Option<String>,
 }
 
-fn normalize(details: &PersonDetails) -> Result<PersonDetails, String> {
+pub(crate) fn normalize(details: &PersonDetails) -> Result<PersonDetails, String> {
     if !matches!(details.gender.as_str(), "M" | "F" | "U") {
         return Err(format!("unknown gender code {}", details.gender));
     }
@@ -144,7 +144,7 @@ fn normalize(details: &PersonDetails) -> Result<PersonDetails, String> {
 }
 
 /// Like [`normalize`], but requires a given name or surname.
-fn normalize_named(details: &PersonDetails) -> Result<PersonDetails, String> {
+pub(crate) fn normalize_named(details: &PersonDetails) -> Result<PersonDetails, String> {
     let normalized = normalize(details)?;
     if let Some(error) = normalized.name_error() {
         return Err(error.to_string());
@@ -696,7 +696,10 @@ fn upsert_vital(
 }
 
 /// Resolves a free-text place to a `places` row, creating it when needed.
-fn resolve_place(conn: &Connection, name: Option<&str>) -> rusqlite::Result<Option<String>> {
+pub(crate) fn resolve_place(
+    conn: &Connection,
+    name: Option<&str>,
+) -> rusqlite::Result<Option<String>> {
     let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
         return Ok(None);
     };
@@ -1496,6 +1499,50 @@ mod tests {
             "no blank person was inserted"
         );
     }
+}
+
+/// Loads a person's editable profile together with their birth and death data.
+pub fn load_person_details(
+    conn: &Connection,
+    person_id: &str,
+) -> Result<Option<PersonDetails>, String> {
+    let row = conn
+        .query_row(
+            "SELECT given_name, middle_name, surname, nickname,
+                    name_prefix, name_suffix, gender
+             FROM people WHERE id = ?1",
+            params![person_id],
+            |row| {
+                Ok(PersonDetails {
+                    given_name: row.get(0)?,
+                    middle_name: row.get(1)?,
+                    surname: row.get(2)?,
+                    nickname: row.get(3)?,
+                    name_prefix: row.get(4)?,
+                    name_suffix: row.get(5)?,
+                    gender: row.get(6)?,
+                    birth_date: None,
+                    birth_place: None,
+                    death_date: None,
+                    death_place: None,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let Some(mut details) = row else {
+        return Ok(None);
+    };
+    if let Some(vitals) = load_vital_dates(conn)
+        .map_err(|error| error.to_string())?
+        .get(person_id)
+    {
+        details.birth_date = vitals.birth.clone();
+        details.birth_place = vitals.birth_place.clone();
+        details.death_date = vitals.death.clone();
+        details.death_place = vitals.death_place.clone();
+    }
+    Ok(Some(details))
 }
 
 /// Aggregated values for the configurable People list.

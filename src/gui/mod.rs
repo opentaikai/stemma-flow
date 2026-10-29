@@ -14,6 +14,7 @@ pub mod import_report;
 pub mod inspector;
 pub mod layout;
 pub mod media;
+pub mod merge;
 pub mod names;
 pub mod nodes;
 pub mod notes;
