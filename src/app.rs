@@ -750,6 +750,13 @@ impl StemmaApp {
         Ok(())
     }
 
+    /// Stores or clears the active tree's root person.
+    pub fn set_root_person(&mut self, person_id: Option<&str>) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        settings_store::set_root_person(&conn, person_id)
+    }
+
     /// Lists a person's alternate names.
     pub fn alternate_names(&self, person_id: &str) -> Result<Vec<AlternateName>, String> {
         let path = self.require_active_db()?;
