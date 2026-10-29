@@ -1,12 +1,14 @@
 //! The add-relative pop-up: link an existing person or create a new one.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::db::people::ParentRole;
+use crate::db::people::{ParentRole, VitalDates};
 use crate::db::{FamilyTree, Person};
 use crate::i18n::{tr, tr_args};
+use crate::model::duplicates::{DuplicateQuery, score_candidates};
 
 use super::connections::person_label;
+use super::duplicates::{self, DuplicateSuggestions};
 use super::form::InspectorForm;
 use super::panel::field_editors;
 
@@ -45,6 +47,8 @@ pub struct RelationForm {
     pub search: String,
     /// Person highlighted in the picker, ready to link.
     pub selected: Option<String>,
+    /// Possible duplicates while typing a new person.
+    pub suggestions: DuplicateSuggestions,
 }
 
 impl RelationForm {
@@ -71,6 +75,7 @@ impl RelationForm {
             details,
             search: String::new(),
             selected: None,
+            suggestions: DuplicateSuggestions::default(),
         }
     }
 }
@@ -170,6 +175,7 @@ pub fn relation_window(
     ctx: &egui::Context,
     form: &mut RelationForm,
     tree: &FamilyTree,
+    dates: &HashMap<String, VitalDates>,
     surname_first: bool,
 ) -> Option<RelationOutcome> {
     let mut outcome = None;
@@ -263,6 +269,28 @@ pub fn relation_window(
                 .default_open(false)
                 .show(ui, |ui| {
                     field_editors(ui, &mut form.details);
+                    let query = DuplicateQuery::from_details(&form.details.to_details());
+                    let candidates = relation_candidates(
+                        tree,
+                        &form.target,
+                        form.kind,
+                        form.role,
+                        "",
+                        surname_first,
+                    );
+                    form.suggestions.update(&query, || {
+                        score_candidates(&query, dates, candidates.iter().copied())
+                    });
+                    if let Some(person_id) = duplicates::show(
+                        ui,
+                        form.suggestions.matches(),
+                        query.has_name(),
+                        tree,
+                        surname_first,
+                        &tr("duplicates.link_existing"),
+                    ) {
+                        outcome = Some(RelationOutcome::Link(person_id));
+                    }
                     ui.separator();
                     let can_add = form.details.has_name() && form.details.dates_valid();
                     if ui
@@ -378,6 +406,34 @@ mod tests {
         let ids = candidate_ids(&mother);
         assert!(ids.contains(&"female".to_string()));
         assert!(!ids.contains(&"stranger".to_string()));
+    }
+
+    #[test]
+    fn new_relative_suggestions_exclude_existing_relatives() {
+        let mut tree = tree();
+        tree.people
+            .push(person("duplicate", "Frank", "Person", "M"));
+        let form = RelationForm::new("target", RelationKind::Parent, "Target");
+        let mut details = form.details.clone();
+        details.given_name = "Frank".to_string();
+        details.surname = "Person".to_string();
+        let query = DuplicateQuery::from_details(&details.to_details());
+        let candidates = relation_candidates(
+            &tree,
+            "target",
+            RelationKind::Parent,
+            ParentRole::Father,
+            "",
+            false,
+        );
+        let matches = score_candidates(&query, &HashMap::new(), candidates.iter().copied());
+        assert_eq!(
+            matches
+                .iter()
+                .map(|matched| matched.person_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["duplicate"]
+        );
     }
 
     #[test]

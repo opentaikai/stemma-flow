@@ -501,6 +501,23 @@ and a shortest parent/child/spouse path. Unrelated and marriage-only pairs
 use the standard “related by marriage” and “not directly related” falls
 back labels. The calculator is read-only and does not change the tree.
 
+## Duplicate suggestions
+
+Before a new person is inserted, stemma-flow scores the name against the
+current tree and lists the closest matches with a confidence score and the
+reasons (exact or similar name, shared birth/death year, gender, birth
+place). Matching ignores case, punctuation and spacing and folds common
+diacritics, so `Müller` and `Mueller` compare equal; nicknames are checked
+alongside primary given names. **Use this person** selects an existing
+record instead of inserting another one, while the normal create button is
+always available so a genuinely new person can still be added. The check
+runs in the **New Person** dialog opened by the People view's **Add**
+button and in the relation picker's **Create new** form, where a suggestion
+links the existing person through the same role and cycle validation as
+the search picker. **Create blank record** keeps the quick unnamed-draft
+workflow. Alternate names, merge review and side-by-side comparison remain
+separate roadmap items.
+
 ## Settings & appearance
 
 `File > Settings…` opens a modal dialog with an **Appearance** section:

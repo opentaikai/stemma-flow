@@ -100,6 +100,7 @@ pub struct TreeWindow {
     pub(super) inspector: InspectorForm,
     pub(super) inspected: Option<String>,
     pub(super) pending_relation: Option<RelationForm>,
+    pub(super) pending_new_person: Option<super::inspector::NewPersonState>,
     pub(super) pending_participants: Option<ParticipantForm>,
     pub(super) config: AppConfig,
     pub(super) show_settings: bool,
@@ -161,6 +162,7 @@ impl TreeWindow {
             inspector: InspectorForm::default(),
             inspected: None,
             pending_relation: None,
+            pending_new_person: None,
             pending_participants: None,
             config: AppConfig::load(),
             show_settings: false,
@@ -227,6 +229,7 @@ impl App for TreeWindow {
         }
         if self.app.active_db().is_some() {
             self.show_relation_window(ui.ctx());
+            self.show_new_person_window(ui.ctx());
             self.show_participant_window(ui.ctx());
             self.show_association_window(ui.ctx());
             self.show_media_attach(ui.ctx());
@@ -259,7 +262,7 @@ mod tests {
     use super::*;
     use crate::app::JobEvent;
     use crate::db;
-    use crate::db::people::ParentRole;
+    use crate::db::people::{ParentRole, PersonDetails};
     use crate::db::sources::SourceDraft;
     use crate::gui::fact_types::FactTypesEvent;
     use crate::gui::inspector;
@@ -625,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn adding_a_person_selects_it_and_refreshes_the_watch_rows() {
+    fn adding_a_person_opens_the_dialog_then_inserts_on_submit() {
         let db_file = temp_path("db");
         import_people(
             &db_file,
@@ -639,6 +642,13 @@ mod tests {
         let generation = window.app.import_generation();
 
         window.add_person();
+
+        assert!(window.pending_new_person.is_some(), "the dialog is open");
+        assert_eq!(window.rows.len(), before, "nothing is inserted yet");
+
+        let details = PersonDetails::new("New", "", "Person", "", "U", None, None);
+        window.pending_new_person = None;
+        window.submit_new_person(&details);
 
         assert_eq!(window.rows.len(), before + 1, "the grid sees the new row");
         let selected = window
@@ -672,7 +682,7 @@ mod tests {
         let mut app = StemmaApp::new();
         app.activate_tree(&db_file);
         let mut window = TreeWindow::new(app, None);
-        window.add_person();
+        window.create_blank_person();
         let person_id = window
             .app
             .selected_person_id()

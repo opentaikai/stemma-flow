@@ -134,6 +134,7 @@ impl TreeWindow {
             self.citations = crate::gui::citations::CitationsState::default();
             self.repositories = crate::gui::repositories::RepositoriesState::default();
             self.pending_participants = None;
+            self.pending_new_person = None;
             self.person_privacy = None;
             self.notes = crate::gui::notes::NotesState::default();
             self.person_editor = None;

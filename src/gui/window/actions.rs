@@ -17,6 +17,8 @@ use crate::gui::fact_types::{self, FactTypesEvent};
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
 use crate::gui::inspector::InspectorForm;
+use crate::gui::inspector::NewPersonOutcome;
+use crate::gui::inspector::NewPersonState;
 use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
@@ -1542,8 +1544,43 @@ impl TreeWindow {
         self.sources.error = None;
     }
 
-    /// Instant add: inserts an unnamed person and focuses it.
+    /// Opens the New Person dialog with duplicate suggestions.
     pub(super) fn add_person(&mut self) {
+        self.pending_new_person = Some(NewPersonState::default());
+    }
+
+    pub(super) fn show_new_person_window(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.pending_new_person.take() else {
+            return;
+        };
+        match inspector::new_person_window(
+            ctx,
+            &mut state,
+            &self.tree,
+            &self.dates,
+            self.tree_settings.surname_first,
+        ) {
+            None => self.pending_new_person = Some(state),
+            Some(NewPersonOutcome::Cancel) => {}
+            Some(NewPersonOutcome::Submit(details)) => self.submit_new_person(&details),
+            Some(NewPersonOutcome::CreateBlank) => self.create_blank_person(),
+            Some(NewPersonOutcome::SelectExisting(person_id)) => self.focus_person(&person_id),
+        }
+    }
+
+    /// Inserts the details entered in the New Person dialog.
+    pub(super) fn submit_new_person(&mut self, details: &PersonDetails) {
+        match self.app.add_person(details) {
+            Ok(person_id) => {
+                self.app.set_selected_person(Some(person_id));
+                self.reload_scene();
+            }
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    /// Fast path: inserts an unnamed person and focuses it for editing.
+    pub(super) fn create_blank_person(&mut self) {
         match self.app.add_person(&PersonDetails::unnamed()) {
             Ok(person_id) => {
                 self.app.set_selected_person(Some(person_id));
@@ -2096,6 +2133,7 @@ impl TreeWindow {
             ctx,
             &mut form,
             &self.tree,
+            &self.dates,
             self.tree_settings.surname_first,
         ) {
             None => self.pending_relation = Some(form),
