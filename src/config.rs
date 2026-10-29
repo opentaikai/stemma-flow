@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::people_columns::{PeopleColumnConfig, default_columns, sanitize_columns};
+
 /// How the UI picks its light or dark visuals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThemeMode {
@@ -25,6 +27,9 @@ pub struct AppConfig {
     pub reverse_place_names: bool,
     /// BCP 47-style locale code for the interface language.
     pub language: String,
+    /// Visible columns, order and widths for the People view.
+    #[serde(default = "default_columns")]
+    pub people_columns: Vec<PeopleColumnConfig>,
 }
 
 impl Default for AppConfig {
@@ -34,6 +39,7 @@ impl Default for AppConfig {
             font_size: 14.0,
             reverse_place_names: false,
             language: "en".to_string(),
+            people_columns: default_columns(),
         }
     }
 }
@@ -89,6 +95,7 @@ impl AppConfig {
         if !crate::i18n::is_supported(&self.language) {
             self.language = "en".to_string();
         }
+        self.people_columns = sanitize_columns(&self.people_columns);
     }
 }
 
@@ -126,6 +133,7 @@ mod tests {
             font_size: 18.5,
             reverse_place_names: true,
             language: "de".to_string(),
+            ..AppConfig::default()
         };
         let text = toml::to_string_pretty(&config).expect("serialize");
         let back: AppConfig = toml::from_str(&text).expect("parse");
@@ -192,6 +200,7 @@ mod tests {
             font_size: 16.0,
             reverse_place_names: false,
             language: "en".to_string(),
+            ..AppConfig::default()
         };
 
         config.save_to(&path).expect("save");

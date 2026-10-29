@@ -8,6 +8,7 @@ pub mod family_view;
 pub mod graph;
 pub mod name;
 pub mod pedigree;
+pub mod people_columns;
 pub mod quality;
 pub mod source_template;
 
