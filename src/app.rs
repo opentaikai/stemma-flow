@@ -18,6 +18,7 @@ use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
 use crate::db::groups::{self as group_store, GroupDraft, GroupMember, GroupRecord, GroupSummary};
+use crate::db::maintenance::{self as maintenance_store, MaintenanceKind, MaintenanceReport};
 use crate::db::media::{
     self as media_store, MediaDraft, MediaLinkSummary, MediaOwner, MediaRecord, MediaSummary,
 };
@@ -65,7 +66,18 @@ pub enum JobEvent {
         report: RestoreReport,
     },
     Cancelled,
+    Maintenance {
+        report: MaintenanceReport,
+        backup_path: Option<PathBuf>,
+    },
     Failed(String),
+}
+
+/// Completed maintenance plus an optional backup created first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaintenanceResult {
+    pub report: MaintenanceReport,
+    pub backup_path: Option<PathBuf>,
 }
 
 /// Presentation state derived from the most recent job event.
@@ -86,6 +98,10 @@ enum Job {
     Export(ExportOptions),
     Backup,
     Restore,
+    Maintenance {
+        kind: MaintenanceKind,
+        backup_first: bool,
+    },
 }
 
 /// Application state shared between the UI shell and job workers.
@@ -100,6 +116,9 @@ pub struct StemmaApp {
     new_import_report: Option<ImportReport>,
     /// Restored tree waiting for the UI to add it to the recent list.
     restored_path: Option<PathBuf>,
+    maintenance: bool,
+    maintenance_result: Option<MaintenanceResult>,
+    maintenance_error: Option<String>,
 }
 
 impl StemmaApp {
@@ -115,6 +134,9 @@ impl StemmaApp {
             import_generation: 0,
             new_import_report: None,
             restored_path: None,
+            maintenance: false,
+            maintenance_result: None,
+            maintenance_error: None,
         }
     }
 
@@ -177,6 +199,33 @@ impl StemmaApp {
     /// into it on a worker thread; the resulting tree becomes active.
     pub fn begin_import_new(&mut self) {
         self.begin(Job::ImportNew, None);
+    }
+
+    /// Runs a database maintenance operation on a worker thread.
+    pub fn begin_maintenance(&mut self, kind: MaintenanceKind, backup_first: bool) {
+        if self.active_db.is_none() || self.busy {
+            return;
+        }
+        self.maintenance = true;
+        self.begin(
+            Job::Maintenance { kind, backup_first },
+            self.active_db.clone(),
+        );
+    }
+
+    /// Whether a maintenance operation is blocking normal editing.
+    pub fn is_maintenance(&self) -> bool {
+        self.maintenance
+    }
+
+    /// Returns the last maintenance result exactly once.
+    pub fn take_maintenance_result(&mut self) -> Option<MaintenanceResult> {
+        self.maintenance_result.take()
+    }
+
+    /// Returns a maintenance failure exactly once for the tools dialog.
+    pub fn take_maintenance_error(&mut self) -> Option<String> {
+        self.maintenance_error.take()
     }
 
     /// Writes a timestamped backup archive of the active tree and its media.
@@ -1026,6 +1075,7 @@ impl StemmaApp {
             Job::Export(_) => "Choosing export destination\u{2026}",
             Job::Backup => "Choosing backup destination\u{2026}",
             Job::Restore => "Choosing backup to restore\u{2026}",
+            Job::Maintenance { .. } => "Running database maintenance\u{2026}",
         });
         let (tx, rx) = channel();
         self.rx = Some(rx);
@@ -1051,7 +1101,9 @@ impl StemmaApp {
 
     /// Applies a single job event to the presentation state.
     pub fn apply_event(&mut self, event: JobEvent) {
+        let was_maintenance = self.maintenance;
         self.busy = false;
+        self.maintenance = false;
         self.status = match event {
             JobEvent::Imported(report) => {
                 self.import_generation += 1;
@@ -1092,8 +1144,45 @@ impl StemmaApp {
                 };
                 UiStatus::Success(format!("Restored tree to {}{suffix}", path.display()))
             }
+            JobEvent::Maintenance {
+                report,
+                backup_path,
+            } => {
+                let status = if report.kind == MaintenanceKind::Integrity && !report.healthy {
+                    UiStatus::Error(format!(
+                        "Integrity check found {} issues and {} foreign key violations",
+                        report.issues.len(),
+                        report.foreign_key_violations
+                    ))
+                } else {
+                    match report.kind {
+                        MaintenanceKind::Integrity => {
+                            UiStatus::Success("Database integrity check passed".to_string())
+                        }
+                        MaintenanceKind::RebuildIndexes => UiStatus::Success(format!(
+                            "Rebuilt {} database indexes",
+                            report.indexes_rebuilt
+                        )),
+                        MaintenanceKind::Compress => UiStatus::Success(format!(
+                            "Compressed database from {} to {} bytes",
+                            report.size_before, report.size_after
+                        )),
+                    }
+                };
+                self.maintenance_result = Some(MaintenanceResult {
+                    report,
+                    backup_path,
+                });
+                self.maintenance_error = None;
+                status
+            }
             JobEvent::Cancelled => UiStatus::Cancelled,
-            JobEvent::Failed(message) => UiStatus::Error(message),
+            JobEvent::Failed(message) => {
+                if was_maintenance {
+                    self.maintenance_error = Some(message.clone());
+                }
+                UiStatus::Error(message)
+            }
         };
     }
 
@@ -1208,6 +1297,34 @@ impl Job {
                         Ok(report) => JobEvent::Restored { path: dest, report },
                         Err(message) => JobEvent::Failed(message),
                     },
+                }
+            }
+            Job::Maintenance { kind, backup_first } => {
+                let Some(db_path) = db_path else {
+                    return JobEvent::Failed("No tree is open".to_string());
+                };
+                let mut backup_path = None;
+                if backup_first {
+                    let timestamp = match backup::timestamp_suffix() {
+                        Ok(timestamp) => timestamp,
+                        Err(message) => return JobEvent::Failed(message),
+                    };
+                    let default_name = backup::backup_file_name(&db_path, &timestamp);
+                    let Some(dest) = dialogs::prompt_backup_path(&default_name, db_path.parent())
+                    else {
+                        return JobEvent::Cancelled;
+                    };
+                    if let Err(message) = backup::backup_tree(&db_path, &dest) {
+                        return JobEvent::Failed(message);
+                    }
+                    backup_path = Some(dest);
+                }
+                match maintenance_store::run(&db_path, kind) {
+                    Ok(report) => JobEvent::Maintenance {
+                        report,
+                        backup_path,
+                    },
+                    Err(message) => JobEvent::Failed(message),
                 }
             }
         }
@@ -1464,6 +1581,70 @@ mod tests {
         app.busy = true;
         app.apply_event(JobEvent::Failed("disk full".to_string()));
         assert_eq!(app.status(), &UiStatus::Error("disk full".to_string()));
+    }
+
+    #[test]
+    fn maintenance_events_store_results_and_clear_the_block() {
+        let mut app = StemmaApp::new();
+        app.maintenance = true;
+        app.busy = true;
+        app.apply_event(JobEvent::Maintenance {
+            report: MaintenanceReport {
+                kind: MaintenanceKind::Compress,
+                healthy: true,
+                issues: Vec::new(),
+                foreign_key_violations: 0,
+                indexes_rebuilt: 0,
+                page_count: 10,
+                freelist_count: 0,
+                size_before: 4096,
+                size_after: 2048,
+                duration_ms: 3,
+            },
+            backup_path: Some(PathBuf::from("/tmp/tree-backup.zip")),
+        });
+        assert!(!app.is_busy());
+        assert!(!app.is_maintenance());
+        assert!(
+            matches!(app.status(), UiStatus::Success(message) if message.contains("Compressed"))
+        );
+        let result = app.take_maintenance_result().expect("result");
+        assert_eq!(result.report.kind, MaintenanceKind::Compress);
+        assert_eq!(
+            result.backup_path,
+            Some(PathBuf::from("/tmp/tree-backup.zip"))
+        );
+        assert_eq!(app.take_maintenance_result(), None);
+
+        app.maintenance = true;
+        app.busy = true;
+        app.apply_event(JobEvent::Maintenance {
+            report: MaintenanceReport {
+                kind: MaintenanceKind::Integrity,
+                healthy: false,
+                issues: vec!["bad page".to_string()],
+                foreign_key_violations: 1,
+                indexes_rebuilt: 0,
+                page_count: 10,
+                freelist_count: 0,
+                size_before: 4096,
+                size_after: 4096,
+                duration_ms: 2,
+            },
+            backup_path: None,
+        });
+        assert!(matches!(app.status(), UiStatus::Error(message) if message.contains("Integrity")));
+
+        app.maintenance = true;
+        app.busy = true;
+        app.apply_event(JobEvent::Failed("database is locked".to_string()));
+        assert_eq!(
+            app.take_maintenance_error().as_deref(),
+            Some("database is locked")
+        );
+
+        app.begin_maintenance(MaintenanceKind::Integrity, false);
+        assert!(!app.is_maintenance(), "maintenance needs an open tree");
     }
 
     #[test]

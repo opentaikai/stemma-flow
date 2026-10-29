@@ -12,6 +12,7 @@ use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
 use crate::gui::associations_view::{self as association_view_ui, AssociationViewEvent};
 use crate::gui::citations::CitationDraft;
 use crate::gui::couples::{self as couples_ui, CouplesEvent};
+use crate::gui::database_tools::{self as database_tools_ui, DatabaseToolsEvent};
 use crate::gui::dialogs;
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
@@ -1546,6 +1547,46 @@ impl TreeWindow {
         };
         self.sources.preview.clear();
         self.sources.error = None;
+    }
+
+    pub(super) fn open_database_tools(&mut self) {
+        if self.app.active_db().is_some() {
+            self.db_tools.open_with();
+        }
+    }
+
+    pub(super) fn show_database_tools(&mut self, ctx: &egui::Context) {
+        if !self.db_tools.open {
+            return;
+        }
+        if let Some(result) = self.app.take_maintenance_result() {
+            self.db_tools.result = Some(result);
+            self.db_tools.error = None;
+        }
+        if let Some(error) = self.app.take_maintenance_error() {
+            self.db_tools.result = None;
+            self.db_tools.error = Some(error);
+        }
+        let size = self
+            .app
+            .active_db()
+            .map(crate::db::maintenance::database_size)
+            .unwrap_or(0);
+        if let Some(event) = database_tools_ui::show(
+            ctx,
+            &mut self.db_tools,
+            self.app.active_db(),
+            size,
+            self.app.is_busy(),
+        ) {
+            match event {
+                DatabaseToolsEvent::Run { kind, backup_first } => {
+                    self.db_tools.result = None;
+                    self.db_tools.error = None;
+                    self.app.begin_maintenance(kind, backup_first);
+                }
+            }
+        }
     }
 
     pub(super) fn open_merge_dialog(&mut self, keep: Option<String>) {
