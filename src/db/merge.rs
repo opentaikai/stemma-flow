@@ -1599,6 +1599,141 @@ mod tests {
     }
 
     #[test]
+    fn event_and_family_links_are_repointed() {
+        let mut conn = connection();
+        person(&conn, "keep", "Ada", "King");
+        person(&conn, "merge", "Augusta", "King");
+        person(&conn, "spouse", "William", "King");
+        person(&conn, "friend", "Mary", "Shelley");
+        person(&conn, "child", "Byron", "King");
+        family(&conn, "f_keep", Some("keep"), Some("spouse"));
+        family(&conn, "f_merge", Some("merge"), Some("spouse"));
+        child(&conn, "f_merge", "child");
+        conn.execute(
+            "INSERT INTO notes (id, body, family_id) VALUES ('fn1', 'Family note', 'f_merge')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO media (id, file_path) VALUES ('m1', '/tmp/family.jpg')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO media_links (media_id, family_id) VALUES ('m1', 'f_merge')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, title) VALUES ('t1', 'Research')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO task_links (task_id, family_id) VALUES ('t1', 'f_merge')",
+            [],
+        )
+        .unwrap();
+        event(
+            &conn,
+            "fe1",
+            "MARRIAGE",
+            None,
+            Some("f_merge"),
+            Some("1835"),
+            None,
+        );
+        event(&conn, "e1", "OCCUPATION", Some("friend"), None, None, None);
+        event(&conn, "e2", "CENSUS", Some("merge"), None, None, None);
+        conn.execute(
+            "INSERT INTO event_participants (event_id, person_id, role_key)
+             VALUES ('e1', 'merge', 'witness')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO event_participants (event_id, person_id, role_key)
+             VALUES ('e2', 'merge', 'witness')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO event_associations (id, event_id, associate_id, relationship)
+             VALUES ('ea1', 'e1', 'merge', 'Godparent')",
+            [],
+        )
+        .unwrap();
+
+        merge_people(&mut conn, &draft("keep", "merge")).expect("merge succeeds");
+
+        assert_eq!(
+            count_for(
+                &conn,
+                "SELECT COUNT(*) FROM notes WHERE family_id = ?1",
+                "f_keep"
+            ),
+            1
+        );
+        assert_eq!(
+            count_for(
+                &conn,
+                "SELECT COUNT(*) FROM media_links WHERE family_id = ?1",
+                "f_keep"
+            ),
+            1
+        );
+        assert_eq!(
+            count_for(
+                &conn,
+                "SELECT COUNT(*) FROM task_links WHERE family_id = ?1",
+                "f_keep"
+            ),
+            1
+        );
+        assert_eq!(
+            count_for(
+                &conn,
+                "SELECT COUNT(*) FROM events WHERE family_id = ?1",
+                "f_keep"
+            ),
+            1
+        );
+        assert_eq!(
+            count_for(
+                &conn,
+                "SELECT COUNT(*) FROM family_children WHERE family_id = ?1",
+                "f_keep"
+            ),
+            1
+        );
+        assert_eq!(
+            count_for(
+                &conn,
+                "SELECT COUNT(*) FROM event_participants WHERE event_id = 'e1' AND person_id = ?1",
+                "keep"
+            ),
+            1
+        );
+        assert_eq!(
+            count_for(
+                &conn,
+                "SELECT COUNT(*) FROM event_participants WHERE event_id = 'e2' AND person_id = ?1",
+                "keep"
+            ),
+            0,
+            "a moved principal is not left as their own participant"
+        );
+        assert_eq!(
+            count_for(
+                &conn,
+                "SELECT COUNT(*) FROM event_associations WHERE event_id = 'e1' AND associate_id = ?1",
+                "keep"
+            ),
+            1
+        );
+    }
+
+    #[test]
     fn invalid_details_roll_back_the_merge() {
         let mut conn = connection();
         person(&conn, "keep", "Ada", "King");
