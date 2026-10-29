@@ -1,6 +1,6 @@
 //! Packing helpers for family chains and disconnected component boxes.
 
-use super::{H_SPACING, NODE_W, V_GAP};
+use super::{COMPONENT_GAP, H_SPACING, NODE_W};
 
 /// Centre of the gap that follows chain slot `slot` in `xs`.
 pub(super) fn gap_centre(xs: &[f32], slot: usize) -> Option<f32> {
@@ -17,7 +17,7 @@ pub(super) fn slot_centre(xs: &[f32], slot: usize) -> Option<f32> {
 /// Shelf-packs component boxes into whole rows, choosing the row count
 /// whose bounding box scores closest to a 16:9 target. Returns one
 /// offset per component; rows sit `H_SPACING` apart horizontally and
-/// [`V_GAP`] apart vertically.
+/// [`COMPONENT_GAP`] apart vertically.
 pub(super) fn pack_components(sizes: &[(f32, f32)]) -> Vec<(f32, f32)> {
     if sizes.is_empty() {
         return Vec::new();
@@ -45,9 +45,9 @@ pub(super) fn pack_components(sizes: &[(f32, f32)]) -> Vec<(f32, f32)> {
                 row_height = row_height.max(height);
             }
             canvas_w = canvas_w.max(x - H_SPACING);
-            y += row_height + V_GAP;
+            y += row_height + COMPONENT_GAP;
         }
-        let canvas_h = y - V_GAP;
+        let canvas_h = y - COMPONENT_GAP;
         let score = (canvas_w - target_w).powi(2) + (canvas_h - target_h).powi(2);
         if best
             .as_ref()

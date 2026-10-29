@@ -3,7 +3,7 @@
 use egui::{Color32, Painter, Pos2, Rect, Stroke};
 
 use super::canvas::ViewportState;
-use super::layout::{NODE_H, NodeGeom, TreeScene, V_GAP};
+use super::layout::{NodeGeom, RANK_PITCH, TreeScene};
 
 const LINE_COLOR: Color32 = Color32::from_gray(140);
 /// Small clearance used when a long edge has to detour around a node row.
@@ -38,7 +38,7 @@ pub fn build_segments(scene: &TreeScene) -> Vec<Segment> {
             Pos2::new(union.union.x, branch_y),
         );
 
-        let rank_pitch = NODE_H + V_GAP;
+        let rank_pitch = RANK_PITCH;
         let mut direct: Vec<(Pos2, Option<f32>)> = Vec::new();
         for (child_id, anchor) in &union.children {
             if anchor.y - union.parent_rank_y <= rank_pitch + 1.0 {
@@ -348,7 +348,7 @@ pub fn paint_connectors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gui::layout::{TreeScene, UnionGeom};
+    use crate::gui::layout::{TreeScene, UnionGeom, V_GAP};
     use egui::{Context, RawInput, vec2};
 
     fn union(
@@ -362,7 +362,7 @@ mod tests {
             spouse_line,
             union,
             trunk_y,
-            parent_rank_y: trunk_y - 60.0,
+            parent_rank_y: trunk_y - V_GAP * 0.5,
             children: children
                 .into_iter()
                 .enumerate()

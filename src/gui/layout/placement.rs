@@ -6,7 +6,7 @@ use egui::{Pos2, Rect, vec2};
 
 use super::builder::LayoutBuilder;
 use super::packing::{gap_centre, pack_components, slot_centre};
-use super::{H_SPACING, NODE_H, NODE_W, V_GAP};
+use super::{H_SPACING, NODE_H, NODE_W, RANK_PITCH};
 
 /// How many downward/upward ordering sweeps to run per component.
 const ORDERING_SWEEPS: usize = 4;
@@ -233,7 +233,7 @@ impl<'a> LayoutBuilder<'a> {
             .map(|(compound, x)| x + widths.get(compound).copied().unwrap_or(0.0))
             .fold(f32::NEG_INFINITY, f32::max);
         let width = max_x.max(0.0);
-        let height = max_rank as f32 * (NODE_H + V_GAP) + NODE_H;
+        let height = max_rank as f32 * (RANK_PITCH) + NODE_H;
         (positions, (width, height))
     }
 

@@ -28,8 +28,13 @@ pub const NODE_H: f32 = 56.0;
 const H_SPACING: f32 = 24.0;
 /// Union gap between spouses seated next to each other in a chain.
 const SPOUSE_GAP: f32 = 12.0;
-/// Vertical gap between two ranks (spec floor: 120).
-pub(crate) const V_GAP: f32 = 120.0;
+/// Vertical gap between two ranks. Generous enough for the union drop,
+/// family trunk and child drop to remain visually distinct.
+pub(crate) const V_GAP: f32 = 180.0;
+/// Vertical distance between the tops of two adjacent generation rows.
+pub(crate) const RANK_PITCH: f32 = NODE_H + V_GAP;
+/// Vertical gap between disconnected component boxes on the canvas grid.
+pub(crate) const COMPONENT_GAP: f32 = 120.0;
 /// Character budget for node name labels.
 const NAME_MAX_CHARS: usize = 16;
 
@@ -259,6 +264,30 @@ mod tests {
                 ("f2".to_string(), "p7".to_string()),
                 ("f3".to_string(), "p7".to_string()),
             ],
+        }
+    }
+
+    /// A straight chain of couples spanning `generations` rows.
+    fn deep_lineage_tree(generations: usize) -> FamilyTree {
+        let mut people = Vec::new();
+        let mut families = Vec::new();
+        let mut child_links = Vec::new();
+        for generation in 0..generations {
+            people.push(person(&format!("a{generation}"), "Given", "Tree"));
+            people.push(person(&format!("b{generation}"), "Spouse", "Tree"));
+            if generation + 1 < generations {
+                families.push(family(
+                    &format!("f{generation}"),
+                    Some(&format!("a{generation}")),
+                    Some(&format!("b{generation}")),
+                ));
+                child_links.push((format!("f{generation}"), format!("a{}", generation + 1)));
+            }
+        }
+        FamilyTree {
+            people,
+            families,
+            child_links,
         }
     }
 
@@ -513,12 +542,12 @@ mod tests {
         let grandparent = node(&scene, "i1");
         assert_eq!(
             child.bounds.min.y - grandparent.bounds.min.y,
-            NODE_H + V_GAP,
+            RANK_PITCH,
             "the couple sits exactly one rank below the grandparents"
         );
         assert_eq!(
             node(&scene, "i5").bounds.min.y - child.bounds.min.y,
-            NODE_H + V_GAP,
+            RANK_PITCH,
             "the next generation follows one rank below"
         );
     }
@@ -567,12 +596,12 @@ mod tests {
         let child = node(&scene, "i3").bounds;
         assert_eq!(
             child.min.y - parent.min.y,
-            NODE_H + V_GAP,
-            "row pitch is NODE_H + V_GAP"
+            RANK_PITCH,
+            "row pitch is RANK_PITCH"
         );
         assert!(
-            child.min.y - parent.max.y >= 120.0 - 1e-6,
-            "generations are at least 120 apart"
+            child.min.y - parent.max.y >= V_GAP - 1e-6,
+            "generations keep the configured vertical gap"
         );
         assert_eq!(
             mother.min.x - parent.max.x,
@@ -650,6 +679,27 @@ mod tests {
         }
     }
 
+    fn assert_bounds_contain_content(label: &str, scene: &TreeScene) {
+        for node in &scene.nodes {
+            assert!(
+                scene.bounds.min.x <= node.bounds.min.x
+                    && scene.bounds.min.y <= node.bounds.min.y
+                    && scene.bounds.max.x >= node.bounds.max.x
+                    && scene.bounds.max.y >= node.bounds.max.y,
+                "{label}: node {} lies outside the scene bounds",
+                node.person_id
+            );
+        }
+        for segment in crate::gui::connectors::build_segments(scene) {
+            for point in segment {
+                assert!(
+                    scene.bounds.contains(point),
+                    "{label}: connector point {point:?} lies outside the scene bounds"
+                );
+            }
+        }
+    }
+
     fn assert_no_overlap(label: &str, scene: &TreeScene) {
         for (index, node) in scene.nodes.iter().enumerate() {
             for other in scene.nodes.iter().skip(index + 1) {
@@ -671,7 +721,7 @@ mod tests {
         let trunk = union(&scene, "f1").trunk_y;
         let parent = node(&scene, "i1").bounds;
         let child = node(&scene, "i3").bounds;
-        assert_eq!(trunk, 60.0, "rank 0 trunk is half a 120 gap below 0");
+        assert_eq!(trunk, V_GAP * 0.5, "rank 0 trunk is half a gap below 0");
         assert!(
             trunk > parent.max.y && trunk < child.min.y,
             "the trunk row falls in the open gap between the ranks"
@@ -681,7 +731,7 @@ mod tests {
         let second_rank_trunk = union(&lineage, "f2").trunk_y;
         assert_eq!(
             second_rank_trunk,
-            (NODE_H + V_GAP) + V_GAP * 0.5,
+            (RANK_PITCH) + V_GAP * 0.5,
             "rank 1 trunk follows the same formula"
         );
     }
@@ -720,7 +770,11 @@ mod tests {
         trunks.dedup();
         assert_eq!(
             trunks,
-            vec![60.0, 236.0, 412.0],
+            vec![
+                V_GAP * 0.5,
+                NODE_H + COMPONENT_GAP + V_GAP * 0.5,
+                (NODE_H + COMPONENT_GAP) * 2.0 + V_GAP * 0.5,
+            ],
             "trunk rows follow the three grid rows"
         );
     }
@@ -794,7 +848,7 @@ mod tests {
             scene.unions.iter().any(|union| union
                 .children
                 .iter()
-                .any(|(_, anchor)| { anchor.y - union.parent_rank_y > NODE_H + V_GAP + 1.0 })),
+                .any(|(_, anchor)| { anchor.y - union.parent_rank_y > RANK_PITCH + 1.0 })),
             "the fixture exercises a multi-rank parent edge"
         );
         assert!(
@@ -825,6 +879,41 @@ mod tests {
                 .count();
             assert_eq!(anchors, 2, "{label}: both parent families stay connected");
             assert_eq!(scene, build_scene(&tree, false), "{label}: deterministic");
+        }
+    }
+
+    #[test]
+    fn deep_generations_keep_rank_pitch_and_canvas_bounds() {
+        let tree = deep_lineage_tree(6);
+        let scene = build_scene(&tree, false);
+        assert_no_overlap("deep lineage", &scene);
+        assert_connectors_avoid_nodes(&scene);
+        assert_bounds_contain_content("deep lineage", &scene);
+        let mut rows: Vec<f32> = scene.nodes.iter().map(|node| node.bounds.min.y).collect();
+        rows.sort_by(f32::total_cmp);
+        rows.dedup();
+        assert_eq!(rows.len(), 6, "six generations are present");
+        for pair in rows.windows(2) {
+            assert!(
+                (pair[1] - pair[0] - RANK_PITCH).abs() < 1e-3,
+                "generation pitch should be {RANK_PITCH}, got {}",
+                pair[1] - pair[0]
+            );
+        }
+        assert!(
+            scene.bounds.height() >= 5.0 * RANK_PITCH + NODE_H,
+            "canvas height covers the deepest node row"
+        );
+
+        for (label, filtered) in [
+            ("pedigree", pedigree_tree(&tree, "a5", 6)),
+            ("family", family_tree(&tree, "a2", None)),
+            ("descendants", descendant_tree(&tree, "a0", 6)),
+        ] {
+            let filtered_scene = build_scene(&filtered, false);
+            assert_no_overlap(label, &filtered_scene);
+            assert_connectors_avoid_nodes(&filtered_scene);
+            assert_bounds_contain_content(label, &filtered_scene);
         }
     }
 
@@ -872,6 +961,7 @@ mod tests {
         assert!(!scene.nodes.is_empty(), "the real export must layout");
         assert_no_overlap("real", &scene);
         assert_connectors_avoid_nodes(&scene);
+        assert_bounds_contain_content("real", &scene);
         assert!(
             max_trunk_span(&scene) < 11_657.0,
             "longest family trunk should be at least half the old 23,314-unit baseline"
