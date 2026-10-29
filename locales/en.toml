@@ -45,6 +45,7 @@ surname_first = "Surname-first names"
 active_tree = "Active Tree: {name}"
 
 [tabs]
+associations = "Associations"
 couples = "Couples"
 people = "People"
 graph = "Graph View"
@@ -273,3 +274,11 @@ married = "Married"
 place = "Place"
 children = "Children"
 open_family = "Open family"
+
+[associations]
+filter_hint = "Filter by person or relationship…"
+showing = "Showing {shown} of {total} associations"
+empty = "No associations yet."
+from = "From"
+associate = "Associate"
+relationship = "Relationship"
