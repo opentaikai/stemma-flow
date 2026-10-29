@@ -38,6 +38,29 @@ pub enum Kinship {
     Unrelated,
 }
 
+/// Direction of one step in the shortest relationship path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathKind {
+    Parent,
+    Child,
+    Spouse,
+}
+
+/// One person-to-person hop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelationshipStep {
+    pub to_person_id: String,
+    pub kind: PathKind,
+}
+
+/// Full calculator result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelationshipResult {
+    pub kinship: Kinship,
+    pub path: Vec<RelationshipStep>,
+    pub common_ancestor: Option<String>,
+}
+
 impl Kinship {
     pub fn label(&self) -> String {
         match self {
@@ -125,6 +148,42 @@ impl Kinship {
 
 /// Computes a person's relationship to `root_id`.
 pub fn relationship_to_root(tree: &FamilyTree, root_id: &str, person_id: &str) -> Option<Kinship> {
+    relationship_between(tree, root_id, person_id).map(|result| result.kinship)
+}
+
+/// Calculates the relationship from `from_id` to `to_id`, including the
+/// shortest connecting path and nearest shared ancestor.
+pub fn relationship_between(
+    tree: &FamilyTree,
+    from_id: &str,
+    to_id: &str,
+) -> Option<RelationshipResult> {
+    let kinship = kinship_between(tree, from_id, to_id)?;
+    let parents = parent_map(tree);
+    let path = shortest_path(tree, from_id, to_id);
+    let common_ancestor = if from_id == to_id {
+        None
+    } else {
+        let from_ancestors = ancestor_depths(&parents, from_id);
+        let to_ancestors = ancestor_depths(&parents, to_id);
+        from_ancestors
+            .iter()
+            .filter_map(|(ancestor, from_depth)| {
+                let to_depth = to_ancestors.get(ancestor)?;
+                Some((from_depth + to_depth, *from_depth, ancestor.clone()))
+            })
+            .filter(|(_, _, ancestor)| ancestor != from_id && ancestor != to_id)
+            .min()
+            .map(|(_, _, ancestor)| ancestor)
+    };
+    Some(RelationshipResult {
+        kinship,
+        path,
+        common_ancestor,
+    })
+}
+
+fn kinship_between(tree: &FamilyTree, root_id: &str, person_id: &str) -> Option<Kinship> {
     tree.people.iter().find(|person| person.id == root_id)?;
     let person = tree.people.iter().find(|person| person.id == person_id)?;
     if root_id == person_id {
@@ -203,6 +262,72 @@ fn relationship_to_blood(
     }
     let _ = tree;
     None
+}
+
+fn shortest_path(tree: &FamilyTree, from_id: &str, to_id: &str) -> Vec<RelationshipStep> {
+    if from_id == to_id {
+        return Vec::new();
+    }
+    let mut adjacency: HashMap<&str, Vec<(&str, PathKind)>> = HashMap::new();
+    for family in &tree.families {
+        if let (Some(husband), Some(wife)) = (&family.husband_id, &family.wife_id) {
+            adjacency
+                .entry(husband.as_str())
+                .or_default()
+                .push((wife.as_str(), PathKind::Spouse));
+            adjacency
+                .entry(wife.as_str())
+                .or_default()
+                .push((husband.as_str(), PathKind::Spouse));
+        }
+        for (family_id, child_id) in &tree.child_links {
+            if family_id != &family.id {
+                continue;
+            }
+            for parent in [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                adjacency
+                    .entry(parent)
+                    .or_default()
+                    .push((child_id.as_str(), PathKind::Child));
+                adjacency
+                    .entry(child_id.as_str())
+                    .or_default()
+                    .push((parent, PathKind::Parent));
+            }
+        }
+    }
+    let mut previous: HashMap<&str, (&str, PathKind)> = HashMap::new();
+    let mut seen = HashSet::from([from_id]);
+    let mut queue = VecDeque::from([from_id]);
+    while let Some(current) = queue.pop_front() {
+        for (next, kind) in adjacency.get(current).into_iter().flatten() {
+            if !seen.insert(*next) {
+                continue;
+            }
+            previous.insert(next, (current, *kind));
+            if *next == to_id {
+                let mut path = Vec::new();
+                let mut step = to_id;
+                while step != from_id {
+                    let Some((back, kind)) = previous.get(step).copied() else {
+                        return Vec::new();
+                    };
+                    path.push(RelationshipStep {
+                        to_person_id: step.to_string(),
+                        kind,
+                    });
+                    step = back;
+                }
+                path.reverse();
+                return path;
+            }
+            queue.push_back(next);
+        }
+    }
+    Vec::new()
 }
 
 fn parent_map(tree: &FamilyTree) -> HashMap<&str, HashSet<&str>> {
@@ -394,6 +519,42 @@ mod tests {
             .label(),
             "Cousin (degree 2, removed 1)"
         );
+    }
+
+    #[test]
+    fn calculator_reports_paths_and_common_ancestors() {
+        let tree = tree();
+        let result = relationship_between(&tree, "root", "cousin").expect("result");
+        assert_eq!(
+            result.kinship,
+            Kinship::Cousin {
+                degree: 1,
+                removed: 0
+            }
+        );
+        assert_eq!(result.common_ancestor.as_deref(), Some("grandfather"));
+        assert!(result.path.iter().any(|step| step.kind == PathKind::Parent));
+
+        let parent = relationship_between(&tree, "root", "father").expect("result");
+        assert_eq!(
+            parent.kinship,
+            Kinship::Ancestor {
+                sex: Sex::Unknown,
+                generations: 1
+            }
+        );
+        assert_eq!(parent.path.len(), 1);
+        assert_eq!(parent.path[0].kind, PathKind::Parent);
+
+        let swapped = relationship_between(&tree, "father", "root").expect("result");
+        assert_eq!(
+            swapped.kinship,
+            Kinship::Descendant {
+                sex: Sex::Unknown,
+                generations: 1
+            }
+        );
+        assert_eq!(swapped.path[0].kind, PathKind::Child);
     }
 
     #[test]
