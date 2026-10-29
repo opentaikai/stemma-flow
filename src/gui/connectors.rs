@@ -10,6 +10,8 @@ const LINE_COLOR: Color32 = Color32::from_gray(140);
 const ROUTE_GAP: f32 = 8.0;
 const BASE_WIDTH: f32 = 1.5;
 const MIN_WIDTH: f32 = 1.0;
+/// Gap left in a horizontal trunk where an unrelated vertical crosses it.
+const CROSSING_GAP: f32 = 5.0;
 
 /// One straight connector segment in canvas coordinates: `[start, end]`.
 pub type Segment = [Pos2; 2];
@@ -123,7 +125,59 @@ pub fn build_segments(scene: &TreeScene) -> Vec<Segment> {
         let route = choose_long_route(scene, &segments, child_id, union, branch_y, anchor);
         segments.extend(route);
     }
-    segments
+    separate_unrelated_crossings(segments)
+}
+
+/// Breaks horizontal trunks at interior crossings with vertical connectors.
+/// Endpoint meetings are real T-junctions and stay connected.
+fn separate_unrelated_crossings(segments: Vec<Segment>) -> Vec<Segment> {
+    let verticals: Vec<Segment> = segments
+        .iter()
+        .copied()
+        .filter(|[start, end]| (start.x - end.x).abs() < 0.01)
+        .collect();
+    let mut result = Vec::with_capacity(segments.len());
+    for horizontal in segments {
+        let [start, end] = horizontal;
+        if (start.y - end.y).abs() >= 0.01 {
+            result.push(horizontal);
+            continue;
+        }
+        let lo = start.x.min(end.x);
+        let hi = start.x.max(end.x);
+        let y = start.y;
+        let mut cuts: Vec<f32> = verticals
+            .iter()
+            .filter_map(|[v_start, v_end]| {
+                let x = v_start.x;
+                let v_lo = v_start.y.min(v_end.y);
+                let v_hi = v_start.y.max(v_end.y);
+                (x > lo + CROSSING_GAP
+                    && x < hi - CROSSING_GAP
+                    && y > v_lo + CROSSING_GAP
+                    && y < v_hi - CROSSING_GAP)
+                    .then_some(x)
+            })
+            .collect();
+        cuts.sort_by(f32::total_cmp);
+        cuts.dedup_by(|left, right| (*left - *right).abs() < 0.01);
+        if cuts.is_empty() {
+            result.push(horizontal);
+            continue;
+        }
+        let mut cursor = lo;
+        for cut in cuts {
+            let left = cut - CROSSING_GAP * 0.5;
+            if left > cursor + 0.5 {
+                push_segment(&mut result, Pos2::new(cursor, y), Pos2::new(left, y));
+            }
+            cursor = cut + CROSSING_GAP * 0.5;
+        }
+        if hi > cursor + 0.5 {
+            push_segment(&mut result, Pos2::new(cursor, y), Pos2::new(hi, y));
+        }
+    }
+    result
 }
 
 fn choose_long_route(
@@ -397,6 +451,7 @@ mod tests {
             spouse_line,
             union,
             trunk_y,
+            trunk_lane: 0,
             parent_rank_y: trunk_y - V_GAP * 0.5,
             children: children
                 .into_iter()
@@ -628,5 +683,38 @@ mod tests {
             segments.len()
         );
         assert!(!segments.is_empty());
+    }
+
+    #[test]
+    fn unrelated_crossings_break_horizontal_trunks() {
+        let segments = separate_unrelated_crossings(vec![
+            [Pos2::new(0.0, 100.0), Pos2::new(100.0, 100.0)],
+            [Pos2::new(50.0, 0.0), Pos2::new(50.0, 200.0)],
+        ]);
+        assert_eq!(
+            segments.len(),
+            3,
+            "horizontal trunk is split around the crossing"
+        );
+        assert!(segments.contains(&[Pos2::new(50.0, 0.0), Pos2::new(50.0, 200.0)]));
+        assert!(
+            segments
+                .iter()
+                .any(|[start, _]| (start.x - 0.0).abs() < 0.01)
+        );
+        assert!(
+            segments
+                .iter()
+                .any(|[start, _]| (start.x - 52.5).abs() < 0.01)
+        );
+    }
+
+    #[test]
+    fn true_junctions_are_not_broken() {
+        let segments = separate_unrelated_crossings(vec![
+            [Pos2::new(0.0, 100.0), Pos2::new(100.0, 100.0)],
+            [Pos2::new(50.0, 100.0), Pos2::new(50.0, 200.0)],
+        ]);
+        assert_eq!(segments.len(), 2, "endpoint junction stays connected");
     }
 }
