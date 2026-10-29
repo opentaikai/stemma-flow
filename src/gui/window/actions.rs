@@ -103,6 +103,7 @@ impl TreeWindow {
             &self.rows,
             self.app.selected_person_id(),
             &self.config.people_columns,
+            self.tree_settings.root_person_id.as_deref(),
         );
         for event in events {
             self.apply_watch_event(event);
@@ -124,6 +125,8 @@ impl TreeWindow {
                     self.app.set_status(UiStatus::Error(error));
                 }
             }
+            WatchEvent::SetRoot(person_id) => self.set_root_person(Some(&person_id)),
+            WatchEvent::ClearRoot => self.set_root_person(None),
         }
     }
 
@@ -936,6 +939,8 @@ impl TreeWindow {
             },
             InspectorAction::Close => editor.prompt = Some(EditorPrompt::Close),
             InspectorAction::OpenEditor => {}
+            InspectorAction::SetRoot => self.set_root_person(Some(&person_id)),
+            InspectorAction::ClearRoot => self.set_root_person(None),
             InspectorAction::SwitchEditor(target) => {
                 if target != person_id {
                     if editor.is_dirty() {
@@ -1099,6 +1104,8 @@ impl TreeWindow {
         let associations = editor.associations.clone();
         let groups = editor.groups.clone();
         let dates = self.dates.get(&person_id).cloned();
+        let root_relationship = self.root_relationship(&person_id);
+        let is_root = self.tree_settings.root_person_id.as_deref() == Some(person_id.as_str());
         let surname_first = self.tree_settings.surname_first;
         let mut action = None;
         let mut open = true;
@@ -1125,6 +1132,8 @@ impl TreeWindow {
                 &facts,
                 editor.privacy.as_ref(),
                 &mut editor.names,
+                root_relationship.as_deref(),
+                is_root,
                 surname_first,
                 true,
             );
@@ -1184,6 +1193,25 @@ impl TreeWindow {
             }
         } else {
             self.person_editor = Some(editor);
+        }
+    }
+
+    fn root_relationship(&self, person_id: &str) -> Option<String> {
+        let root = self.tree_settings.root_person_id.as_deref()?;
+        if root == person_id {
+            return None;
+        }
+        crate::model::relationship::relationship_to_root(&self.tree, root, person_id)
+            .map(|relationship| relationship.label())
+    }
+
+    pub(super) fn set_root_person(&mut self, person_id: Option<&str>) {
+        match self.app.set_root_person(person_id) {
+            Ok(()) => {
+                self.tree_settings.root_person_id = person_id.map(str::to_string);
+                self.reload_data();
+            }
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
         }
     }
 
@@ -1546,6 +1574,8 @@ impl TreeWindow {
             inspector::reverse_marriage_places(&mut connections);
         }
         let associations = self.associations.clone();
+        let root_relationship = self.root_relationship(&person_id);
+        let is_root = self.tree_settings.root_person_id.as_deref() == Some(person_id.as_str());
         let facts = self
             .person_facts
             .get(&person_id)
@@ -1563,6 +1593,8 @@ impl TreeWindow {
             &facts,
             self.person_privacy.as_ref(),
             &mut self.names,
+            root_relationship.as_deref(),
+            is_root,
             self.tree_settings.surname_first,
             false,
         ) {
@@ -1580,6 +1612,8 @@ impl TreeWindow {
             InspectorAction::AddSpouse => self.open_relation(person_id, RelationKind::Spouse),
             InspectorAction::AddChild => self.open_relation(person_id, RelationKind::Child),
             InspectorAction::OpenEditor => self.open_person_editor(person_id),
+            InspectorAction::SetRoot => self.set_root_person(Some(person_id)),
+            InspectorAction::ClearRoot => self.set_root_person(None),
             InspectorAction::SwitchEditor(target) => self.open_person_editor(&target),
             InspectorAction::OpenGroups => {
                 self.tab = tabs::AppTab::Research;

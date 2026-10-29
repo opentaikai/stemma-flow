@@ -85,7 +85,13 @@ impl TreeWindow {
                 let tree = db::load_family_tree(&conn).ok()?;
                 let dates = db::people::load_vital_dates(&conn).ok()?;
                 let marriages = db::load_marriage_details(&conn).ok()?;
-                let settings = db::settings::load_tree_settings(&conn).ok()?;
+                let mut settings = db::settings::load_tree_settings(&conn).ok()?;
+                if let Some(root) = settings.root_person_id.as_deref()
+                    && !tree.people.iter().any(|person| person.id == root)
+                {
+                    let _ = db::settings::set_root_person(&conn, None);
+                    settings.root_person_id = None;
+                }
                 let extras = db::people::load_person_extras(&conn).ok()?;
                 let facts = db::facts::load_person_facts(&conn, settings.surname_first).ok()?;
                 Some((tree, dates, extras, marriages, facts, settings))
@@ -100,7 +106,13 @@ impl TreeWindow {
                 crate::db::settings::TreeSettings::default(),
             )
         });
-        self.rows = watchlist::rows(&tree, &dates, &extras, settings.surname_first);
+        self.rows = watchlist::rows(
+            &tree,
+            &dates,
+            &extras,
+            settings.root_person_id.as_deref(),
+            settings.surname_first,
+        );
         self.couple_rows =
             crate::model::couples::couples(&tree, &marriages, settings.surname_first);
         self.couples.mark_dirty();
