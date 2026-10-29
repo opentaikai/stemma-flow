@@ -99,6 +99,7 @@ impl TreeWindow {
             &mut self.watch,
             &self.rows,
             self.app.selected_person_id(),
+            &self.config.people_columns,
         );
         for event in events {
             self.apply_watch_event(event);
@@ -114,6 +115,12 @@ impl TreeWindow {
             }
             WatchEvent::AddPerson => self.add_person(),
             WatchEvent::Delete(person_id) => self.delete_person(&person_id),
+            WatchEvent::ColumnsChanged(columns) => {
+                self.config.people_columns = columns;
+                if let Err(error) = self.config.save() {
+                    self.app.set_status(UiStatus::Error(error));
+                }
+            }
         }
     }
 

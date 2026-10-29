@@ -268,7 +268,7 @@ win. Included private or living people carry `1 RESN privacy`, and
 included private events carry `2 _PRIV Y`. Family links to hidden people
 are removed, and families with no visible member are not exported.
 
-## Graph View, Watch List, Places, Media, Research, Fact Types, Sources & inspector
+## Graph View, People, Places, Media, Research, Fact Types, Sources & inspector
 
 With a tree open the `eframe` window (1200x800) shows a tab bar with eight
 views (the app always launches on Graph View):
@@ -291,19 +291,19 @@ views (the app always launches on Graph View):
   counts as generation one), includes descendant spouses and all descendant
   families, and stops at the selected depth. All specialised views use
   **Set selected as … root** to re-root without changing the pinned editor.
-- **Watch List** — an `egui_extras::TableBuilder` grid listing every
-  person with Given Name, Surname, Gender, Birth Date, Death Date and an
-  Actions cell. The filter box narrows rows by either name
-  (case-insensitive), header clicks toggle ascending/descending sort, rows
-  are virtualized for large trees. Clicking a row selects the person;
-  double-clicking a cell or pressing **Edit** selects them and opens the
-  pinned full person editor. **Delete** asks for confirmation before the cascading
-  delete removes the person, their events, citations and child links.
-  **+ Add Independent Person** inserts an unnamed draft and focuses it; a
-  first or last name is required before it can be saved.
+- **People** — a virtualized `egui_extras::TableBuilder` grid. The
+  **Columns…** dialog shows/hides, reorders and resizes columns; visibility,
+  order and widths persist globally in `config.toml`. Available columns
+  cover name pieces, nickname, gender, birth/death dates and places, age at
+  death, notes preview, event/citation/media/task/group/association counts
+  and last-updated time; Actions always stays last. Defaults preserve the
+  former Watch List layout. Filtering matches all name pieces plus notes;
+  header clicks sort any visible column. Clicking selects, double-clicking
+  or **Edit** opens the pinned editor, and **Delete** confirms before
+  cascading. **+ Add Independent Person** inserts an unnamed draft.
 - **View > Surname-first names** — a per-tree toggle that renders composed
   names as `Surname, Prefix Given Middle Suffix` (for example
-  `King, Dr. Ada Lynn Jr.`) in graph labels, the watch list's composed name,
+  `King, Dr. Ada Lynn Jr.`) in graph labels, the People view's composed name,
   the inspector, relation and witness pickers, place usage and alternate
   names. The separate Given Name and Surname columns keep their normal
   order, and GEDCOM output stays canonical. The preference lives in the
@@ -372,7 +372,7 @@ views (the app always launches on Graph View):
   inspector opens a resizable floating window pinned to that person. It
   keeps the complete profile, names, vitals, families, associations, facts,
   relationships, citations, privacy, groups, notes, media and tasks in one
-  scrolling screen. Browsing the graph or watch list changes the quick
+  scrolling screen. Browsing the graph or People view changes the quick
   inspector but never retargets the editor. Clicking a parent or spouse name
   switches the editor to that person and moves the main selection with it;
   a small **Focus** action still shows them on the graph. Children and

@@ -1308,6 +1308,42 @@ mod tests {
 
         update_person(&mut conn, &id, &cleared).expect("second update succeeds");
     }
+    #[test]
+    fn extras_group_people_list_counts_and_note_preview() {
+        let conn = connection();
+        conn.execute_batch(
+            "INSERT INTO people (id, given_name, surname, gender)
+             VALUES ('p1', 'Ada', 'King', 'F'), ('p2', 'Charles', 'Babbage', 'M');
+             INSERT INTO events (id, event_type, person_id) VALUES ('e1', 'BIRT', 'p1');
+             INSERT INTO sources (id, title) VALUES ('s1', 'Source');
+             INSERT INTO citations (id, source_id) VALUES ('c1', 's1');
+             INSERT INTO citation_links (citation_id, event_id) VALUES ('c1', 'e1');
+             INSERT INTO media (id, file_path) VALUES ('m1', 'photo.jpg');
+             INSERT INTO media_links (media_id, person_id) VALUES ('m1', 'p1');
+             INSERT INTO tasks (id, title) VALUES ('t1', 'Task');
+             INSERT INTO task_links (task_id, person_id) VALUES ('t1', 'p1');
+             INSERT INTO groups (id, name) VALUES ('g1', 'Group');
+             INSERT INTO group_members (group_id, person_id) VALUES ('g1', 'p1');
+             INSERT INTO associations (id, person_id, associate_id, relationship)
+             VALUES ('a1', 'p1', 'p2', 'Friend');
+             INSERT INTO notes (id, body, sort_order, person_id)
+             VALUES ('n1', 'First line\nSecond line', 0, 'p1');",
+        )
+        .expect("extras insert");
+        let extras = load_person_extras(&conn).expect("extras");
+        let ada = extras.get("p1").expect("ada extras");
+        assert_eq!(
+            ada.notes_preview.as_deref(),
+            Some("First line\nSecond line")
+        );
+        assert_eq!(ada.event_count, 1);
+        assert_eq!(ada.citation_count, 1);
+        assert_eq!(ada.media_count, 1);
+        assert_eq!(ada.task_count, 1);
+        assert_eq!(ada.group_count, 1);
+        assert_eq!(ada.association_count, 1);
+    }
+
     fn family_count(conn: &Connection) -> i64 {
         count(conn, "SELECT COUNT(*) FROM families")
     }
@@ -1460,4 +1496,123 @@ mod tests {
             "no blank person was inserted"
         );
     }
+}
+
+/// Aggregated values for the configurable People list.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonExtras {
+    pub notes_preview: Option<String>,
+    pub event_count: i64,
+    pub citation_count: i64,
+    pub media_count: i64,
+    pub task_count: i64,
+    pub group_count: i64,
+    pub association_count: i64,
+}
+
+/// Loads grouped People-list extras for every person.
+pub fn load_person_extras(conn: &Connection) -> Result<HashMap<String, PersonExtras>, String> {
+    let mut extras: HashMap<String, PersonExtras> = HashMap::new();
+    let mut stmt = conn
+        .prepare(
+            "SELECT person_id, body, COUNT(*) OVER (PARTITION BY person_id)
+             FROM notes WHERE person_id IS NOT NULL
+             ORDER BY person_id, sort_order, rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut seen_notes = std::collections::HashSet::new();
+    for row in rows {
+        let (person_id, body, _) = row.map_err(|error| error.to_string())?;
+        if seen_notes.insert(person_id.clone()) {
+            extras.entry(person_id).or_default().notes_preview = Some(body);
+        }
+    }
+
+    for (column, field) in [
+        (
+            "SELECT person_id, COUNT(*) FROM events WHERE person_id IS NOT NULL GROUP BY person_id",
+            "events",
+        ),
+        (
+            "SELECT l.person_id, COUNT(*) FROM media_links l WHERE l.person_id IS NOT NULL GROUP BY l.person_id",
+            "media",
+        ),
+        (
+            "SELECT l.person_id, COUNT(*) FROM task_links l WHERE l.person_id IS NOT NULL GROUP BY l.person_id",
+            "tasks",
+        ),
+        (
+            "SELECT person_id, COUNT(*) FROM group_members GROUP BY person_id",
+            "groups",
+        ),
+        (
+            "SELECT person_id, COUNT(*) FROM associations GROUP BY person_id",
+            "associations",
+        ),
+    ] {
+        let mut stmt = conn.prepare(column).map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            let (person_id, count) = row.map_err(|error| error.to_string())?;
+            let entry = extras.entry(person_id).or_default();
+            match field {
+                "events" => entry.event_count = count,
+                "media" => entry.media_count = count,
+                "tasks" => entry.task_count = count,
+                "groups" => entry.group_count = count,
+                "associations" => entry.association_count = count,
+                _ => {}
+            }
+        }
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.person_id, COUNT(DISTINCT cl.citation_id)
+             FROM events e JOIN citation_links cl ON cl.event_id = e.id
+             WHERE e.person_id IS NOT NULL GROUP BY e.person_id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (person_id, count) = row.map_err(|error| error.to_string())?;
+        extras.entry(person_id).or_default().citation_count += count;
+    }
+    let mut stmt = conn
+        .prepare(
+            "SELECT p.id, COUNT(DISTINCT cl.citation_id)
+             FROM people p
+             JOIN families f ON f.husband_id = p.id OR f.wife_id = p.id
+             JOIN events e ON e.family_id = f.id
+             JOIN citation_links cl ON cl.event_id = e.id
+             GROUP BY p.id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (person_id, count) = row.map_err(|error| error.to_string())?;
+        extras.entry(person_id).or_default().citation_count += count;
+    }
+    Ok(extras)
 }

@@ -66,6 +66,7 @@ mod tests {
             font_size: 21.0,
             reverse_place_names: false,
             language: "en".to_string(),
+            ..AppConfig::default()
         };
 
         apply_config_to_ctx(&ctx, &config);
