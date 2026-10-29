@@ -86,19 +86,21 @@ impl TreeWindow {
                 let dates = db::people::load_vital_dates(&conn).ok()?;
                 let marriages = db::load_marriage_details(&conn).ok()?;
                 let settings = db::settings::load_tree_settings(&conn).ok()?;
+                let extras = db::people::load_person_extras(&conn).ok()?;
                 let facts = db::facts::load_person_facts(&conn, settings.surname_first).ok()?;
-                Some((tree, dates, marriages, facts, settings))
+                Some((tree, dates, extras, marriages, facts, settings))
             });
-        let (tree, dates, marriages, facts, settings) = loaded.unwrap_or_else(|| {
+        let (tree, dates, extras, marriages, facts, settings) = loaded.unwrap_or_else(|| {
             (
                 FamilyTree::default(),
+                HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
                 crate::db::settings::TreeSettings::default(),
             )
         });
-        self.rows = watchlist::rows(&tree, &dates, settings.surname_first);
+        self.rows = watchlist::rows(&tree, &dates, &extras, settings.surname_first);
         self.tree = tree;
         self.dates = dates;
         self.marriages = marriages;

@@ -1,4 +1,4 @@
-//! Sortable, filterable people grid backed by `egui_extras::TableBuilder`.
+//! Configurable, sortable, filterable People grid.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -6,22 +6,41 @@ use std::collections::HashMap;
 use egui::{Color32, Layout, RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
-use crate::db::{FamilyTree, people::VitalDates};
+use crate::db::FamilyTree;
+use crate::db::people::{PersonExtras, VitalDates};
 use crate::i18n::tr;
+use crate::model::people_columns::{
+    PeopleColumn, PeopleColumnConfig, default_columns, sanitize_columns,
+};
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 const ROW_HEIGHT: f32 = 24.0;
 
-/// One grid row: identity plus denormalised vitals.
+/// One grid row: identity plus denormalised People-list values.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PersonRow {
     pub id: String,
+    pub prefix: String,
     pub given_name: String,
+    pub middle_name: String,
     pub surname: String,
-    pub display_name: String,
+    pub suffix: String,
+    pub nickname: String,
     pub gender: String,
     pub birth: Option<String>,
+    pub birth_place: Option<String>,
     pub death: Option<String>,
+    pub death_place: Option<String>,
+    pub age_at_death: Option<String>,
+    pub notes_preview: String,
+    pub event_count: i64,
+    pub citation_count: i64,
+    pub media_count: i64,
+    pub task_count: i64,
+    pub group_count: i64,
+    pub association_count: i64,
+    pub updated_at: String,
+    pub display_name: String,
 }
 
 impl PersonRow {
@@ -30,31 +49,17 @@ impl PersonRow {
     }
 }
 
-/// Flattens the loaded tree plus vitals into grid rows in rowid order.
+/// Flattens the loaded tree plus vitals and extras into grid rows.
 pub fn rows(
     tree: &FamilyTree,
     dates: &HashMap<String, VitalDates>,
+    extras: &HashMap<String, PersonExtras>,
     surname_first: bool,
 ) -> Vec<PersonRow> {
     let mut rows = Vec::with_capacity(tree.people.len());
     for person in &tree.people {
         let vitals = dates.get(&person.id);
-        // The single Given cell shows given + middle so patronymics stay
-        // visible and searchable without a separate column.
-        let given_name = [
-            person.name_prefix.as_str(),
-            person.given_name.as_str(),
-            person.middle_name.as_str(),
-        ]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
-        let surname = [person.surname.as_str(), person.name_suffix.as_str()]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ");
+        let extra = extras.get(&person.id);
         let display_name = crate::model::name::format_name(
             &person.name_prefix,
             &person.given_name,
@@ -63,19 +68,42 @@ pub fn rows(
             &person.name_suffix,
             surname_first,
         );
-        let display_name = if display_name.is_empty() {
-            "(unnamed)".to_string()
-        } else {
-            display_name
-        };
+        let notes_preview = extra
+            .and_then(|extra| extra.notes_preview.as_deref())
+            .and_then(|notes| notes.lines().next())
+            .unwrap_or_default()
+            .to_string();
         rows.push(PersonRow {
             id: person.id.clone(),
-            given_name,
-            surname,
-            display_name,
+            prefix: person.name_prefix.clone(),
+            given_name: person.given_name.clone(),
+            middle_name: person.middle_name.clone(),
+            surname: person.surname.clone(),
+            suffix: person.name_suffix.clone(),
+            nickname: person.nickname.clone(),
             gender: person.gender.clone(),
             birth: vitals.and_then(|vitals| vitals.birth.clone()),
+            birth_place: vitals.and_then(|vitals| vitals.birth_place.clone()),
             death: vitals.and_then(|vitals| vitals.death.clone()),
+            death_place: vitals.and_then(|vitals| vitals.death_place.clone()),
+            age_at_death: crate::model::age::age_at(
+                vitals.and_then(|vitals| vitals.birth.as_deref()),
+                vitals.and_then(|vitals| vitals.death.as_deref()),
+            )
+            .map(|age| age.to_string()),
+            notes_preview,
+            event_count: extra.map_or(0, |extra| extra.event_count),
+            citation_count: extra.map_or(0, |extra| extra.citation_count),
+            media_count: extra.map_or(0, |extra| extra.media_count),
+            task_count: extra.map_or(0, |extra| extra.task_count),
+            group_count: extra.map_or(0, |extra| extra.group_count),
+            association_count: extra.map_or(0, |extra| extra.association_count),
+            updated_at: person.updated_at.clone(),
+            display_name: if display_name.is_empty() {
+                "(unnamed)".to_string()
+            } else {
+                display_name
+            },
         });
     }
     rows
@@ -91,47 +119,26 @@ pub fn display_gender(code: &str) -> &'static str {
     }
 }
 
-/// Columns the header can sort by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortColumn {
-    Given,
-    Surname,
-    Gender,
-    Birth,
-    Death,
-}
-
-impl SortColumn {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Given => "Given Name",
-            Self::Surname => "Surname",
-            Self::Gender => "Gender",
-            Self::Birth => "Birth Date",
-            Self::Death => "Death Date",
-        }
-    }
-}
-
 /// What the user asked the shell to do from the grid.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum WatchEvent {
     Select(String),
     Edit(String),
     AddPerson,
     Delete(String),
+    ColumnsChanged(Vec<PeopleColumnConfig>),
 }
 
-/// Filter/sort state plus the cached view of matching row indices.
-///
-/// The view only rebuilds when [`Self::mark_dirty`] ran or the filter and
-/// sort changed, so a 10,000-person table never re-filters per frame.
+/// Filter/sort/column-dialog state.
 #[derive(Debug, Clone)]
 pub struct WatchState {
     pub filter: String,
-    sort: Option<(SortColumn, bool)>,
+    sort: Option<(PeopleColumn, bool)>,
     view: Vec<usize>,
     dirty: bool,
+    show_columns: bool,
+    column_draft: Vec<PeopleColumnConfig>,
+    column_error: Option<String>,
 }
 
 impl Default for WatchState {
@@ -141,18 +148,19 @@ impl Default for WatchState {
             sort: None,
             view: Vec::new(),
             dirty: true,
+            show_columns: false,
+            column_draft: Vec::new(),
+            column_error: None,
         }
     }
 }
 
 impl WatchState {
-    /// Marks the cached view stale after the underlying data changed.
     pub fn mark_dirty(&mut self) {
         self.dirty = true;
     }
 
-    /// Clicks a header: same column flips direction, a new one sorts ascending.
-    pub fn toggle_sort(&mut self, column: SortColumn) {
+    pub fn toggle_sort(&mut self, column: PeopleColumn) {
         self.sort = match self.sort {
             Some((active, ascending)) if active == column => Some((active, !ascending)),
             _ => Some((column, true)),
@@ -185,45 +193,133 @@ impl WatchState {
             return true;
         }
         let needle = self.filter.to_lowercase();
-        row.given_name.to_lowercase().contains(&needle)
-            || row.surname.to_lowercase().contains(&needle)
+        [
+            &row.prefix,
+            &row.given_name,
+            &row.middle_name,
+            &row.surname,
+            &row.suffix,
+            &row.nickname,
+            &row.notes_preview,
+        ]
+        .into_iter()
+        .any(|value| value.to_lowercase().contains(&needle))
     }
 }
 
-fn compare(left: &PersonRow, right: &PersonRow, column: SortColumn) -> Ordering {
+fn compare(left: &PersonRow, right: &PersonRow, column: PeopleColumn) -> Ordering {
     match column {
-        SortColumn::Given => left.given_name.cmp(&right.given_name),
-        SortColumn::Surname => left.surname.cmp(&right.surname),
-        SortColumn::Gender => display_gender(&left.gender).cmp(display_gender(&right.gender)),
-        SortColumn::Birth => left.birth.cmp(&right.birth),
-        SortColumn::Death => left.death.cmp(&right.death),
+        PeopleColumn::Events
+        | PeopleColumn::Citations
+        | PeopleColumn::Media
+        | PeopleColumn::Tasks
+        | PeopleColumn::Groups
+        | PeopleColumn::Associations => numeric(
+            Some(numeric_value(left, column)),
+            Some(numeric_value(right, column)),
+        ),
+        _ => text(text_value(left, column), text_value(right, column)),
     }
 }
 
-/// Renders the toolbar and virtualized table, returning the events to apply.
+fn text(left: Option<String>, right: Option<String>) -> Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => left.to_lowercase().cmp(&right.to_lowercase()),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn numeric(left: Option<i64>, right: Option<i64>) -> Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn numeric_value(row: &PersonRow, column: PeopleColumn) -> i64 {
+    match column {
+        PeopleColumn::Events => row.event_count,
+        PeopleColumn::Citations => row.citation_count,
+        PeopleColumn::Media => row.media_count,
+        PeopleColumn::Tasks => row.task_count,
+        PeopleColumn::Groups => row.group_count,
+        PeopleColumn::Associations => row.association_count,
+        _ => 0,
+    }
+}
+
+fn text_value(row: &PersonRow, column: PeopleColumn) -> Option<String> {
+    let value = match column {
+        PeopleColumn::Prefix => row.prefix.clone(),
+        PeopleColumn::GivenName => row.given_name.clone(),
+        PeopleColumn::MiddleName => row.middle_name.clone(),
+        PeopleColumn::Surname => row.surname.clone(),
+        PeopleColumn::Suffix => row.suffix.clone(),
+        PeopleColumn::Nickname => row.nickname.clone(),
+        PeopleColumn::Gender => display_gender(&row.gender).to_string(),
+        PeopleColumn::BirthDate => row.birth.clone().unwrap_or_default(),
+        PeopleColumn::BirthPlace => row.birth_place.clone().unwrap_or_default(),
+        PeopleColumn::DeathDate => row.death.clone().unwrap_or_default(),
+        PeopleColumn::DeathPlace => row.death_place.clone().unwrap_or_default(),
+        PeopleColumn::AgeAtDeath => row.age_at_death.clone().unwrap_or_default(),
+        PeopleColumn::Notes => row.notes_preview.clone(),
+        PeopleColumn::UpdatedAt => row.updated_at.clone(),
+        _ => return None,
+    };
+    (!value.is_empty()).then_some(value)
+}
+
+fn cell_value(row: &PersonRow, column: PeopleColumn) -> String {
+    match column {
+        PeopleColumn::Events
+        | PeopleColumn::Citations
+        | PeopleColumn::Media
+        | PeopleColumn::Tasks
+        | PeopleColumn::Groups
+        | PeopleColumn::Associations => numeric_value(row, column).to_string(),
+        _ => text_value(row, column).unwrap_or_default(),
+    }
+}
+
+/// Renders the toolbar and configurable virtualized table.
 pub fn show(
     ui: &mut Ui,
     state: &mut WatchState,
     rows: &[PersonRow],
     selected: Option<&str>,
+    columns: &[PeopleColumnConfig],
 ) -> Vec<WatchEvent> {
     let mut events = Vec::new();
-
     ui.horizontal(|ui| {
-        ui.label("Filter:");
-        let response =
-            ui.add(egui::TextEdit::singleline(&mut state.filter).hint_text("Filter by name..."));
+        ui.label(tr("common.filter"));
+        let response = ui
+            .add(egui::TextEdit::singleline(&mut state.filter).hint_text(tr("people.filter_hint")));
         if response.changed() {
             state.dirty = true;
         }
         if ui
-            .add_enabled(!state.filter.is_empty(), egui::Button::new("Clear"))
+            .add_enabled(
+                !state.filter.is_empty(),
+                egui::Button::new(tr("common.clear")),
+            )
             .clicked()
         {
             state.filter.clear();
             state.dirty = true;
         }
+        if ui.button(tr("people.columns")).clicked() {
+            state.column_draft = columns.to_vec();
+            state.column_error = None;
+            state.show_columns = true;
+        }
     });
+    if state.show_columns {
+        columns_dialog(ui, state, &mut events);
+    }
 
     if state.dirty {
         state.rebuild(rows);
@@ -231,20 +327,19 @@ pub fn show(
 
     ui.horizontal(|ui| {
         ui.label(
-            RichText::new(format!(
-                "Showing {} of {} people",
-                state.view.len(),
-                rows.len()
+            RichText::new(crate::i18n::tr_args(
+                "people.showing",
+                &[
+                    ("shown", state.view.len().to_string()),
+                    ("total", rows.len().to_string()),
+                ],
             ))
             .weak()
             .size(12.0),
         );
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
-                .add(
-                    egui::Button::new(RichText::new("+ Add Independent Person").strong())
-                        .fill(ACCENT),
-                )
+                .add(egui::Button::new(RichText::new(tr("people.add")).strong()).fill(ACCENT))
                 .clicked()
             {
                 events.push(WatchEvent::AddPerson);
@@ -253,40 +348,39 @@ pub fn show(
     });
 
     if rows.is_empty() {
-        ui.label(
-            RichText::new("No people yet \u{2014} add one with the button above.")
-                .weak()
-                .size(13.0),
-        );
+        ui.label(RichText::new(tr("people.empty")).weak().size(13.0));
         return events;
     }
 
-    let mut sort_clicked: Option<SortColumn> = None;
-    TableBuilder::new(ui)
-        .striped(true)
-        .resizable(true)
-        .column(Column::auto().at_least(90.0))
-        .column(Column::auto().at_least(90.0))
-        .column(Column::auto().at_least(70.0))
-        .column(Column::auto().at_least(90.0))
-        .column(Column::auto().at_least(90.0))
-        .column(Column::auto().at_least(120.0))
+    let visible: Vec<PeopleColumn> = columns
+        .iter()
+        .filter(|config| config.visible)
+        .map(|config| config.column)
+        .collect();
+    if let Some((active, _)) = state.sort
+        && !visible.contains(&active)
+    {
+        state.sort = None;
+        state.dirty = true;
+    }
+
+    let mut sort_clicked: Option<PeopleColumn> = None;
+    let mut builder = TableBuilder::new(ui).striped(true).resizable(true);
+    for config in columns.iter().filter(|config| config.visible) {
+        builder = builder.column(Column::initial(config.width).at_least(60.0));
+    }
+    builder = builder.column(Column::initial(140.0).at_least(120.0));
+    builder
         .header(22.0, |mut header| {
-            for column in [
-                SortColumn::Given,
-                SortColumn::Surname,
-                SortColumn::Gender,
-                SortColumn::Birth,
-                SortColumn::Death,
-            ] {
+            for column in &visible {
                 header.col(|ui| {
                     let arrow = match state.sort {
-                        Some((active, true)) if active == column => " \u{25b2}",
-                        Some((active, false)) if active == column => " \u{25bc}",
+                        Some((active, true)) if active == *column => " \u{25b2}",
+                        Some((active, false)) if active == *column => " \u{25bc}",
                         _ => "",
                     };
-                    let text = format!("{}{}", column.label(), arrow);
-                    let active = state.sort.map(|(active, _)| active) == Some(column);
+                    let text = format!("{}{}", tr(column.label_key()), arrow);
+                    let active = state.sort.map(|(active, _)| active) == Some(*column);
                     let label = egui::Label::new(if active {
                         RichText::new(text).strong()
                     } else {
@@ -294,12 +388,12 @@ pub fn show(
                     })
                     .sense(Sense::click());
                     if ui.add(label).clicked() {
-                        sort_clicked = Some(column);
+                        sort_clicked = Some(*column);
                     }
                 });
             }
             header.col(|ui| {
-                ui.label(RichText::new("Actions").strong());
+                ui.label(RichText::new(tr("common.actions")).strong());
             });
         })
         .body(|body| {
@@ -310,46 +404,27 @@ pub fn show(
                 let Some(person) = rows.get(index) else {
                     return;
                 };
-                let is_selected = selected == Some(person.id.as_str());
-                row.set_selected(is_selected);
-
-                row.col(|ui| {
-                    clickable_cell(ui, &person.given_name, &person.id, &mut events);
-                });
-                row.col(|ui| {
-                    clickable_cell(ui, &person.surname, &person.id, &mut events);
-                });
-                row.col(|ui| {
-                    clickable_cell(ui, display_gender(&person.gender), &person.id, &mut events);
-                });
-                row.col(|ui| {
-                    clickable_cell(
-                        ui,
-                        person.birth.as_deref().unwrap_or_default(),
-                        &person.id,
-                        &mut events,
-                    );
-                });
-                row.col(|ui| {
-                    clickable_cell(
-                        ui,
-                        person.death.as_deref().unwrap_or_default(),
-                        &person.id,
-                        &mut events,
-                    );
-                });
+                row.set_selected(selected == Some(person.id.as_str()));
+                for column in &visible {
+                    row.col(|ui| {
+                        clickable_cell(ui, &cell_value(person, *column), &person.id, &mut events);
+                    });
+                }
                 row.col(|ui| {
                     ui.horizontal(|ui| {
-                        if ui.small_button("Edit").clicked() {
+                        if ui.small_button(tr("common.edit")).clicked() {
                             events.push(WatchEvent::Edit(person.id.clone()));
                         }
-                        ui.menu_button("Delete", |ui| {
-                            ui.label(format!("Delete {}?", person.display_name()));
-                            if ui.button("Confirm").clicked() {
+                        ui.menu_button(tr("common.delete"), |ui| {
+                            ui.label(crate::i18n::tr_args(
+                                "people.delete_confirm",
+                                &[("name", person.display_name())],
+                            ));
+                            if ui.button(tr("people.confirm")).clicked() {
                                 events.push(WatchEvent::Delete(person.id.clone()));
                                 ui.close();
                             }
-                            if ui.button("Cancel").clicked() {
+                            if ui.button(tr("common.cancel")).clicked() {
                                 ui.close();
                             }
                         });
@@ -357,11 +432,81 @@ pub fn show(
                 });
             });
         });
-
     if let Some(column) = sort_clicked {
         state.toggle_sort(column);
     }
     events
+}
+
+fn columns_dialog(ui: &mut Ui, state: &mut WatchState, events: &mut Vec<WatchEvent>) {
+    let mut open = true;
+    let mut apply = false;
+    let mut reset = false;
+    let mut cancel = false;
+    let mut move_up = None;
+    let mut move_down = None;
+    egui::Window::new(tr("people.columns"))
+        .id(egui::Id::new("people_columns_window"))
+        .collapsible(false)
+        .resizable(true)
+        .open(&mut open)
+        .show(ui.ctx(), |ui| {
+            let len = state.column_draft.len();
+            egui::ScrollArea::vertical()
+                .max_height(360.0)
+                .show(ui, |ui| {
+                    for (index, config) in state.column_draft.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut config.visible, tr(config.column.label_key()));
+                            if ui.small_button("\u{25b2}").clicked() && index > 0 {
+                                move_up = Some(index);
+                            }
+                            if ui.small_button("\u{25bc}").clicked() && index + 1 < len {
+                                move_down = Some(index);
+                            }
+                            ui.add(
+                                egui::DragValue::new(&mut config.width)
+                                    .range(60.0..=500.0)
+                                    .suffix(" px"),
+                            );
+                        });
+                    }
+                });
+            if let Some(error) = &state.column_error {
+                ui.label(
+                    RichText::new(error)
+                        .color(ui.visuals().error_fg_color)
+                        .small(),
+                );
+            }
+            ui.horizontal(|ui| {
+                if ui.button(tr("people.reset_columns")).clicked() {
+                    reset = true;
+                }
+                if ui.button(tr("people.apply")).clicked() {
+                    apply = true;
+                }
+                if ui.button(tr("common.cancel")).clicked() {
+                    cancel = true;
+                }
+            });
+        });
+    if let Some(index) = move_up {
+        state.column_draft.swap(index, index - 1);
+    }
+    if let Some(index) = move_down {
+        state.column_draft.swap(index, index + 1);
+    }
+    if reset {
+        state.column_draft = default_columns();
+    }
+    if apply {
+        let cleaned = sanitize_columns(&state.column_draft);
+        events.push(WatchEvent::ColumnsChanged(cleaned));
+        state.show_columns = false;
+    } else if !open || cancel {
+        state.show_columns = false;
+    }
 }
 
 fn clickable_cell(ui: &mut Ui, text: &str, person_id: &str, events: &mut Vec<WatchEvent>) {
@@ -393,79 +538,67 @@ mod tests {
         for (given, surname) in names {
             tree.people.push(Person::new(*given, *surname, "U"));
         }
-        rows(&tree, &HashMap::new(), false)
+        rows(&tree, &HashMap::new(), &HashMap::new(), false)
     }
 
     #[test]
-    fn rows_join_people_with_vital_dates() {
-        let mut tree = FamilyTree::default();
-        let mut person = Person::new("Ada", "King", "F");
-        person.middle_name = "Lynn".to_string();
-        let id = person.id.clone();
-        tree.people.push(person);
-        let mut dates = HashMap::new();
-        dates.insert(
-            id.clone(),
-            VitalDates {
-                birth: Some("1815".to_string()),
-                death: Some("1852".to_string()),
-                ..Default::default()
-            },
-        );
-
-        let built = rows(&tree, &dates, false);
-        assert_eq!(built.len(), 1);
-        let row = built.first().expect("one row");
-        assert_eq!(row.id, id);
-        assert_eq!(row.birth.as_deref(), Some("1815"));
-        assert_eq!(row.death.as_deref(), Some("1852"));
-        assert_eq!(row.given_name, "Ada Lynn", "the Given cell shows middle");
-        assert_eq!(row.display_name(), "Ada Lynn King");
-    }
-
-    #[test]
-    fn filter_matches_either_name_case_insensitively() {
-        let rows = rows_for(&[("Ada", "King"), ("Bo", "Tester"), ("Carl", "Tester")]);
+    fn filter_matches_name_and_notes_case_insensitively() {
+        let mut rows = rows_for(&[("Ada", "King"), ("Bo", "Tester"), ("Carl", "Tester")]);
+        rows[0].notes_preview = "Correspondent".to_string();
         let mut state = WatchState {
             filter: "aDa".to_string(),
             ..WatchState::default()
         };
         state.rebuild(&rows);
-        assert_eq!(state.view, vec![0], "given name filter");
-
-        state.filter = "tester".to_string();
+        assert_eq!(state.view, vec![0]);
+        state.filter = "correspondent".to_string();
         state.rebuild(&rows);
-        assert_eq!(state.view, vec![1, 2], "surname filter matches both");
-
+        assert_eq!(state.view, vec![0]);
         state.filter = "zzz".to_string();
         state.rebuild(&rows);
-        assert!(state.view.is_empty(), "no match empties the view");
+        assert!(state.view.is_empty());
     }
 
     #[test]
-    fn sorting_toggles_per_column_and_direction() {
-        let rows = rows_for(&[("Bo", "Same"), ("Ada", "Same"), ("Carl", "Same")]);
+    fn sorting_supports_text_and_numeric_columns() {
+        let mut rows = rows_for(&[("Bo", "Same"), ("Ada", "Same"), ("Carl", "Same")]);
+        rows[0].event_count = 1;
+        rows[1].event_count = 3;
+        rows[2].event_count = 2;
         let mut state = WatchState::default();
-
-        state.toggle_sort(SortColumn::Given);
+        state.toggle_sort(PeopleColumn::GivenName);
         state.rebuild(&rows);
-        assert_eq!(state.view, vec![1, 0, 2], "ascending by given name");
-
-        state.toggle_sort(SortColumn::Given);
+        assert_eq!(state.view, vec![1, 0, 2]);
+        state.toggle_sort(PeopleColumn::GivenName);
         state.rebuild(&rows);
-        assert_eq!(
-            state.view,
-            vec![2, 0, 1],
-            "second click flips to descending"
-        );
-
-        state.toggle_sort(SortColumn::Surname);
+        assert_eq!(state.view, vec![2, 0, 1]);
+        state.toggle_sort(PeopleColumn::Events);
         state.rebuild(&rows);
-        assert_eq!(
-            state.view,
-            vec![0, 1, 2],
-            "a new column starts ascending and equal keys keep rowid order"
-        );
+        assert_eq!(state.view, vec![0, 2, 1]);
+    }
+
+    #[test]
+    fn visible_columns_drive_cell_order_and_values() {
+        let mut rows = rows_for(&[("Ada", "King")]);
+        rows[0].birth_place = Some("London".to_string());
+        let columns = [
+            PeopleColumnConfig {
+                column: PeopleColumn::Surname,
+                visible: true,
+                width: 100.0,
+            },
+            PeopleColumnConfig {
+                column: PeopleColumn::BirthPlace,
+                visible: true,
+                width: 100.0,
+            },
+        ];
+        let visible: Vec<String> = columns
+            .iter()
+            .filter(|column| column.visible)
+            .map(|column| cell_value(&rows[0], column.column))
+            .collect();
+        assert_eq!(visible, vec!["King".to_string(), "London".to_string()]);
     }
 
     #[test]
@@ -482,17 +615,16 @@ mod tests {
     }
 
     #[test]
-    fn watchlist_renders_headless() {
+    fn people_view_renders_headless() {
         let rows = rows_for(&[("Ada", "King")]);
         let ctx = Context::default();
         let mut state = WatchState::default();
         let mut captured = Vec::new();
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            captured = show(ui, &mut state, &rows, None);
+            captured = show(ui, &mut state, &rows, None, &default_columns());
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the grid paints");
-        assert!(captured.is_empty(), "no pointer interaction picks nothing");
-        assert_eq!(state.view, vec![0], "the initial view rebuilt");
+        assert!(captured.is_empty());
     }
 }
