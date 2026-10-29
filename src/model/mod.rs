@@ -2,6 +2,7 @@
 
 pub mod age;
 pub mod date;
+pub mod descendant_view;
 pub mod fact;
 pub mod family_view;
 pub mod graph;

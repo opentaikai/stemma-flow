@@ -973,6 +973,84 @@ mod tests {
     }
 
     #[test]
+    fn descendant_mode_follows_generations_and_keeps_the_root_pinned() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n\
+             0 @I1@ INDI\n1 NAME Root /Person/\n\
+             0 @I2@ INDI\n1 NAME Spouse /Person/\n\
+             0 @I3@ INDI\n1 NAME Child /Person/\n\
+             0 @I4@ INDI\n1 NAME ChildSpouse /Person/\n\
+             0 @I5@ INDI\n1 NAME Grandchild /Person/\n\
+             0 @I6@ INDI\n1 NAME Father /Person/\n\
+             0 @I7@ INDI\n1 NAME Sibling /Person/\n\
+             0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I3@\n\
+             0 @F2@ FAM\n1 HUSB @I3@\n1 WIFE @I4@\n1 CHIL @I5@\n\
+             0 @F3@ FAM\n1 HUSB @I6@\n1 CHIL @I1@\n1 CHIL @I7@\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let id_for = |window: &TreeWindow, given: &str| {
+            window
+                .rows
+                .iter()
+                .find(|row| row.given_name == given)
+                .expect("person")
+                .id
+                .clone()
+        };
+        let root = id_for(&window, "Root");
+        let spouse = id_for(&window, "Spouse");
+        let child = id_for(&window, "Child");
+        let child_spouse = id_for(&window, "ChildSpouse");
+        let grandchild = id_for(&window, "Grandchild");
+        let father = id_for(&window, "Father");
+        let sibling = id_for(&window, "Sibling");
+
+        window.pedigree.mode = crate::gui::pedigree::GraphMode::Descendants;
+        window.pedigree.descendant_root_id = Some(root.clone());
+        window.pedigree.descendant_generations = crate::gui::pedigree::DescendantGenerations::Two;
+        window.rebuild_scene_layout();
+        let ids: Vec<&str> = window
+            .scene
+            .nodes
+            .iter()
+            .map(|node| node.person_id.as_str())
+            .collect();
+        for expected in [&root, &spouse, &child, &child_spouse] {
+            assert!(ids.contains(&expected.as_str()), "missing {expected}");
+        }
+        assert!(!ids.contains(&grandchild.as_str()));
+        assert!(!ids.contains(&father.as_str()));
+        assert!(!ids.contains(&sibling.as_str()));
+
+        window.pedigree.descendant_generations = crate::gui::pedigree::DescendantGenerations::Three;
+        window.rebuild_scene_layout();
+        assert!(
+            window
+                .scene
+                .nodes
+                .iter()
+                .any(|node| node.person_id == grandchild)
+        );
+
+        window.app.set_selected_person(Some(grandchild.clone()));
+        window.rebuild_scene_layout();
+        assert_eq!(
+            window.pedigree.descendant_root_id.as_deref(),
+            Some(root.as_str())
+        );
+
+        window.pedigree.mode = crate::gui::pedigree::GraphMode::All;
+        window.rebuild_scene_layout();
+        assert_eq!(window.scene.nodes.len(), 7);
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn family_mode_shows_the_pinned_couple_and_direct_children() {
         let db_file = temp_path("db");
         import_people(

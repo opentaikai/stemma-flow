@@ -221,3 +221,10 @@ set_root = "Auswahl als Familienwurzel festlegen"
 family = "Familie"
 with = "Mit {name}"
 parents = "Eltern: {names}"
+
+[descendants]
+mode = "Nachkommen"
+generations = "Generationen:"
+root = "Nachkommenwurzel:"
+no_root = "Person auswählen und als Nachkommenwurzel festlegen"
+set_root = "Auswahl als Nachkommenwurzel festlegen"
