@@ -213,7 +213,7 @@ long research sessions.
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
 | Multiple tree windows | deferred | P2 | Up to four, multi-monitor |
-| Large-tree performance (10,000+ people) | partial | P1 | Connector geometry is cached per scene; layout, search and node budgets pending |
+| Large-tree performance (10,000+ people) | partial | P1 | Cached connectors, overlap-based trunk lanes and crossing breaks; layout/search/node budgets pending |
 | Virtualized lists and charts | planned | P1 | Avoid rendering off-screen rows and nodes |
 | Internationalisation | partial | P2 | External TOML catalogs, English/German core UI; remaining editor strings pending |
 | Accessibility and keyboard navigation | deferred | P2 | Focus order, labels, KeyTips |
