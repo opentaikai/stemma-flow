@@ -9,7 +9,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use crate::db;
-use crate::db::associations::{self, AssociationDraft, AssociationRecord};
+use crate::db::associations::{self, AssociationDraft, AssociationRecord, AssociationViewRow};
 use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
@@ -659,6 +659,16 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         media_store::list_media_links(&conn, media_id, surname_first)
+    }
+
+    /// Lists every directed association.
+    pub fn list_all_associations(
+        &self,
+        surname_first: bool,
+    ) -> Result<Vec<AssociationViewRow>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        associations::list_all_associations(&conn, surname_first)
     }
 
     /// Lists the outgoing associations of a person.
