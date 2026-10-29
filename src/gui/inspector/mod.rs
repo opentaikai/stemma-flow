@@ -1,7 +1,9 @@
 //! Right-hand person inspector: profile editing plus relational actions.
 
 mod connections;
+mod duplicates;
 mod form;
+mod new_person;
 mod panel;
 mod participants;
 mod relation;
@@ -9,7 +11,9 @@ mod relation;
 pub use connections::{
     Connections, FamilyLink, Relative, connections, person_label, reverse_marriage_places,
 };
+pub use duplicates::DuplicateSuggestions;
 pub use form::InspectorForm;
+pub use new_person::{NewPersonOutcome, NewPersonState, show as new_person_window};
 pub use panel::{field_editors, show};
 pub use participants::{ParticipantForm, ParticipantOutcome, show as participant_window};
 pub use relation::{RelationForm, RelationKind, RelationOutcome, relation_window};
@@ -343,7 +347,7 @@ mod tests {
         };
         let mut outcome = Some(RelationOutcome::Submit);
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            outcome = relation_window(ui.ctx(), &mut relation, &tree, false);
+            outcome = relation_window(ui.ctx(), &mut relation, &tree, &dates, false);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the pop-up paints");
