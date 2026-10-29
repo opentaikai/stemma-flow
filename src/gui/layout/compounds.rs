@@ -294,11 +294,9 @@ impl<'a> LayoutBuilder<'a> {
             }
         }
 
-        let mut roots = Vec::new();
         let mut queue: VecDeque<usize> = VecDeque::new();
         for compound in 0..self.compounds.len() {
             if pending.get(compound).copied().unwrap_or(0) == 0 {
-                roots.push(compound);
                 queue.push_back(compound);
             }
         }
@@ -320,7 +318,6 @@ impl<'a> LayoutBuilder<'a> {
                 }
             }
         }
-        self.roots = roots;
     }
 
     pub(super) fn rank_y(&self, compound: usize) -> f32 {

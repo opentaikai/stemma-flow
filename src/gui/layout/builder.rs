@@ -1,6 +1,6 @@
 //! The layout builder: ranks, chains, packing and scene assembly.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use egui::{Pos2, Rect, Vec2};
 
@@ -8,7 +8,6 @@ use crate::db::{Family, FamilyTree};
 
 use super::compounds::Compound;
 use super::graph::compute_person_components;
-use super::placement::BlockLayout;
 use super::scene::{NodeGeom, TreeScene, UnionGeom, person_display_name};
 use super::{SPOUSE_GAP, V_GAP};
 
@@ -23,16 +22,10 @@ pub(super) struct LayoutBuilder<'a> {
     pub(super) chains: Vec<Vec<&'a str>>,
     /// Leading x of every chain slot, per compound.
     pub(super) chain_xs: Vec<Vec<f32>>,
-    pub(super) blocks: HashMap<usize, BlockLayout>,
-    pub(super) block_active: HashSet<usize>,
-    pub(super) place_active: HashSet<usize>,
-    pub(super) placed: HashSet<usize>,
     pub(super) bounds_by_id: HashMap<&'a str, Rect>,
     pub(super) surname_first: bool,
     /// Family id -> union x, recorded while its chain is placed.
     pub(super) union_x: HashMap<&'a str, f32>,
-    /// Compounds without parents, in compound order.
-    pub(super) roots: Vec<usize>,
     /// Connected family group of every compound.
     pub(super) component_of: Vec<usize>,
     /// Canvas offset per component, set by [`Self::layout`].
@@ -91,13 +84,8 @@ impl<'a> LayoutBuilder<'a> {
             compound_of,
             chains,
             chain_xs,
-            blocks: HashMap::new(),
-            block_active: HashSet::new(),
-            place_active: HashSet::new(),
-            placed: HashSet::new(),
             bounds_by_id: HashMap::new(),
             union_x: HashMap::new(),
-            roots: Vec::new(),
             component_of,
             component_offsets: HashMap::new(),
         };

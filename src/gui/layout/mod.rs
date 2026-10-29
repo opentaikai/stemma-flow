@@ -42,7 +42,6 @@ pub fn build_scene(tree: &FamilyTree, surname_first: bool) -> TreeScene {
 
 #[cfg(test)]
 mod tests {
-    use super::builder::LayoutBuilder;
     use super::graph::component_graph;
     use super::scene::person_display_name;
     use super::*;
@@ -485,55 +484,31 @@ mod tests {
 
     #[test]
     fn no_two_nodes_overlap() {
-        for tree in [
-            fixture(),
-            lineage_tree(),
-            remarriage_tree(),
-            polygamy_tree(),
-            interlock_tree(),
-            six_couples_tree(),
+        for (label, tree) in [
+            ("fixture", fixture()),
+            ("lineage", lineage_tree()),
+            ("remarriage", remarriage_tree()),
+            ("polygamy", polygamy_tree()),
+            ("interlock", interlock_tree()),
+            ("six_couples", six_couples_tree()),
         ] {
-            assert_no_overlap(&build_scene(&tree, false));
+            assert_no_overlap(label, &build_scene(&tree, false));
         }
     }
 
-    fn assert_no_overlap(scene: &TreeScene) {
+    fn assert_no_overlap(label: &str, scene: &TreeScene) {
         for (index, node) in scene.nodes.iter().enumerate() {
             for other in scene.nodes.iter().skip(index + 1) {
                 assert!(
                     !node.bounds.intersects(other.bounds),
-                    "nodes {} and {} overlap",
+                    "{label}: nodes {} {:?} and {} {:?} overlap",
                     node.person_id,
-                    other.person_id
+                    node.bounds,
+                    other.person_id,
+                    other.bounds
                 );
             }
         }
-    }
-
-    #[test]
-    fn component_extent_is_measured_not_summed() {
-        let tree = lineage_tree();
-        let mut builder = LayoutBuilder::new(&tree, false);
-        let bucket: Vec<usize> = (0..builder.compounds.len()).collect();
-        let inflated: f32 = bucket
-            .iter()
-            .map(|&compound| builder.block_of(compound).width)
-            .sum::<f32>()
-            + H_SPACING * (bucket.len().saturating_sub(1)) as f32;
-
-        let (width, height) = builder.measure_bucket(&bucket);
-
-        let scene = build_scene(&tree, false);
-        assert!(
-            (width - scene.bounds.width()).abs() < 0.5,
-            "measured width {width} must match the scene {}",
-            scene.bounds.width()
-        );
-        assert!((height - scene.bounds.height()).abs() < 0.5);
-        assert!(
-            width < inflated,
-            "descendants must not be counted twice: {width} < {inflated}"
-        );
     }
 
     #[test]
@@ -625,7 +600,7 @@ mod tests {
     }
 
     fn assert_connectors_avoid_nodes(scene: &TreeScene) {
-        let segments = crate::gui::connectors::build_segments(&scene.unions);
+        let segments = crate::gui::connectors::build_segments(&scene);
         for segment in &segments {
             for node in &scene.nodes {
                 assert!(
@@ -647,7 +622,7 @@ mod tests {
         ] {
             let scene = build_scene(&tree, false);
             assert!(
-                !crate::gui::connectors::build_segments(&scene.unions).is_empty(),
+                !crate::gui::connectors::build_segments(&scene).is_empty(),
                 "fixture must produce connectors"
             );
             assert_connectors_avoid_nodes(&scene);
@@ -674,7 +649,7 @@ mod tests {
         let tree = crate::db::load_family_tree(&conn)?;
         let scene = build_scene(&tree, false);
         assert!(!scene.nodes.is_empty(), "the real export must layout");
-        assert_no_overlap(&scene);
+        assert_no_overlap("real", &scene);
         assert_connectors_avoid_nodes(&scene);
         assert_eq!(
             scene,

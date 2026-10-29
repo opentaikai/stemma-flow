@@ -1,4 +1,4 @@
-//! Depth-contour packing of sibling subtrees and component boxes.
+//! Packing helpers for family chains and disconnected component boxes.
 
 use super::{H_SPACING, NODE_W, V_GAP};
 
@@ -12,52 +12,6 @@ pub(super) fn gap_centre(xs: &[f32], slot: usize) -> Option<f32> {
 /// Centre of the node sitting in chain slot `slot` in `xs`.
 pub(super) fn slot_centre(xs: &[f32], slot: usize) -> Option<f32> {
     xs.get(slot).map(|left| left + NODE_W * 0.5)
-}
-
-/// `(min_x, max_x)` per depth, depth 0 first.
-pub(super) type Contour = Vec<(f32, f32)>;
-
-/// Packs sibling subtrees so their depth contours clear each other by
-/// [`H_SPACING`], then shifts the row so its bounding box centres on
-/// `centre`. Returns each subtree's origin and the merged contour, both
-/// relative to the same frame. Subtrees shorter than the row impose no
-/// constraint on deeper levels, so a childless sibling tucks beside the
-/// deepest row of its neighbour.
-pub(super) fn compact_subtrees<T>(rows: &[(T, Contour)], centre: f32) -> (Vec<f32>, Contour) {
-    let mut origins = Vec::with_capacity(rows.len());
-    let mut merged: Contour = Vec::new();
-    for (_, row) in rows {
-        let mut origin: f32 = 0.0;
-        for (depth, (min, _)) in row.iter().enumerate() {
-            if let Some((_, previous_max)) = merged.get(depth) {
-                origin = origin.max(previous_max + H_SPACING - min);
-            }
-        }
-        for (depth, (min, max)) in row.iter().enumerate() {
-            let shifted = (min + origin, max + origin);
-            if let Some(slot) = merged.get_mut(depth) {
-                slot.0 = slot.0.min(shifted.0);
-                slot.1 = slot.1.max(shifted.1);
-            } else {
-                merged.push(shifted);
-            }
-        }
-        origins.push(origin);
-    }
-    if let (Some(low), Some(high)) = (
-        merged.iter().map(|(min, _)| *min).reduce(f32::min),
-        merged.iter().map(|(_, max)| *max).reduce(f32::max),
-    ) {
-        let shift = centre - (low + high) * 0.5;
-        for origin in &mut origins {
-            *origin += shift;
-        }
-        for extent in &mut merged {
-            extent.0 += shift;
-            extent.1 += shift;
-        }
-    }
-    (origins, merged)
 }
 
 /// Shelf-packs component boxes into whole rows, choosing the row count
