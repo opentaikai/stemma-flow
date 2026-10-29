@@ -45,6 +45,7 @@ surname_first = "Nachnamen zuerst"
 active_tree = "Aktiver Stammbaum: {name}"
 
 [tabs]
+associations = "Assoziationen"
 couples = "Paare"
 people = "Personen"
 graph = "Grafikansicht"
@@ -273,3 +274,11 @@ married = "Verheiratet"
 place = "Ort"
 children = "Kinder"
 open_family = "Familie öffnen"
+
+[associations]
+filter_hint = "Nach Person oder Beziehung filtern…"
+showing = "{shown} von {total} Assoziationen angezeigt"
+empty = "Noch keine Assoziationen."
+from = "Von"
+associate = "Assoziierte Person"
+relationship = "Beziehung"

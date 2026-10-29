@@ -34,6 +34,17 @@ pub struct EventAssociationDraft {
     pub relationship: String,
 }
 
+/// One directed association with both display names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociationViewRow {
+    pub id: String,
+    pub person_id: String,
+    pub person_name: String,
+    pub associate_id: String,
+    pub associate_name: String,
+    pub relationship: String,
+}
+
 /// An editable association.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssociationDraft {
@@ -61,6 +72,54 @@ fn clean_relationship(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+/// Lists every directed association with both people's names.
+pub fn list_all_associations(
+    conn: &Connection,
+    surname_first: bool,
+) -> Result<Vec<AssociationViewRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.id, a.person_id, a.associate_id, a.relationship,
+                    p.name_prefix, p.given_name, p.middle_name, p.surname, p.name_suffix,
+                    q.name_prefix, q.given_name, q.middle_name, q.surname, q.name_suffix
+             FROM associations a
+             JOIN people p ON p.id = a.person_id
+             JOIN people q ON q.id = a.associate_id
+             ORDER BY a.rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            let name = |offset: usize| {
+                let value = format_name(
+                    &row.get::<_, String>(offset)?,
+                    &row.get::<_, String>(offset + 1)?,
+                    &row.get::<_, String>(offset + 2)?,
+                    &row.get::<_, String>(offset + 3)?,
+                    &row.get::<_, String>(offset + 4)?,
+                    surname_first,
+                );
+                Ok::<String, rusqlite::Error>(if value.is_empty() {
+                    "(unnamed)".to_string()
+                } else {
+                    value
+                })
+            };
+            Ok(AssociationViewRow {
+                id: row.get(0)?,
+                person_id: row.get(1)?,
+                associate_id: row.get(2)?,
+                relationship: row.get(3)?,
+                person_name: name(4)?,
+                associate_name: name(9)?,
+            })
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    Ok(rows)
 }
 
 /// Lists the associations this person owns, ordered by label and associate.
@@ -363,5 +422,22 @@ mod tests {
                 .expect("list")
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn lists_all_directed_associations_with_both_names() {
+        let mut conn = connection();
+        let mut draft = AssociationDraft::new("p1");
+        draft.associate_id = "p2".to_string();
+        draft.relationship = "Friend".to_string();
+        save_association(&mut conn, &draft).expect("save");
+        let rows = list_all_associations(&conn, true).expect("all");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].person_id, "p1");
+        assert_eq!(rows[0].person_name, "King, Ada");
+        assert_eq!(rows[0].associate_name, "Babbage, Charles");
+        assert_eq!(rows[0].relationship, "Friend");
+        let reverse = list_all_associations(&conn, false).expect("all");
+        assert_eq!(reverse.len(), 1, "no synthetic reverse rows");
     }
 }

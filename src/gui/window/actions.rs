@@ -8,6 +8,7 @@ use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
 use crate::db::tasks::TaskOwner;
 use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
+use crate::gui::associations_view::{self as association_view_ui, AssociationViewEvent};
 use crate::gui::citations::CitationDraft;
 use crate::gui::couples::{self as couples_ui, CouplesEvent};
 use crate::gui::dialogs;
@@ -158,6 +159,56 @@ impl TreeWindow {
         self.tab = tabs::AppTab::Graph;
         self.rebuild_scene_layout();
         self.pending_framing = true;
+    }
+
+    pub(super) fn associations_tab(&mut self, ui: &mut Ui) {
+        if !self.association_view.loaded {
+            match self
+                .app
+                .list_all_associations(self.tree_settings.surname_first)
+            {
+                Ok(rows) => {
+                    self.association_rows = rows;
+                    self.association_view.loaded = true;
+                    self.association_view.mark_dirty();
+                }
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+        let events =
+            association_view_ui::show(ui, &mut self.association_view, &self.association_rows);
+        for event in events {
+            match event {
+                AssociationViewEvent::SelectPerson(id) => {
+                    self.app.set_selected_person(Some(id));
+                }
+                AssociationViewEvent::EditPerson(id) => {
+                    self.app.set_selected_person(Some(id.clone()));
+                    self.open_person_editor(&id);
+                }
+                AssociationViewEvent::EditAssociation(id) => {
+                    if let Some(row) = self.association_rows.iter().find(|row| row.id == id) {
+                        self.pending_association = Some(associations_dialog::AssociationForm {
+                            id: Some(row.id.clone()),
+                            person_id: row.person_id.clone(),
+                            editing_label: Some(row.associate_name.clone()),
+                            search: String::new(),
+                            selected: Some(row.associate_id.clone()),
+                            relationship: row.relationship.clone(),
+                            error: None,
+                        });
+                    }
+                }
+                AssociationViewEvent::Delete(id) => match self.app.delete_association(&id) {
+                    Ok(()) => {
+                        self.association_view.loaded = false;
+                        self.associations_owner = None;
+                        self.sync_associations();
+                    }
+                    Err(message) => self.app.set_status(UiStatus::Error(message)),
+                },
+            }
+        }
     }
 
     pub(super) fn sources_tab(&mut self, ui: &mut Ui) {
@@ -1720,6 +1771,7 @@ impl TreeWindow {
             Some(AssociationOutcome::Save(draft)) => match self.app.save_association(&draft) {
                 Ok(_) => {
                     self.associations_owner = None;
+                    self.association_view.loaded = false;
                     self.sync_associations();
                 }
                 Err(message) => {

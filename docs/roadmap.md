@@ -113,7 +113,7 @@ places, facts, alternate names and notes as first-class records.
 | Descendant view (2 to 7 generations) | done | P1 | Pinned root, descendant spouses and all child families |
 | People list view with configurable columns | done | P1 | Visibility, order, widths and extra columns |
 | Couple list view | done | P2 | Sortable/filterable pairs with Family graph navigation |
-| Association view | planned | P2 | Requires associations from M1 |
+| Association view | done | P2 | Directed sortable/filterable list with edit/delete |
 | Root person and relationship-to-root display | planned | P1 | Shown in list and info panel |
 | Relationship calculator between any two people | planned | P1 | Path search over the tree |
 | Duplicate check while adding a person | planned | P1 | Suggest matches before insert |

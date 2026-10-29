@@ -9,6 +9,7 @@ mod panels;
 use loading::{empty_scene, loadable};
 
 use super::associations as associations_dialog;
+use super::associations_view;
 use super::canvas::ViewportState;
 use super::citations;
 use super::couples;
@@ -69,6 +70,8 @@ pub struct TreeWindow {
     pub(super) watch: watchlist::WatchState,
     pub(super) couples: couples::CouplesState,
     pub(super) couple_rows: Vec<crate::model::couples::Couple>,
+    pub(super) association_view: associations_view::AssociationViewState,
+    pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
     pub(super) media: media::MediaState,
     pub(super) media_attach: Option<media::MediaAttachState>,
@@ -126,6 +129,8 @@ impl TreeWindow {
             watch: watchlist::WatchState::default(),
             couples: couples::CouplesState::default(),
             couple_rows: Vec::new(),
+            association_view: associations_view::AssociationViewState::default(),
+            association_rows: Vec::new(),
             places: places::PlacesState::default(),
             media: media::MediaState::default(),
             media_attach: None,
@@ -205,6 +210,7 @@ impl App for TreeWindow {
                 tabs::AppTab::Graph => self.canvas(ui),
                 tabs::AppTab::WatchList => self.watch_list(ui),
                 tabs::AppTab::Couples => self.couples_tab(ui),
+                tabs::AppTab::Associations => self.associations_tab(ui),
                 tabs::AppTab::Places => self.places_tab(ui),
                 tabs::AppTab::Media => self.media_tab(ui),
                 tabs::AppTab::Research => self.research_tab(ui),
