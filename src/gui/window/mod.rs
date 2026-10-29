@@ -13,6 +13,7 @@ use super::associations_view;
 use super::canvas::ViewportState;
 use super::citations;
 use super::couples;
+use super::database_tools;
 use super::fact_types;
 use super::import_report;
 use super::inspector::InspectorForm;
@@ -75,6 +76,7 @@ pub struct TreeWindow {
     pub(super) association_view: associations_view::AssociationViewState,
     pub(super) relationship_calculator: relationship_calculator::RelationshipCalculatorState,
     pub(super) merge: merge_dialog::MergeState,
+    pub(super) db_tools: database_tools::DatabaseToolsState,
     pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
     pub(super) media: media::MediaState,
@@ -138,6 +140,7 @@ impl TreeWindow {
             relationship_calculator: relationship_calculator::RelationshipCalculatorState::default(
             ),
             merge: merge_dialog::MergeState::default(),
+            db_tools: database_tools::DatabaseToolsState::default(),
             association_rows: Vec::new(),
             places: places::PlacesState::default(),
             media: media::MediaState::default(),
@@ -192,6 +195,21 @@ impl App for TreeWindow {
     fn ui(&mut self, ui: &mut Ui, frame: &mut Frame) {
         self.apply_pending_config(ui.ctx());
         self.app.poll();
+        if self.app.is_maintenance() {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(ui.available_height() * 0.4);
+                    ui.spinner();
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr("db_tools.running"))
+                            .strong()
+                            .size(16.0),
+                    );
+                });
+            });
+            ui.ctx().request_repaint();
+            return;
+        }
         self.sync_scene();
         if let Some(path) = self.app.take_restored_path() {
             self.note_recent(path, frame);
@@ -242,6 +260,7 @@ impl App for TreeWindow {
             self.show_person_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
+            self.show_database_tools(ui.ctx());
             self.show_task_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());

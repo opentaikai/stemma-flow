@@ -119,7 +119,7 @@ places, facts, alternate names and notes as first-class records.
 | Duplicate check while adding a person | done | P1 | Scored suggestions in the New Person and relation dialogs |
 | Merge duplicates with side-by-side comparison | done | P0 | Field choices, family consolidation, permanent merge confirmation |
 | Backup and restore with timestamped file names | done | P0 | ZIP snapshot with media, restore as a new tree |
-| Database tools: integrity check, rebuild indexes, compress | planned | P1 | Safe, on-demand maintenance |
+| Database tools: integrity check, rebuild indexes, compress | done | P1 | Blocking, backup-first maintenance dialog |
 | Living and privacy flags | done | P1 | Auto living plus override; export suppression |
 
 ## M3 - Research workflow (P1)

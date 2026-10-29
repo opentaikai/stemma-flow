@@ -228,6 +228,27 @@ rejects malformed archives, newer format/schema versions and unsafe media
 paths. Missing media keep their original paths so they remain visible as
 missing in the Media tab.
 
+## Database maintenance
+
+**Tools > Database Tools…** runs on-demand SQLite maintenance against the
+active tree:
+
+- **Integrity check** executes `PRAGMA integrity_check` and
+  `PRAGMA foreign_key_check`, then lists any corrupt pages or broken
+  references.
+- **Rebuild indexes** runs `REINDEX` and `ANALYZE` to rebuild every index and
+  refresh query-planner statistics.
+- **Compress database** checkpoints the WAL and runs `VACUUM` to reclaim free
+  pages. Compression needs temporary disk space roughly the size of the
+  database and can take time on a large tree.
+
+Rebuild and compress ask for confirmation and default to creating a
+timestamped backup first. While maintenance runs the editing UI is replaced
+by a blocking progress panel, so no other writes can race with SQLite. The
+dialog reports index counts, page/free-page details, before/after sizes and
+elapsed time, and lists foreign-key or integrity problems when a check
+fails.
+
 ## Native file dialogs & background jobs
 
 - `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path,
@@ -240,8 +261,8 @@ missing in the Media tab.
   through an `mpsc` channel that `poll()` drains each frame, so the render
   loop never blocks: `begin_import()` (into the active tree),
   `begin_import_new()` (fresh database), `begin_export()`,
-  `begin_backup()`, `begin_restore()`, `activate_tree()`, `close_tree()`,
-  `status()`, `is_busy()`. Person edits
+  `begin_backup()`, `begin_restore()`, `begin_maintenance()`,
+  `activate_tree()`, `close_tree()`, `status()`, `is_busy()`. Person edits
   go through the synchronous `add_person`, `delete_person`, `edit_person`,
   `add_parent`, `add_spouse` and `add_child`, each opening its own
   connection, writing through `db::people` and bumping
