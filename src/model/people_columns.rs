@@ -11,6 +11,7 @@ pub enum PeopleColumn {
     GivenName,
     MiddleName,
     Surname,
+    RelationshipToRoot,
     Suffix,
     Nickname,
     Gender,
@@ -36,6 +37,7 @@ impl PeopleColumn {
             Self::GivenName => "people.column_given",
             Self::MiddleName => "people.column_middle",
             Self::Surname => "people.column_surname",
+            Self::RelationshipToRoot => "people.column_relationship",
             Self::Suffix => "people.column_suffix",
             Self::Nickname => "people.column_nickname",
             Self::Gender => "people.column_gender",
@@ -55,9 +57,25 @@ impl PeopleColumn {
         }
     }
 
+    pub fn default_visible(self) -> bool {
+        matches!(
+            self,
+            Self::GivenName
+                | Self::Surname
+                | Self::RelationshipToRoot
+                | Self::Gender
+                | Self::BirthDate
+                | Self::DeathDate
+        )
+    }
+
     pub fn default_width(self) -> f32 {
         match self {
-            Self::GivenName | Self::Surname | Self::BirthPlace | Self::DeathPlace => 130.0,
+            Self::GivenName
+            | Self::Surname
+            | Self::RelationshipToRoot
+            | Self::BirthPlace
+            | Self::DeathPlace => 130.0,
             Self::MiddleName | Self::Nickname | Self::Prefix | Self::Suffix => 100.0,
             Self::Notes => 220.0,
             Self::UpdatedAt => 150.0,
@@ -80,14 +98,7 @@ pub fn default_columns() -> Vec<PeopleColumnConfig> {
         .into_iter()
         .map(|column| PeopleColumnConfig {
             column,
-            visible: matches!(
-                column,
-                PeopleColumn::GivenName
-                    | PeopleColumn::Surname
-                    | PeopleColumn::Gender
-                    | PeopleColumn::BirthDate
-                    | PeopleColumn::DeathDate
-            ),
+            visible: column.default_visible(),
             width: column.default_width(),
         })
         .collect()
@@ -100,6 +111,7 @@ pub fn all_columns() -> Vec<PeopleColumn> {
         PeopleColumn::GivenName,
         PeopleColumn::MiddleName,
         PeopleColumn::Surname,
+        PeopleColumn::RelationshipToRoot,
         PeopleColumn::Suffix,
         PeopleColumn::Nickname,
         PeopleColumn::Gender,
@@ -136,7 +148,7 @@ pub fn sanitize_columns(columns: &[PeopleColumnConfig]) -> Vec<PeopleColumnConfi
         if !seen.contains(&column) {
             cleaned.push(PeopleColumnConfig {
                 column,
-                visible: false,
+                visible: column.default_visible(),
                 width: column.default_width(),
             });
         }
@@ -165,6 +177,7 @@ mod tests {
             vec![
                 PeopleColumn::GivenName,
                 PeopleColumn::Surname,
+                PeopleColumn::RelationshipToRoot,
                 PeopleColumn::Gender,
                 PeopleColumn::BirthDate,
                 PeopleColumn::DeathDate,
@@ -200,8 +213,14 @@ mod tests {
         assert!(
             cleaned
                 .iter()
-                .find(|config| config.column == PeopleColumn::Surname)
+                .find(|config| config.column == PeopleColumn::Prefix)
                 .is_some_and(|config| !config.visible)
+        );
+        assert!(
+            cleaned
+                .iter()
+                .find(|config| config.column == PeopleColumn::RelationshipToRoot)
+                .is_some_and(|config| config.visible)
         );
     }
 

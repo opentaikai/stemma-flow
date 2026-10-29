@@ -32,6 +32,10 @@ pub enum InspectorAction {
     AddParentAs(ParentRole),
     AddSpouse,
     AddChild,
+    /// Mark this person as the tree root.
+    SetRoot,
+    /// Clear the tree root.
+    ClearRoot,
     /// Open the pinned modeless person editor.
     OpenEditor,
     /// Switch to the Groups pane in the Research tab.
@@ -321,6 +325,8 @@ mod tests {
                 &facts,
                 None,
                 &mut crate::gui::names::NamesState::default(),
+                None,
+                false,
                 false,
                 false,
             );
@@ -379,6 +385,8 @@ mod tests {
                 &[],
                 Some(&privacy),
                 &mut crate::gui::names::NamesState::default(),
+                None,
+                false,
                 false,
                 false,
             );

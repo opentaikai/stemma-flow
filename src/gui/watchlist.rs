@@ -40,6 +40,7 @@ pub struct PersonRow {
     pub group_count: i64,
     pub association_count: i64,
     pub updated_at: String,
+    pub relationship_to_root: String,
     pub display_name: String,
 }
 
@@ -54,6 +55,7 @@ pub fn rows(
     tree: &FamilyTree,
     dates: &HashMap<String, VitalDates>,
     extras: &HashMap<String, PersonExtras>,
+    root_id: Option<&str>,
     surname_first: bool,
 ) -> Vec<PersonRow> {
     let mut rows = Vec::with_capacity(tree.people.len());
@@ -99,6 +101,12 @@ pub fn rows(
             group_count: extra.map_or(0, |extra| extra.group_count),
             association_count: extra.map_or(0, |extra| extra.association_count),
             updated_at: person.updated_at.clone(),
+            relationship_to_root: root_id
+                .and_then(|root| {
+                    crate::model::relationship::relationship_to_root(tree, root, &person.id)
+                })
+                .map(|relationship| relationship.label())
+                .unwrap_or_default(),
             display_name: if display_name.is_empty() {
                 "(unnamed)".to_string()
             } else {
@@ -127,6 +135,8 @@ pub enum WatchEvent {
     AddPerson,
     Delete(String),
     ColumnsChanged(Vec<PeopleColumnConfig>),
+    SetRoot(String),
+    ClearRoot,
 }
 
 /// Filter/sort/column-dialog state.
@@ -258,6 +268,7 @@ fn text_value(row: &PersonRow, column: PeopleColumn) -> Option<String> {
         PeopleColumn::GivenName => row.given_name.clone(),
         PeopleColumn::MiddleName => row.middle_name.clone(),
         PeopleColumn::Surname => row.surname.clone(),
+        PeopleColumn::RelationshipToRoot => row.relationship_to_root.clone(),
         PeopleColumn::Suffix => row.suffix.clone(),
         PeopleColumn::Nickname => row.nickname.clone(),
         PeopleColumn::Gender => display_gender(&row.gender).to_string(),
@@ -292,6 +303,7 @@ pub fn show(
     rows: &[PersonRow],
     selected: Option<&str>,
     columns: &[PeopleColumnConfig],
+    root_id: Option<&str>,
 ) -> Vec<WatchEvent> {
     let mut events = Vec::new();
     ui.horizontal(|ui| {
@@ -412,6 +424,13 @@ pub fn show(
                 }
                 row.col(|ui| {
                     ui.horizontal(|ui| {
+                        if root_id == Some(person.id.as_str()) {
+                            if ui.small_button(tr("root.clear")).clicked() {
+                                events.push(WatchEvent::ClearRoot);
+                            }
+                        } else if ui.small_button(tr("root.set")).clicked() {
+                            events.push(WatchEvent::SetRoot(person.id.clone()));
+                        }
                         if ui.small_button(tr("common.edit")).clicked() {
                             events.push(WatchEvent::Edit(person.id.clone()));
                         }
@@ -538,7 +557,7 @@ mod tests {
         for (given, surname) in names {
             tree.people.push(Person::new(*given, *surname, "U"));
         }
-        rows(&tree, &HashMap::new(), &HashMap::new(), false)
+        rows(&tree, &HashMap::new(), &HashMap::new(), None, false)
     }
 
     #[test]
@@ -621,7 +640,7 @@ mod tests {
         let mut state = WatchState::default();
         let mut captured = Vec::new();
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            captured = show(ui, &mut state, &rows, None, &default_columns());
+            captured = show(ui, &mut state, &rows, None, &default_columns(), None);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the grid paints");

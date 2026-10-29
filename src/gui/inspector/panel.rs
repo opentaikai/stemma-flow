@@ -143,6 +143,8 @@ pub fn show(
     facts: &[PersonFact],
     privacy: Option<&PersonPrivacy>,
     names: &mut NamesState,
+    root_relationship: Option<&str>,
+    is_root: bool,
     surname_first: bool,
     editor_mode: bool,
 ) -> Option<InspectorAction> {
@@ -180,6 +182,25 @@ pub fn show(
                         .weak()
                         .size(12.0),
                 );
+                if is_root {
+                    ui.label(RichText::new(tr("root.badge")).strong().small());
+                } else if let Some(relationship) = root_relationship {
+                    ui.label(
+                        RichText::new(crate::i18n::tr_args(
+                            "root.relationship",
+                            &[("relationship", relationship.to_string())],
+                        ))
+                        .weak()
+                        .small(),
+                    );
+                }
+                if is_root {
+                    if ui.small_button(tr("root.clear")).clicked() {
+                        action = Some(InspectorAction::ClearRoot);
+                    }
+                } else if ui.small_button(tr("root.set")).clicked() {
+                    action = Some(InspectorAction::SetRoot);
+                }
             });
             card(ui, "Profile", |ui| name_editors(ui, form));
             card(ui, "Names", |ui| {

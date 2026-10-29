@@ -1184,6 +1184,58 @@ mod tests {
     }
 
     #[test]
+    fn root_person_updates_people_relationships() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n\
+             0 @I1@ INDI\n1 NAME Ada /King/\n\
+             0 @I2@ INDI\n1 NAME Father /King/\n1 SEX M\n\
+             0 @I3@ INDI\n1 NAME Mother /King/\n1 SEX F\n\
+             0 @F1@ FAM\n1 HUSB @I2@\n1 WIFE @I3@\n1 CHIL @I1@\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let id_for = |window: &TreeWindow, given: &str| {
+            window
+                .rows
+                .iter()
+                .find(|row| row.given_name == given)
+                .expect("person")
+                .id
+                .clone()
+        };
+        let ada = id_for(&window, "Ada");
+        let father = id_for(&window, "Father");
+        let mother = id_for(&window, "Mother");
+
+        window.set_root_person(Some(&ada));
+        assert_eq!(
+            window.tree_settings.root_person_id.as_deref(),
+            Some(ada.as_str())
+        );
+        let relation = |window: &TreeWindow, id: &str| {
+            window
+                .rows
+                .iter()
+                .find(|row| row.id == id)
+                .expect("row")
+                .relationship_to_root
+                .clone()
+        };
+        assert_eq!(relation(&window, &ada), "Root");
+        assert_eq!(relation(&window, &father), "Father");
+        assert_eq!(relation(&window, &mother), "Mother");
+
+        window.set_root_person(None);
+        assert!(window.tree_settings.root_person_id.is_none());
+        assert_eq!(relation(&window, &ada), "");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn couple_rows_open_the_exact_family_in_family_graph_mode() {
         let db_file = temp_path("db");
         import_people(
