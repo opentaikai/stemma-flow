@@ -3,6 +3,7 @@
 use crate::app;
 use crate::app::UiStatus;
 use crate::db::media::{MediaDraft, MediaOwner};
+use crate::db::merge::MergeDraft;
 use crate::db::notes::NoteOwner;
 use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
@@ -23,6 +24,8 @@ use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
 use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, MediaEvent};
+use crate::gui::merge as merge_dialog;
+use crate::gui::merge::MergeEvent;
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
 use crate::gui::pedigree;
 use crate::gui::person_editor::{EditorPrompt, PersonEditor};
@@ -115,6 +118,7 @@ impl TreeWindow {
     pub(super) fn apply_watch_event(&mut self, event: WatchEvent) {
         match event {
             WatchEvent::Select(person_id) => self.app.set_selected_person(Some(person_id)),
+            WatchEvent::Merge(person_id) => self.open_merge_dialog(Some(person_id)),
             WatchEvent::Edit(person_id) => {
                 self.app.set_selected_person(Some(person_id.clone()));
                 self.open_person_editor(&person_id);
@@ -1542,6 +1546,88 @@ impl TreeWindow {
         };
         self.sources.preview.clear();
         self.sources.error = None;
+    }
+
+    pub(super) fn open_merge_dialog(&mut self, keep: Option<String>) {
+        self.merge.open_with(keep);
+    }
+
+    /// Loads comparisons on demand and dispatches the merge confirmation.
+    pub(super) fn show_merge_window(&mut self, ctx: &egui::Context) {
+        if !self.merge.open {
+            return;
+        }
+        if let (Some(keep), Some(merge)) = (self.merge.keep.clone(), self.merge.merge.clone()) {
+            if keep == merge {
+                self.merge.clear_preview();
+                self.merge.error = Some(crate::i18n::tr("merge.blocked_same"));
+            } else if self.merge.preview_pair.as_ref() != Some(&(keep.clone(), merge.clone())) {
+                match self.app.preview_people_merge(&keep, &merge) {
+                    Ok(preview) => self.merge.set_preview(preview),
+                    Err(message) => {
+                        self.merge.clear_preview();
+                        self.merge.error = Some(message);
+                    }
+                }
+            }
+        } else {
+            self.merge.clear_preview();
+        }
+
+        let event = merge_dialog::show(
+            ctx,
+            &mut self.merge,
+            &self.tree,
+            self.tree_settings.surname_first,
+        );
+        if let Some(MergeEvent::Confirm(draft)) = event {
+            self.apply_merge(&draft);
+        }
+        if !self.merge.open {
+            self.merge = merge_dialog::MergeState::default();
+        }
+    }
+
+    pub(super) fn apply_merge(&mut self, draft: &MergeDraft) {
+        let editor_needs_reload = self.person_editor.as_ref().is_some_and(|editor| {
+            editor.person_id == draft.keep_id || editor.person_id == draft.merge_id
+        });
+        if let Some(editor) = self.person_editor.as_ref()
+            && editor.is_dirty()
+            && (editor.person_id == draft.keep_id || editor.person_id == draft.merge_id)
+        {
+            self.merge.error = Some(crate::i18n::tr("merge.editor_dirty"));
+            self.merge.confirm = false;
+            return;
+        }
+        match self.app.merge_people(draft) {
+            Ok(report) => {
+                let keep_id = draft.keep_id.clone();
+                self.app.set_selected_person(Some(keep_id.clone()));
+                self.merge = merge_dialog::MergeState::default();
+                self.inspected = None;
+                self.associations.clear();
+                self.associations_owner = None;
+                self.places.loaded = false;
+                self.research.tasks.loaded = false;
+                self.research.groups.loaded = false;
+                self.names = crate::gui::names::NamesState::default();
+                self.citations = crate::gui::citations::CitationsState::default();
+                self.reload_scene_quiet();
+                if editor_needs_reload {
+                    let next = self.build_person_editor(&keep_id);
+                    self.person_editor = next;
+                }
+                self.app.set_status(UiStatus::Success(format!(
+                    "Merged duplicate: {} facts and {} families moved",
+                    report.events_moved, report.families_merged
+                )));
+            }
+            Err(message) => {
+                self.merge.error = Some(message);
+                self.merge.confirm = false;
+            }
+        }
     }
 
     /// Opens the New Person dialog with duplicate suggestions.

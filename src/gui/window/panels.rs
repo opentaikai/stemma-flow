@@ -80,6 +80,10 @@ impl TreeWindow {
                     ui.close();
                     self.open_relationship_calculator();
                 }
+                if self.app.active_db().is_some() && ui.button(tr("tools.merge_people")).clicked() {
+                    ui.close();
+                    self.open_merge_dialog(self.app.selected_person_id().map(str::to_string));
+                }
             });
             if let Some(path) = self.app.active_db() {
                 let label = tr_args("menu.active_tree", &[("name", welcome::display_name(path))]);
