@@ -4,6 +4,7 @@ pub mod age;
 pub mod couples;
 pub mod date;
 pub mod descendant_view;
+pub mod duplicates;
 pub mod fact;
 pub mod family_view;
 pub mod graph;
