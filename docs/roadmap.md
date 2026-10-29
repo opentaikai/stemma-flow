@@ -115,7 +115,7 @@ places, facts, alternate names and notes as first-class records.
 | Couple list view | done | P2 | Sortable/filterable pairs with Family graph navigation |
 | Association view | done | P2 | Directed sortable/filterable list with edit/delete |
 | Root person and relationship-to-root display | done | P1 | Per-tree root; People column and inspector label |
-| Relationship calculator between any two people | planned | P1 | Path search over the tree |
+| Relationship calculator between any two people | done | P1 | Tools dialog with label, path and common ancestor |
 | Duplicate check while adding a person | planned | P1 | Suggest matches before insert |
 | Merge duplicates with side-by-side comparison | planned | P0 | Copy fields, merge families, SmartMerge-style pass |
 | Backup and restore with timestamped file names | planned | P0 | Media included once M4 lands |
