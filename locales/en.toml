@@ -212,3 +212,12 @@ generations = "Generations:"
 root = "Root:"
 no_root = "Select a person and set them as root"
 set_root = "Set selected as root"
+
+[family]
+mode = "Family"
+root = "Family root:"
+no_root = "Select a person and set them as family root"
+set_root = "Set selected as family root"
+family = "Family"
+with = "With {name}"
+parents = "Parents: {names}"

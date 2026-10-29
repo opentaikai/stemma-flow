@@ -10,6 +10,7 @@ use crate::gui::nodes::paint_nodes;
 use crate::gui::pedigree;
 use crate::gui::theme;
 use crate::gui::watchlist;
+use crate::model::family_view::{candidate_families, family_tree};
 use crate::model::pedigree::pedigree_tree;
 use egui::Align2;
 use egui::FontId;
@@ -137,17 +138,36 @@ impl TreeWindow {
     /// Rebuilds the canvas scene for the active All or Pedigree mode.
     pub(super) fn rebuild_scene_layout(&mut self) {
         let surname_first = self.tree_settings.surname_first;
-        if self.pedigree.mode == pedigree::GraphMode::Pedigree {
-            match self.pedigree.root_id.as_deref() {
+        match self.pedigree.mode {
+            pedigree::GraphMode::All => {
+                self.scene = layout::build_scene(&self.tree, surname_first);
+            }
+            pedigree::GraphMode::Pedigree => match self.pedigree.root_id.as_deref() {
                 Some(root) if self.tree.people.iter().any(|person| person.id == root) => {
                     let filtered =
                         pedigree_tree(&self.tree, root, self.pedigree.generations.levels());
                     self.scene = layout::build_scene(&filtered, surname_first);
                 }
                 _ => self.scene = super::loading::empty_scene(),
-            }
-        } else {
-            self.scene = layout::build_scene(&self.tree, surname_first);
+            },
+            pedigree::GraphMode::Family => match self.pedigree.family_root_id.as_deref() {
+                Some(root) if self.tree.people.iter().any(|person| person.id == root) => {
+                    let candidates = candidate_families(&self.tree, root);
+                    if self
+                        .pedigree
+                        .family_id
+                        .as_deref()
+                        .is_none_or(|id| !candidates.iter().any(|family| family.id == id))
+                    {
+                        self.pedigree.family_id =
+                            candidates.first().map(|family| family.id.clone());
+                    }
+                    let filtered =
+                        family_tree(&self.tree, root, self.pedigree.family_id.as_deref());
+                    self.scene = layout::build_scene(&filtered, surname_first);
+                }
+                _ => self.scene = super::loading::empty_scene(),
+            },
         }
     }
 
@@ -160,17 +180,63 @@ impl TreeWindow {
 
     pub(super) fn canvas(&mut self, ui: &mut Ui) {
         let selected = self.app.selected_person_id().map(str::to_string);
-        let root_label = self
+        let surname_first = self.tree_settings.surname_first;
+        let person_label = |id: &str| {
+            self.tree
+                .people
+                .iter()
+                .find(|person| person.id == id)
+                .map(|person| inspector::person_label(person, surname_first))
+        };
+        let pedigree_root_label = self.pedigree.root_id.as_deref().and_then(person_label);
+        let family_root_label = self
             .pedigree
-            .root_id
+            .family_root_id
             .as_deref()
-            .and_then(|root| self.tree.people.iter().find(|person| person.id == root))
-            .map(|person| inspector::person_label(person, self.tree_settings.surname_first));
+            .and_then(person_label);
+        let family_options: Vec<(String, String)> = self
+            .pedigree
+            .family_root_id
+            .as_deref()
+            .map(|root| {
+                candidate_families(&self.tree, root)
+                    .into_iter()
+                    .map(|family| {
+                        let label = if family.husband_id.as_deref() == Some(root)
+                            || family.wife_id.as_deref() == Some(root)
+                        {
+                            let other = if family.husband_id.as_deref() == Some(root) {
+                                family.wife_id.as_deref()
+                            } else {
+                                family.husband_id.as_deref()
+                            };
+                            other
+                                .and_then(person_label)
+                                .map(|name| crate::i18n::tr_args("family.with", &[("name", name)]))
+                                .unwrap_or_else(|| crate::i18n::tr("family.family"))
+                        } else {
+                            let parents = [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                                .into_iter()
+                                .flatten()
+                                .filter_map(person_label)
+                                .collect::<Vec<_>>();
+                            crate::i18n::tr_args(
+                                "family.parents",
+                                &[("names", parents.join(" & "))],
+                            )
+                        };
+                        (family.id.clone(), label)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         if pedigree::show_toolbar(
             ui,
             &mut self.pedigree,
             selected.as_deref(),
-            root_label.as_deref(),
+            pedigree_root_label.as_deref(),
+            family_root_label.as_deref(),
+            &family_options,
         ) {
             self.rebuild_scene_layout();
             self.pending_framing = true;
@@ -238,10 +304,10 @@ impl TreeWindow {
         );
 
         if self.scene.nodes.is_empty() {
-            let hint = if self.pedigree.mode == pedigree::GraphMode::Pedigree {
-                crate::i18n::tr("pedigree.no_root")
-            } else {
-                HINT_TEXT.to_string()
+            let hint = match self.pedigree.mode {
+                pedigree::GraphMode::Pedigree => crate::i18n::tr("pedigree.no_root"),
+                pedigree::GraphMode::Family => crate::i18n::tr("family.no_root"),
+                pedigree::GraphMode::All => HINT_TEXT.to_string(),
             };
             painter.text(
                 viewport_rect.center(),
