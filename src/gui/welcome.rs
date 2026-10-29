@@ -16,7 +16,7 @@ const CARD_MARGIN_X: i8 = 28;
 const CARD_MARGIN_Y: i8 = 32;
 const BUTTON_HEIGHT: f32 = 44.0;
 const LOGO_SIZE: f32 = 72.0;
-const BASE_CARD_HEIGHT: f32 = 392.0;
+const BASE_CARD_HEIGHT: f32 = 444.0;
 const RECENT_ROW_HEIGHT: f32 = 26.0;
 const MIN_TOP_SPACE: f32 = 16.0;
 
@@ -26,6 +26,7 @@ pub enum WelcomeAction {
     CreateNew,
     OpenTree,
     ImportGedcom,
+    RestoreBackup,
     OpenRecent(PathBuf),
 }
 
@@ -92,6 +93,13 @@ fn card(ui: &mut Ui, recent: &[PathBuf], action: &mut Option<WelcomeAction>) {
                 .fill(ACCENT);
             if ui.add_sized([width, BUTTON_HEIGHT], import).clicked() {
                 *action = Some(WelcomeAction::ImportGedcom);
+            }
+            ui.add_space(8.0);
+            let restore =
+                egui::Button::new(RichText::new(tr("welcome.restore")).size(15.0).strong())
+                    .fill(ACCENT);
+            if ui.add_sized([width, BUTTON_HEIGHT], restore).clicked() {
+                *action = Some(WelcomeAction::RestoreBackup);
             }
 
             ui.add_space(16.0);

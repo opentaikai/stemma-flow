@@ -193,6 +193,9 @@ impl App for TreeWindow {
         self.apply_pending_config(ui.ctx());
         self.app.poll();
         self.sync_scene();
+        if let Some(path) = self.app.take_restored_path() {
+            self.note_recent(path, frame);
+        }
         if let Some(report) = self.app.take_new_import_report()
             && !report.warnings.is_empty()
         {

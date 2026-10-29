@@ -118,7 +118,7 @@ places, facts, alternate names and notes as first-class records.
 | Relationship calculator between any two people | done | P1 | Tools dialog with label, path and common ancestor |
 | Duplicate check while adding a person | done | P1 | Scored suggestions in the New Person and relation dialogs |
 | Merge duplicates with side-by-side comparison | done | P0 | Field choices, family consolidation, permanent merge confirmation |
-| Backup and restore with timestamped file names | planned | P0 | Media included once M4 lands |
+| Backup and restore with timestamped file names | done | P0 | ZIP snapshot with media, restore as a new tree |
 | Database tools: integrity check, rebuild indexes, compress | planned | P1 | Safe, on-demand maintenance |
 | Living and privacy flags | done | P1 | Auto living plus override; export suppression |
 
