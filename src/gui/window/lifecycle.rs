@@ -101,6 +101,9 @@ impl TreeWindow {
             )
         });
         self.rows = watchlist::rows(&tree, &dates, &extras, settings.surname_first);
+        self.couple_rows =
+            crate::model::couples::couples(&tree, &marriages, settings.surname_first);
+        self.couples.mark_dirty();
         self.tree = tree;
         self.dates = dates;
         self.marriages = marriages;

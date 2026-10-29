@@ -4,6 +4,7 @@ pub mod associations;
 pub mod canvas;
 pub mod citations;
 pub mod connectors;
+pub mod couples;
 pub mod dialogs;
 pub mod export_dialog;
 pub mod fact_types;
