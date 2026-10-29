@@ -14,6 +14,42 @@ const MIN_WIDTH: f32 = 1.0;
 /// One straight connector segment in canvas coordinates: `[start, end]`.
 pub type Segment = [Pos2; 2];
 
+/// Screen-independent connector geometry reused across pan/zoom frames.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectorCache {
+    segments: Vec<CachedSegment>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedSegment {
+    segment: Segment,
+    bounds: Rect,
+}
+
+impl ConnectorCache {
+    pub fn new(scene: &TreeScene) -> Self {
+        let segments = build_segments(scene)
+            .into_iter()
+            .map(|segment| {
+                let [start, end] = segment;
+                CachedSegment {
+                    segment,
+                    bounds: Rect::from_two_pos(start, end).expand(BASE_WIDTH),
+                }
+            })
+            .collect();
+        Self { segments }
+    }
+
+    pub fn len(&self) -> usize {
+        self.segments.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.segments.is_empty()
+    }
+}
+
 /// Builds the orthogonal connector route for every union: the spouse bar,
 /// a drop line to the trunk row anchored half a rank gap below the
 /// couple, the branch itself spanning all children, and one drop per
@@ -324,17 +360,16 @@ fn push_segment(segments: &mut Vec<Segment>, start: Pos2, end: Pos2) {
 /// leaving the viewport are culled before hitting the painter.
 pub fn paint_connectors(
     painter: &Painter,
-    scene: &TreeScene,
+    cache: &ConnectorCache,
     viewport: &ViewportState,
     viewport_rect: Rect,
 ) {
     let stroke = Stroke::new((BASE_WIDTH * viewport.zoom).max(MIN_WIDTH), LINE_COLOR);
-    for segment in build_segments(scene) {
-        let [start, end] = segment;
-        let canvas_bounds = Rect::from_two_pos(start, end).expand(BASE_WIDTH);
-        if !viewport.is_visible(canvas_bounds, viewport_rect) {
+    for cached in &cache.segments {
+        if !viewport.is_visible(cached.bounds, viewport_rect) {
             continue;
         }
+        let [start, end] = cached.segment;
         painter.line_segment(
             [
                 viewport.canvas_to_screen(start, viewport_rect),
@@ -487,7 +522,12 @@ mod tests {
         let viewport_rect = Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
 
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            paint_connectors(ui.painter(), &scene, &viewport, viewport_rect);
+            paint_connectors(
+                ui.painter(),
+                &ConnectorCache::new(&scene),
+                &viewport,
+                viewport_rect,
+            );
         });
         assert!(!output.shapes.is_empty(), "connectors are painted");
         output.textures_delta.clear();
@@ -495,12 +535,98 @@ mod tests {
         let mut panned = viewport;
         panned.pan = vec2(50_000.0, 0.0);
         let mut culled = ctx.run_ui(RawInput::default(), |ui| {
-            paint_connectors(ui.painter(), &scene, &panned, viewport_rect);
+            paint_connectors(
+                ui.painter(),
+                &ConnectorCache::new(&scene),
+                &panned,
+                viewport_rect,
+            );
         });
         culled.textures_delta.clear();
         assert!(
             culled.shapes.is_empty(),
             "segments off-screen must be culled"
         );
+    }
+
+    #[test]
+    fn connector_cache_matches_pure_routing_and_culls() {
+        let scene = TreeScene {
+            nodes: Vec::new(),
+            unions: vec![union(
+                Some([Pos2::new(0.0, 0.0), Pos2::new(60.0, 0.0)]),
+                Pos2::new(30.0, 0.0),
+                100.0,
+                vec![Pos2::new(30.0, 200.0)],
+            )],
+            bounds: Rect::from_min_size(Pos2::ZERO, vec2(100.0, 260.0)),
+        };
+        let cache = ConnectorCache::new(&scene);
+        assert_eq!(cache.len(), build_segments(&scene).len());
+        assert!(!cache.is_empty());
+
+        let ctx = Context::default();
+        let viewport = ViewportState::default();
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
+        let mut painted = ctx.run_ui(RawInput::default(), |ui| {
+            paint_connectors(ui.painter(), &cache, &viewport, rect);
+        });
+        assert!(!painted.shapes.is_empty());
+        painted.textures_delta.clear();
+
+        let panned = ViewportState {
+            pan: vec2(50_000.0, 0.0),
+            ..viewport
+        };
+        let mut culled = ctx.run_ui(RawInput::default(), |ui| {
+            paint_connectors(ui.painter(), &cache, &panned, rect);
+        });
+        culled.textures_delta.clear();
+        assert!(culled.shapes.is_empty(), "cached segments are culled");
+    }
+
+    #[test]
+    #[ignore = "performance benchmark"]
+    fn benchmark_connector_geometry() {
+        use crate::db::{Family, FamilyTree, Person};
+        use std::time::Instant;
+
+        let mut tree = FamilyTree::default();
+        let mut previous: Option<String> = None;
+        for index in 0..1_000 {
+            let mut person = Person::new(format!("P{index}"), "Person", "U");
+            person.id = format!("p{index}");
+            if let Some(parent) = previous.take() {
+                let family_id = format!("f{index}");
+                tree.families.push(Family {
+                    id: family_id.clone(),
+                    husband_id: Some(parent),
+                    wife_id: None,
+                    created_at: String::new(),
+                });
+                tree.child_links.push((family_id, person.id.clone()));
+            }
+            previous = Some(person.id.clone());
+            tree.people.push(person);
+        }
+        let start = Instant::now();
+        let scene = crate::gui::layout::build_scene(&tree, false);
+        let layout = start.elapsed();
+        let start = Instant::now();
+        let segments = build_segments(&scene);
+        let routing = start.elapsed();
+        let cache = ConnectorCache::new(&scene);
+        let start = Instant::now();
+        for _ in 0..60 {
+            std::hint::black_box(&cache);
+        }
+        let cache_access = start.elapsed();
+        println!(
+            "pedigree benchmark: people={} nodes={} layout={layout:?} routing={routing:?} segments={} cache_access_60={cache_access:?}",
+            tree.people.len(),
+            scene.nodes.len(),
+            segments.len()
+        );
+        assert!(!segments.is_empty());
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::db;
 use crate::db::FamilyTree;
-use crate::gui::connectors::paint_connectors;
+use crate::gui::connectors::{ConnectorCache, paint_connectors};
 use crate::gui::inspector;
 use crate::gui::layout;
 use crate::gui::nodes::hit_test;
@@ -161,15 +161,17 @@ impl TreeWindow {
         let surname_first = self.tree_settings.surname_first;
         match self.pedigree.mode {
             pedigree::GraphMode::All => {
-                self.scene = layout::build_scene(&self.tree, surname_first);
+                let scene = layout::build_scene(&self.tree, surname_first);
+                self.replace_scene(scene);
             }
             pedigree::GraphMode::Pedigree => match self.pedigree.root_id.as_deref() {
                 Some(root) if self.tree.people.iter().any(|person| person.id == root) => {
                     let filtered =
                         pedigree_tree(&self.tree, root, self.pedigree.generations.levels());
-                    self.scene = layout::build_scene(&filtered, surname_first);
+                    let scene = layout::build_scene(&filtered, surname_first);
+                    self.replace_scene(scene);
                 }
-                _ => self.scene = super::loading::empty_scene(),
+                _ => self.replace_scene(super::loading::empty_scene()),
             },
             pedigree::GraphMode::Family => match self.pedigree.family_root_id.as_deref() {
                 Some(root) if self.tree.people.iter().any(|person| person.id == root) => {
@@ -185,9 +187,10 @@ impl TreeWindow {
                     }
                     let filtered =
                         family_tree(&self.tree, root, self.pedigree.family_id.as_deref());
-                    self.scene = layout::build_scene(&filtered, surname_first);
+                    let scene = layout::build_scene(&filtered, surname_first);
+                    self.replace_scene(scene);
                 }
-                _ => self.scene = super::loading::empty_scene(),
+                _ => self.replace_scene(super::loading::empty_scene()),
             },
             pedigree::GraphMode::Descendants => match self.pedigree.descendant_root_id.as_deref() {
                 Some(root) if self.tree.people.iter().any(|person| person.id == root) => {
@@ -196,11 +199,17 @@ impl TreeWindow {
                         root,
                         self.pedigree.descendant_generations.levels(),
                     );
-                    self.scene = layout::build_scene(&filtered, surname_first);
+                    let scene = layout::build_scene(&filtered, surname_first);
+                    self.replace_scene(scene);
                 }
-                _ => self.scene = super::loading::empty_scene(),
+                _ => self.replace_scene(super::loading::empty_scene()),
             },
         }
+    }
+
+    fn replace_scene(&mut self, scene: crate::gui::layout::TreeScene) {
+        self.connectors = ConnectorCache::new(&scene);
+        self.scene = scene;
     }
 
     /// Scales and centres the whole loaded scene inside `viewport_rect`
@@ -332,7 +341,7 @@ impl TreeWindow {
             None => {}
         }
 
-        paint_connectors(&painter, &self.scene, &self.viewport, viewport_rect);
+        paint_connectors(&painter, &self.connectors, &self.viewport, viewport_rect);
         paint_nodes(
             &painter,
             &self.scene,
