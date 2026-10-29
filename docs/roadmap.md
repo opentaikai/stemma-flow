@@ -110,7 +110,7 @@ places, facts, alternate names and notes as first-class records.
 | Switch between family members inside the edit screen | done | P2 | Parent/spouse rows switch the pinned editor |
 | Pedigree view (5 or 6 generations) | done | P0 | Pinned-root ancestor chart; all parent families |
 | Family view | done | P0 | Pinned root, spouse/parent family selector, direct children |
-| Descendant view (2 to 7 generations) | planned | P1 | Reuses the graph layout |
+| Descendant view (2 to 7 generations) | done | P1 | Pinned root, descendant spouses and all child families |
 | People list view with configurable columns | planned | P1 | Watch list evolves into this |
 | Couple list view | planned | P2 | Sortable pairs |
 | Association view | planned | P2 | Requires associations from M1 |
