@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use crate::db::{Family, FamilyTree};
 
 use super::builder::LayoutBuilder;
-use super::{H_SPACING, NODE_H, NODE_W, SPOUSE_GAP, V_GAP};
+use super::{H_SPACING, NODE_W, RANK_PITCH, SPOUSE_GAP};
 
 /// One rank unit: people joined by marriages, drawn as a spouse chain.
 #[derive(Debug)]
@@ -332,6 +332,6 @@ impl<'a> LayoutBuilder<'a> {
             .and_then(|&component| self.component_offsets.get(&component))
             .map(|(_, dy)| *dy)
             .unwrap_or(0.0);
-        rank as f32 * (NODE_H + V_GAP) + offset
+        rank as f32 * (RANK_PITCH) + offset
     }
 }

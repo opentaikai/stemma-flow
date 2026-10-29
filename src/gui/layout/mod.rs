@@ -28,8 +28,13 @@ pub const NODE_H: f32 = 56.0;
 const H_SPACING: f32 = 24.0;
 /// Union gap between spouses seated next to each other in a chain.
 const SPOUSE_GAP: f32 = 12.0;
-/// Vertical gap between two ranks (spec floor: 120).
-const V_GAP: f32 = 120.0;
+/// Vertical gap between two ranks. Generous enough for the union drop,
+/// family trunk and child drop to remain visually distinct.
+pub(crate) const V_GAP: f32 = 180.0;
+/// Vertical distance between the tops of two adjacent generation rows.
+pub(crate) const RANK_PITCH: f32 = NODE_H + V_GAP;
+/// Vertical gap between disconnected component boxes on the canvas grid.
+pub(crate) const COMPONENT_GAP: f32 = 120.0;
 /// Character budget for node name labels.
 const NAME_MAX_CHARS: usize = 16;
 
@@ -46,6 +51,9 @@ mod tests {
     use super::scene::person_display_name;
     use super::*;
     use crate::db::{Family, FamilyTree, Person};
+    use crate::model::descendant_view::descendant_tree;
+    use crate::model::family_view::family_tree;
+    use crate::model::pedigree::pedigree_tree;
     use egui::{Pos2, Rect};
 
     fn person(id: &str, given: &str, surname: &str) -> Person {
@@ -194,6 +202,181 @@ mod tests {
             families,
             child_links: Vec::new(),
         }
+    }
+
+    /// One spouse's parents are deeper than the other's, forcing a
+    /// multi-rank parent edge while the couple stays together.
+    fn unequal_ancestry_tree() -> FamilyTree {
+        FamilyTree {
+            people: ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"]
+                .into_iter()
+                .map(|id| person(id, "Person", "Tree"))
+                .collect(),
+            families: vec![
+                family("f1", Some("p1"), Some("p2")),
+                family("f2", Some("p3"), Some("p4")),
+                family("f3", Some("p5"), Some("p6")),
+                family("f4", Some("p8"), Some("p9")),
+            ],
+            child_links: vec![
+                ("f1".to_string(), "p3".to_string()),
+                ("f1".to_string(), "p7".to_string()),
+                ("f3".to_string(), "p4".to_string()),
+                ("f4".to_string(), "p5".to_string()),
+            ],
+        }
+    }
+
+    /// The same child belongs to two different parent families.
+    fn shared_child_tree() -> FamilyTree {
+        FamilyTree {
+            people: ["p1", "p2", "p3", "p4", "p5"]
+                .into_iter()
+                .map(|id| person(id, "Person", "Tree"))
+                .collect(),
+            families: vec![
+                family("f1", Some("p1"), Some("p2")),
+                family("f2", Some("p3"), Some("p4")),
+            ],
+            child_links: vec![
+                ("f1".to_string(), "p5".to_string()),
+                ("f2".to_string(), "p5".to_string()),
+            ],
+        }
+    }
+
+    /// Two sibling branches converge on the same descendant, the shape
+    /// produced by pedigree collapse and repeated cousin links.
+    fn pedigree_collapse_tree() -> FamilyTree {
+        FamilyTree {
+            people: ["p1", "p2", "p3", "p4", "p5", "p6", "p7"]
+                .into_iter()
+                .map(|id| person(id, "Person", "Tree"))
+                .collect(),
+            families: vec![
+                family("f1", Some("p1"), Some("p2")),
+                family("f2", Some("p3"), Some("p5")),
+                family("f3", Some("p4"), Some("p6")),
+            ],
+            child_links: vec![
+                ("f1".to_string(), "p3".to_string()),
+                ("f1".to_string(), "p4".to_string()),
+                ("f2".to_string(), "p7".to_string()),
+                ("f3".to_string(), "p7".to_string()),
+            ],
+        }
+    }
+
+    /// A straight chain of couples spanning `generations` rows.
+    fn deep_lineage_tree(generations: usize) -> FamilyTree {
+        let mut people = Vec::new();
+        let mut families = Vec::new();
+        let mut child_links = Vec::new();
+        for generation in 0..generations {
+            people.push(person(&format!("a{generation}"), "Given", "Tree"));
+            people.push(person(&format!("b{generation}"), "Spouse", "Tree"));
+            if generation + 1 < generations {
+                families.push(family(
+                    &format!("f{generation}"),
+                    Some(&format!("a{generation}")),
+                    Some(&format!("b{generation}")),
+                ));
+                child_links.push((format!("f{generation}"), format!("a{}", generation + 1)));
+            }
+        }
+        FamilyTree {
+            people,
+            families,
+            child_links,
+        }
+    }
+
+    fn strict_crossings(scene: &TreeScene) -> usize {
+        let segments = crate::gui::connectors::build_segments(scene);
+        let mut crossings = 0;
+        for left in 0..segments.len() {
+            for right in (left + 1)..segments.len() {
+                if segments_cross(segments[left], segments[right]) {
+                    crossings += 1;
+                }
+            }
+        }
+        crossings
+    }
+
+    fn segments_cross(left: [Pos2; 2], right: [Pos2; 2]) -> bool {
+        let [a, b] = left;
+        let [c, d] = right;
+        let left_h = (a.y - b.y).abs() < 0.01;
+        let right_h = (c.y - d.y).abs() < 0.01;
+        if left_h == right_h {
+            return false;
+        }
+        let (h1, h2, v1, v2) = if left_h { (a, b, c, d) } else { (c, d, a, b) };
+        let (hmin, hmax) = if h1.x <= h2.x {
+            (h1.x, h2.x)
+        } else {
+            (h2.x, h1.x)
+        };
+        let (vmin, vmax) = if v1.y <= v2.y {
+            (v1.y, v2.y)
+        } else {
+            (v2.y, v1.y)
+        };
+        v1.x > hmin + 0.01 && v1.x < hmax - 0.01 && h1.y > vmin + 0.01 && h1.y < vmax - 0.01
+    }
+
+    fn trunk_span(union: &UnionGeom) -> (f32, f32) {
+        let start = union
+            .children
+            .iter()
+            .map(|(_, anchor)| anchor.x)
+            .fold(f32::INFINITY, f32::min);
+        let end = union
+            .children
+            .iter()
+            .map(|(_, anchor)| anchor.x)
+            .fold(f32::NEG_INFINITY, f32::max);
+        (start, end)
+    }
+
+    fn max_trunk_span(scene: &TreeScene) -> f32 {
+        scene
+            .unions
+            .iter()
+            .filter(|union| !union.children.is_empty())
+            .map(|union| {
+                let (start, end) = trunk_span(union);
+                end - start
+            })
+            .fold(0.0, f32::max)
+    }
+
+    fn overlapping_trunk_pairs(scene: &TreeScene) -> usize {
+        let mut rows: std::collections::HashMap<i64, Vec<(f32, f32)>> =
+            std::collections::HashMap::new();
+        for union in &scene.unions {
+            if union.children.is_empty() {
+                continue;
+            }
+            let (start, end) = trunk_span(union);
+            rows.entry((union.trunk_y * 100.0).round() as i64)
+                .or_default()
+                .push((start, end));
+        }
+        let mut overlaps = 0;
+        for spans in rows.values() {
+            for left in 0..spans.len() {
+                for right in (left + 1)..spans.len() {
+                    let overlap =
+                        spans[left].1.min(spans[right].1) - spans[left].0.max(spans[right].0);
+                    if overlap > 0.01 {
+                        overlaps += 1;
+                    }
+                }
+            }
+        }
+        overlaps
     }
 
     fn node<'a>(scene: &'a TreeScene, id: &str) -> &'a NodeGeom {
@@ -359,18 +542,18 @@ mod tests {
         let grandparent = node(&scene, "i1");
         assert_eq!(
             child.bounds.min.y - grandparent.bounds.min.y,
-            NODE_H + V_GAP,
+            RANK_PITCH,
             "the couple sits exactly one rank below the grandparents"
         );
         assert_eq!(
             node(&scene, "i5").bounds.min.y - child.bounds.min.y,
-            NODE_H + V_GAP,
+            RANK_PITCH,
             "the next generation follows one rank below"
         );
     }
 
     #[test]
-    fn second_family_children_stay_in_the_block() {
+    fn second_family_children_stay_near_their_union() {
         // Both children belong under their own family's union, inside
         // the chain block.
         let scene = build_scene(&remarriage_tree(), false);
@@ -389,11 +572,11 @@ mod tests {
             "both children rows share the child rank"
         );
         assert!(
-            (second_child.center().x - union(&scene, "f2").union.x).abs() < 1e-3,
-            "f2 children centred under the f2 union"
+            (second_child.center().x - union(&scene, "f2").union.x).abs() <= H_SPACING,
+            "f2 children sit under the f2 union, shifted only to keep rank spacing"
         );
-        // The two unions sit only SPOUSE_GAP + NODE_W apart, so the f1
-        // row slides right to keep the rows H_SPACING clear.
+        // Rank packing may shift a child row slightly so neighbouring
+        // sibling groups keep H_SPACING apart.
         let f1_shift = first_child.center().x - union(&scene, "f1").union.x;
         assert!(
             (-1e-3..=H_SPACING + 1e-3).contains(&f1_shift),
@@ -413,12 +596,12 @@ mod tests {
         let child = node(&scene, "i3").bounds;
         assert_eq!(
             child.min.y - parent.min.y,
-            NODE_H + V_GAP,
-            "row pitch is NODE_H + V_GAP"
+            RANK_PITCH,
+            "row pitch is RANK_PITCH"
         );
         assert!(
-            child.min.y - parent.max.y >= 120.0 - 1e-6,
-            "generations are at least 120 apart"
+            child.min.y - parent.max.y >= V_GAP - 1e-6,
+            "generations keep the configured vertical gap"
         );
         assert_eq!(
             mother.min.x - parent.max.x,
@@ -496,6 +679,27 @@ mod tests {
         }
     }
 
+    fn assert_bounds_contain_content(label: &str, scene: &TreeScene) {
+        for node in &scene.nodes {
+            assert!(
+                scene.bounds.min.x <= node.bounds.min.x
+                    && scene.bounds.min.y <= node.bounds.min.y
+                    && scene.bounds.max.x >= node.bounds.max.x
+                    && scene.bounds.max.y >= node.bounds.max.y,
+                "{label}: node {} lies outside the scene bounds",
+                node.person_id
+            );
+        }
+        for segment in crate::gui::connectors::build_segments(scene) {
+            for point in segment {
+                assert!(
+                    scene.bounds.contains(point),
+                    "{label}: connector point {point:?} lies outside the scene bounds"
+                );
+            }
+        }
+    }
+
     fn assert_no_overlap(label: &str, scene: &TreeScene) {
         for (index, node) in scene.nodes.iter().enumerate() {
             for other in scene.nodes.iter().skip(index + 1) {
@@ -517,7 +721,7 @@ mod tests {
         let trunk = union(&scene, "f1").trunk_y;
         let parent = node(&scene, "i1").bounds;
         let child = node(&scene, "i3").bounds;
-        assert_eq!(trunk, 60.0, "rank 0 trunk is half a 120 gap below 0");
+        assert_eq!(trunk, V_GAP * 0.5, "rank 0 trunk is half a gap below 0");
         assert!(
             trunk > parent.max.y && trunk < child.min.y,
             "the trunk row falls in the open gap between the ranks"
@@ -527,7 +731,7 @@ mod tests {
         let second_rank_trunk = union(&lineage, "f2").trunk_y;
         assert_eq!(
             second_rank_trunk,
-            (NODE_H + V_GAP) + V_GAP * 0.5,
+            (RANK_PITCH) + V_GAP * 0.5,
             "rank 1 trunk follows the same formula"
         );
     }
@@ -566,7 +770,11 @@ mod tests {
         trunks.dedup();
         assert_eq!(
             trunks,
-            vec![60.0, 236.0, 412.0],
+            vec![
+                V_GAP * 0.5,
+                NODE_H + COMPONENT_GAP + V_GAP * 0.5,
+                (NODE_H + COMPONENT_GAP) * 2.0 + V_GAP * 0.5,
+            ],
             "trunk rows follow the three grid rows"
         );
     }
@@ -600,7 +808,7 @@ mod tests {
     }
 
     fn assert_connectors_avoid_nodes(scene: &TreeScene) {
-        let segments = crate::gui::connectors::build_segments(&scene);
+        let segments = crate::gui::connectors::build_segments(scene);
         for segment in &segments {
             for node in &scene.nodes {
                 assert!(
@@ -630,6 +838,108 @@ mod tests {
     }
 
     #[test]
+    fn unequal_ancestry_keeps_a_traceable_long_edge() {
+        let tree = unequal_ancestry_tree();
+        let scene = build_scene(&tree, false);
+        assert_no_overlap("unequal ancestry", &scene);
+        assert_connectors_avoid_nodes(&scene);
+        assert_eq!(scene, build_scene(&tree, false), "layout is deterministic");
+        assert!(
+            scene.unions.iter().any(|union| union
+                .children
+                .iter()
+                .any(|(_, anchor)| { anchor.y - union.parent_rank_y > RANK_PITCH + 1.0 })),
+            "the fixture exercises a multi-rank parent edge"
+        );
+        assert!(
+            strict_crossings(&scene) <= 2,
+            "no crossing explosion on unequal ancestry"
+        );
+    }
+
+    #[test]
+    fn shared_children_and_pedigree_collapse_stay_connected_once() {
+        for (label, tree) in [
+            ("shared child", shared_child_tree()),
+            ("pedigree collapse", pedigree_collapse_tree()),
+        ] {
+            let scene = build_scene(&tree, false);
+            assert_no_overlap(label, &scene);
+            assert_connectors_avoid_nodes(&scene);
+            assert_eq!(
+                scene.nodes.len(),
+                tree.people.len(),
+                "{label}: every person appears exactly once"
+            );
+            let child = if label == "shared child" { "p5" } else { "p7" };
+            let anchors = scene
+                .unions
+                .iter()
+                .filter(|union| union.children.iter().any(|(id, _)| id == child))
+                .count();
+            assert_eq!(anchors, 2, "{label}: both parent families stay connected");
+            assert_eq!(scene, build_scene(&tree, false), "{label}: deterministic");
+        }
+    }
+
+    #[test]
+    fn deep_generations_keep_rank_pitch_and_canvas_bounds() {
+        let tree = deep_lineage_tree(6);
+        let scene = build_scene(&tree, false);
+        assert_no_overlap("deep lineage", &scene);
+        assert_connectors_avoid_nodes(&scene);
+        assert_bounds_contain_content("deep lineage", &scene);
+        let mut rows: Vec<f32> = scene.nodes.iter().map(|node| node.bounds.min.y).collect();
+        rows.sort_by(f32::total_cmp);
+        rows.dedup();
+        assert_eq!(rows.len(), 6, "six generations are present");
+        for pair in rows.windows(2) {
+            assert!(
+                (pair[1] - pair[0] - RANK_PITCH).abs() < 1e-3,
+                "generation pitch should be {RANK_PITCH}, got {}",
+                pair[1] - pair[0]
+            );
+        }
+        assert!(
+            scene.bounds.height() >= 5.0 * RANK_PITCH + NODE_H,
+            "canvas height covers the deepest node row"
+        );
+
+        for (label, filtered) in [
+            ("pedigree", pedigree_tree(&tree, "a5", 6)),
+            ("family", family_tree(&tree, "a2", None)),
+            ("descendants", descendant_tree(&tree, "a0", 6)),
+        ] {
+            let filtered_scene = build_scene(&filtered, false);
+            assert_no_overlap(label, &filtered_scene);
+            assert_connectors_avoid_nodes(&filtered_scene);
+            assert_bounds_contain_content(label, &filtered_scene);
+        }
+    }
+
+    #[test]
+    fn filtered_graph_views_stay_clean() {
+        let tree = lineage_tree();
+        let pedigree = pedigree_tree(&tree, "i3", 3);
+        let family = family_tree(&tree, "i3", None);
+        let descendants = descendant_tree(&tree, "i1", 3);
+        for (label, filtered) in [
+            ("pedigree", pedigree),
+            ("family", family),
+            ("descendants", descendants),
+        ] {
+            let scene = build_scene(&filtered, false);
+            assert_no_overlap(label, &scene);
+            assert_connectors_avoid_nodes(&scene);
+            assert_eq!(
+                scene,
+                build_scene(&filtered, false),
+                "{label}: deterministic"
+            );
+        }
+    }
+
+    #[test]
     fn layout_real_export_when_present() -> Result<(), crate::gedcom::GedcomError> {
         // Private WikiTree export in gitignored `test_data/`; skipped in CI.
         let Ok(entries) = std::fs::read_dir("test_data") else {
@@ -651,6 +961,19 @@ mod tests {
         assert!(!scene.nodes.is_empty(), "the real export must layout");
         assert_no_overlap("real", &scene);
         assert_connectors_avoid_nodes(&scene);
+        assert_bounds_contain_content("real", &scene);
+        assert!(
+            max_trunk_span(&scene) < 11_657.0,
+            "longest family trunk should be at least half the old 23,314-unit baseline"
+        );
+        assert!(
+            overlapping_trunk_pairs(&scene) <= 13,
+            "overlapping trunks should stay below the checked-in budget"
+        );
+        assert!(
+            strict_crossings(&scene) <= 2,
+            "strict crossings should not exceed the old baseline"
+        );
         assert_eq!(
             scene,
             build_scene(&tree, false),

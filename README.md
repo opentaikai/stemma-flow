@@ -335,6 +335,13 @@ views (the app always launches on Graph View):
   counts as generation one), includes descendant spouses and all descendant
   families, and stops at the selected depth. All specialised views use
   **Set selected as … root** to re-root without changing the pinned editor.
+  The shared layout assigns coordinates rank by rank: marriage compounds
+  keep their generation, children are ordered by their parents' positions,
+  and siblings stay grouped without letting one wide descendant row push a
+  whole branch sideways. Generation rows use a deliberately generous
+  vertical gap so node boxes, union drops, family trunks and child drops
+  remain visually separate. Multi-generation parent links are routed
+  through clear side lanes so they cannot cut through unrelated nodes.
 - **People** — a virtualized `egui_extras::TableBuilder` grid. The
   **Columns…** dialog shows/hides, reorders and resizes columns; visibility,
   order and widths persist globally in `config.toml`. Available columns

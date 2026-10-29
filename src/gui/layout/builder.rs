@@ -160,11 +160,24 @@ impl<'a> LayoutBuilder<'a> {
                     Some((child_id.to_string(), anchor))
                 })
                 .collect();
+            let parent_rank_y = family
+                .husband_id
+                .as_deref()
+                .and_then(|id| self.compound_of.get(id).copied())
+                .or_else(|| {
+                    family
+                        .wife_id
+                        .as_deref()
+                        .and_then(|id| self.compound_of.get(id).copied())
+                })
+                .map(|compound| self.rank_y(compound))
+                .unwrap_or(0.0);
             unions.push(UnionGeom {
                 family_id: family.id.clone(),
                 spouse_line,
                 union,
                 trunk_y: self.trunk_y(family),
+                parent_rank_y,
                 children,
             });
         }
@@ -191,11 +204,14 @@ impl<'a> LayoutBuilder<'a> {
             });
         }
         let unions = self.build_unions();
-        let bounds = nodes
+        let mut bounds = nodes
             .iter()
             .map(|node| node.bounds)
             .reduce(Rect::union)
             .unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, Vec2::ZERO));
+        if !nodes.is_empty() {
+            bounds = bounds.expand(16.0);
+        }
         TreeScene {
             nodes,
             unions,
