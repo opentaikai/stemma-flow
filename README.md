@@ -207,19 +207,41 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   restores them losslessly, warnings cover dangling source and repository
   pointers and duplicate IDs.
 
+## Backup and restore
+
+**File > Backup Tree…** writes one timestamped ZIP named
+`<tree>-backup-YYYYMMDD-HHMMSS.zip`. The archive contains a consistent
+SQLite snapshot, `manifest.toml`, and the referenced media files under
+`media/`. Media files shared by several records are stored once, and files
+that are already missing are recorded in the manifest without aborting the
+backup. The status line reports how many media files were included and how
+many were missing.
+
+**File > Restore Backup…** (also on the welcome dashboard) always creates a
+new tree. Pick the archive and then a destination database; the default name
+is `<archive>-restored-YYYYMMDD-HHMMSS.db`. The database is validated and
+migrated when necessary, media are extracted next to it into
+`<restored-db-stem>_media/`, and media paths in the restored database are
+rewritten to that folder. The currently open tree is left untouched.
+Restoring refuses to overwrite an existing database or media folder and
+rejects malformed archives, newer format/schema versions and unsafe media
+paths. Missing media keep their original paths so they remain visible as
+missing in the Media tab.
+
 ## Native file dialogs & background jobs
 
 - `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path,
-  prompt_new_tree_path}` open the native open/save dialog through `rfd`
-  filtered to `*.ged`/`*.gedcom` (save defaults to `family_tree.ged`) or
-  `*.db`/`*.sqlite` for new trees; cancelling the dialog yields `None`
+  prompt_new_tree_path, prompt_backup_path, pick_backup_restore_path,
+  prompt_restore_target}` open the native open/save dialogs through `rfd`
+  filtered to GEDCOM, SQLite or ZIP; cancelling the dialog yields `None`
   rather than an error.
 - `app::StemmaApp` tracks the active tree as `Option<PathBuf>` and runs the
   dialogs, file I/O and SQLite work on a spawned worker thread, reporting
   through an `mpsc` channel that `poll()` drains each frame, so the render
   loop never blocks: `begin_import()` (into the active tree),
   `begin_import_new()` (fresh database), `begin_export()`,
-  `activate_tree()`, `close_tree()`, `status()`, `is_busy()`. Person edits
+  `begin_backup()`, `begin_restore()`, `activate_tree()`, `close_tree()`,
+  `status()`, `is_busy()`. Person edits
   go through the synchronous `add_person`, `delete_person`, `edit_person`,
   `add_parent`, `add_spouse` and `add_child`, each opening its own
   connection, writing through `db::people` and bumping
@@ -227,7 +249,8 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   canvas-facing `selected_person_id()` tracks the focused person.
 - `app::{create_tree, perform_import, perform_export}` expose the
   dialog-free paths (used by the unit tests) for schema creation, streaming
-  imports and UTF-8 exports.
+  imports and UTF-8 exports; `backup::{backup_tree, restore_backup}` do the
+  same for ZIP archives.
 
 ## Welcome dashboard & tree lifecycle
 
