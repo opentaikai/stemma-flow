@@ -45,6 +45,7 @@ surname_first = "Nachnamen zuerst"
 active_tree = "Aktiver Stammbaum: {name}"
 
 [tabs]
+couples = "Paare"
 people = "Personen"
 graph = "Grafikansicht"
 watch_list = "Personenliste"
@@ -261,3 +262,14 @@ column_tasks = "Aufgaben"
 column_groups = "Gruppen"
 column_associations = "Assoziationen"
 column_updated = "Zuletzt aktualisiert"
+
+[couples]
+filter_hint = "Nach Partner oder Ort filtern…"
+showing = "{shown} von {total} Paaren angezeigt"
+empty = "Noch keine Paare."
+partner1 = "Partner 1"
+partner2 = "Partner 2"
+married = "Verheiratet"
+place = "Ort"
+children = "Kinder"
+open_family = "Familie öffnen"

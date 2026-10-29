@@ -11,6 +11,7 @@ use loading::{empty_scene, loadable};
 use super::associations as associations_dialog;
 use super::canvas::ViewportState;
 use super::citations;
+use super::couples;
 use super::fact_types;
 use super::import_report;
 use super::inspector::InspectorForm;
@@ -66,6 +67,8 @@ pub struct TreeWindow {
     pub(super) drag_started_on_node: bool,
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
+    pub(super) couples: couples::CouplesState,
+    pub(super) couple_rows: Vec<crate::model::couples::Couple>,
     pub(super) places: places::PlacesState,
     pub(super) media: media::MediaState,
     pub(super) media_attach: Option<media::MediaAttachState>,
@@ -121,6 +124,8 @@ impl TreeWindow {
             drag_started_on_node: false,
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
+            couples: couples::CouplesState::default(),
+            couple_rows: Vec::new(),
             places: places::PlacesState::default(),
             media: media::MediaState::default(),
             media_attach: None,
@@ -199,6 +204,7 @@ impl App for TreeWindow {
             egui::CentralPanel::default().show(ui, |ui| match self.tab {
                 tabs::AppTab::Graph => self.canvas(ui),
                 tabs::AppTab::WatchList => self.watch_list(ui),
+                tabs::AppTab::Couples => self.couples_tab(ui),
                 tabs::AppTab::Places => self.places_tab(ui),
                 tabs::AppTab::Media => self.media_tab(ui),
                 tabs::AppTab::Research => self.research_tab(ui),
@@ -1167,6 +1173,44 @@ mod tests {
         window.pedigree.mode = crate::gui::pedigree::GraphMode::All;
         window.rebuild_scene_layout();
         assert_eq!(window.scene.nodes.len(), 5, "All restores the full tree");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn couple_rows_open_the_exact_family_in_family_graph_mode() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n\
+             0 @I1@ INDI\n1 NAME Ada /King/\n\
+             0 @I2@ INDI\n1 NAME Charles /Babbage/\n\
+             0 @I3@ INDI\n1 NAME Child /King/\n\
+             0 @F1@ FAM\n1 HUSB @I2@\n1 WIFE @I1@\n1 CHIL @I3@\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        assert_eq!(window.couple_rows.len(), 1);
+        let family_id = window.couple_rows[0].family_id.clone();
+        let root = window.couple_rows[0].partner1_id.clone().expect("husband");
+
+        window.open_couple_family(&family_id);
+
+        assert_eq!(window.tab, crate::gui::tabs::AppTab::Graph);
+        assert_eq!(
+            window.pedigree.mode,
+            crate::gui::pedigree::GraphMode::Family
+        );
+        assert_eq!(
+            window.pedigree.family_id.as_deref(),
+            Some(family_id.as_str())
+        );
+        assert_eq!(
+            window.pedigree.family_root_id.as_deref(),
+            Some(root.as_str())
+        );
+        assert_eq!(window.scene.nodes.len(), 3);
 
         let _ = std::fs::remove_file(&db_file);
     }

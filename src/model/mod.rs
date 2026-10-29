@@ -1,6 +1,7 @@
 //! Domain models and value parsers shared by the storage and GEDCOM layers.
 
 pub mod age;
+pub mod couples;
 pub mod date;
 pub mod descendant_view;
 pub mod fact;

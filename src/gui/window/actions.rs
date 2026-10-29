@@ -9,6 +9,7 @@ use crate::db::sources::SourceDraft;
 use crate::db::tasks::TaskOwner;
 use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
 use crate::gui::citations::CitationDraft;
+use crate::gui::couples::{self as couples_ui, CouplesEvent};
 use crate::gui::dialogs;
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
@@ -20,6 +21,7 @@ use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
 use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, MediaEvent};
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
+use crate::gui::pedigree;
 use crate::gui::person_editor::{EditorPrompt, PersonEditor};
 use crate::gui::places::{self, PlacesEvent};
 use crate::gui::repositories::{self, RepositoriesEvent};
@@ -122,6 +124,40 @@ impl TreeWindow {
                 }
             }
         }
+    }
+
+    pub(super) fn couples_tab(&mut self, ui: &mut Ui) {
+        let events = couples_ui::show(ui, &mut self.couples, &self.couple_rows);
+        for event in events {
+            match event {
+                CouplesEvent::SelectPerson(id) => self.app.set_selected_person(Some(id)),
+                CouplesEvent::EditPerson(id) => {
+                    self.app.set_selected_person(Some(id.clone()));
+                    self.open_person_editor(&id);
+                }
+                CouplesEvent::OpenFamily(id) => self.open_couple_family(&id),
+            }
+        }
+    }
+
+    pub(super) fn open_couple_family(&mut self, family_id: &str) {
+        let Some(family) = self
+            .tree
+            .families
+            .iter()
+            .find(|family| family.id == family_id)
+        else {
+            return;
+        };
+        let Some(root) = family.husband_id.clone().or_else(|| family.wife_id.clone()) else {
+            return;
+        };
+        self.pedigree.mode = pedigree::GraphMode::Family;
+        self.pedigree.family_root_id = Some(root);
+        self.pedigree.family_id = Some(family_id.to_string());
+        self.tab = tabs::AppTab::Graph;
+        self.rebuild_scene_layout();
+        self.pending_framing = true;
     }
 
     pub(super) fn sources_tab(&mut self, ui: &mut Ui) {

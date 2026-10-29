@@ -268,9 +268,9 @@ win. Included private or living people carry `1 RESN privacy`, and
 included private events carry `2 _PRIV Y`. Family links to hidden people
 are removed, and families with no visible member are not exported.
 
-## Graph View, People, Places, Media, Research, Fact Types, Sources & inspector
+## Graph View, People, Couples, Places, Media, Research, Fact Types, Sources & inspector
 
-With a tree open the `eframe` window (1200x800) shows a tab bar with eight
+With a tree open the `eframe` window (1200x800) shows a tab bar with nine
 views (the app always launches on Graph View):
 
 - **Graph View** — the interactive canvas: opening (or reloading) a tree
@@ -301,6 +301,13 @@ views (the app always launches on Graph View):
   header clicks sort any visible column. Clicking selects, double-clicking
   or **Edit** opens the pinned editor, and **Delete** confirms before
   cascading. **+ Add Independent Person** inserts an unnamed draft.
+- **Couples** — a virtualized, filterable and sortable list of families with
+  at least one recorded spouse. Columns show neutral Partner 1/Partner 2
+  names, first-marriage date and place, child count and an **Open family**
+  action. Partner names select on click and open the pinned editor on
+  double-click. **Open family** switches to Graph View → Family mode with
+  that exact family selected. Single-parent families remain visible with a
+  blank partner cell.
 - **View > Surname-first names** — a per-tree toggle that renders composed
   names as `Surname, Prefix Given Middle Suffix` (for example
   `King, Dr. Ada Lynn Jr.`) in graph labels, the People view's composed name,

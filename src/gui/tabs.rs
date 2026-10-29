@@ -10,6 +10,7 @@ pub enum AppTab {
     #[default]
     Graph,
     WatchList,
+    Couples,
     Places,
     Media,
     Research,
@@ -23,6 +24,7 @@ pub fn show(ui: &mut Ui, active: &mut AppTab) {
     ui.horizontal(|ui| {
         ui.selectable_value(active, AppTab::Graph, tr("tabs.graph"));
         ui.selectable_value(active, AppTab::WatchList, tr("tabs.people"));
+        ui.selectable_value(active, AppTab::Couples, tr("tabs.couples"));
         ui.selectable_value(active, AppTab::Places, tr("tabs.places"));
         ui.selectable_value(active, AppTab::Media, tr("tabs.media"));
         ui.selectable_value(active, AppTab::Research, tr("tabs.research"));

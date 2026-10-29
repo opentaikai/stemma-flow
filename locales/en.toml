@@ -45,6 +45,7 @@ surname_first = "Surname-first names"
 active_tree = "Active Tree: {name}"
 
 [tabs]
+couples = "Couples"
 people = "People"
 graph = "Graph View"
 watch_list = "Watch List"
@@ -261,3 +262,14 @@ column_tasks = "Tasks"
 column_groups = "Groups"
 column_associations = "Associations"
 column_updated = "Last Updated"
+
+[couples]
+filter_hint = "Filter by partner or place…"
+showing = "Showing {shown} of {total} couples"
+empty = "No couples yet."
+partner1 = "Partner 1"
+partner2 = "Partner 2"
+married = "Married"
+place = "Place"
+children = "Children"
+open_family = "Open family"
