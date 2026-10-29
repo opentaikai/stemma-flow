@@ -20,6 +20,7 @@ pub mod notes;
 pub mod pedigree;
 pub mod person_editor;
 pub mod places;
+pub mod relationship_calculator;
 pub mod repositories;
 pub mod research;
 pub mod settings;

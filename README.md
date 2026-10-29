@@ -490,6 +490,17 @@ each module's `mod.rs`:
   inspector panel and relation pop-up, recent-tree persistence, the
   startup settings apply and input handling.
 
+## Relationship calculator
+
+**Tools > Relationship Calculator…** opens a dialog with two searchable
+person pickers. The first is prefilled from the tree root when available,
+the second from the current selection. Swapping the people reverses the
+direction of the relationship. The result shows the same localized label as
+the People and inspector views, the nearest common ancestor when present,
+and a shortest parent/child/spouse path. Unrelated and marriage-only pairs
+use the standard “related by marriage” and “not directly related” falls
+back labels. The calculator is read-only and does not change the tree.
+
 ## Settings & appearance
 
 `File > Settings…` opens a modal dialog with an **Appearance** section:

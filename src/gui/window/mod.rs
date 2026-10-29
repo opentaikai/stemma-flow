@@ -25,6 +25,7 @@ use super::notes as notes_dialog;
 use super::pedigree;
 use super::person_editor;
 use super::places;
+use super::relationship_calculator;
 use super::repositories;
 use super::research;
 use super::settings;
@@ -71,6 +72,7 @@ pub struct TreeWindow {
     pub(super) couples: couples::CouplesState,
     pub(super) couple_rows: Vec<crate::model::couples::Couple>,
     pub(super) association_view: associations_view::AssociationViewState,
+    pub(super) relationship_calculator: relationship_calculator::RelationshipCalculatorState,
     pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
     pub(super) media: media::MediaState,
@@ -130,6 +132,8 @@ impl TreeWindow {
             couples: couples::CouplesState::default(),
             couple_rows: Vec::new(),
             association_view: associations_view::AssociationViewState::default(),
+            relationship_calculator: relationship_calculator::RelationshipCalculatorState::default(
+            ),
             association_rows: Vec::new(),
             places: places::PlacesState::default(),
             media: media::MediaState::default(),
@@ -227,6 +231,7 @@ impl App for TreeWindow {
             self.show_association_window(ui.ctx());
             self.show_media_attach(ui.ctx());
             self.show_person_editor(ui.ctx());
+            self.show_relationship_calculator(ui.ctx());
             self.show_task_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
@@ -1179,6 +1184,36 @@ mod tests {
         window.pedigree.mode = crate::gui::pedigree::GraphMode::All;
         window.rebuild_scene_layout();
         assert_eq!(window.scene.nodes.len(), 5, "All restores the full tree");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn relationship_calculator_prefills_root_and_selection() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n\
+             0 @I2@ INDI\n1 NAME Charles /Babbage/\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let ids: Vec<String> = window.rows.iter().map(|row| row.id.clone()).collect();
+        window.tree_settings.root_person_id = Some(ids[0].clone());
+        window.app.set_selected_person(Some(ids[1].clone()));
+
+        window.open_relationship_calculator();
+
+        assert!(window.relationship_calculator.open);
+        assert_eq!(
+            window.relationship_calculator.from.as_deref(),
+            Some(ids[0].as_str())
+        );
+        assert_eq!(
+            window.relationship_calculator.to.as_deref(),
+            Some(ids[1].as_str())
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }

@@ -328,3 +328,21 @@ badge = "Wurzelperson"
 relationship = "Beziehung zur Wurzel: {relationship}"
 set = "Als Wurzel festlegen"
 clear = "Wurzel löschen"
+
+[tools]
+menu = "Werkzeuge"
+calculator = "Beziehungsrechner…"
+
+[calculator]
+title = "Beziehungsrechner"
+first = "Erste Person"
+second = "Zweite Person"
+none = "(keine)"
+search = "Personen suchen…"
+swap = "Tauschen"
+common_ancestor = "Gemeinsamer Vorfahre: {name}"
+no_connection = "Keine direkte Verbindung gefunden."
+choose_two = "Zwei Personen auswählen, um ihre Beziehung zu berechnen."
+parent_step = "Elternteil von"
+child_step = "Kind von"
+spouse_step = "Ehepartner von"
