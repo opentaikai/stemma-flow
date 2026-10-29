@@ -200,89 +200,29 @@ impl<'a> LayoutBuilder<'a> {
 
         for _ in 0..ORDERING_SWEEPS {
             for rank in 1..=max_rank {
-                let order = by_rank[rank].clone();
-                let current: Vec<(usize, f32, f32)> = order
-                    .iter()
-                    .map(|&compound| {
-                        let center = positions.get(&compound).copied().unwrap_or(0.0)
-                            + widths.get(&compound).copied().unwrap_or(0.0) * 0.5;
-                        let key = parent_families_of
-                            .get(&compound)
-                            .filter(|families| !families.is_empty())
-                            .map(|families| {
-                                families
-                                    .iter()
-                                    .filter_map(|family| {
-                                        self.family_union_center(*family, &positions)
-                                    })
-                                    .fold((0.0, 0usize), |(sum, count), value| {
-                                        (sum + value, count + 1)
-                                    })
-                            })
-                            .filter(|(_, count)| *count > 0)
-                            .map(|(sum, count)| sum / count as f32)
-                            .unwrap_or(center);
-                        (compound, key, center)
-                    })
-                    .collect();
-                let mut sorted = current.clone();
-                sorted.sort_by(|left, right| {
-                    left.1
-                        .total_cmp(&right.1)
-                        .then_with(|| left.2.total_cmp(&right.2))
-                        .then_with(|| left.0.cmp(&right.0))
-                });
-                let order: Vec<usize> = sorted.iter().map(|(compound, _, _)| *compound).collect();
-                let desired: HashMap<usize, f32> = sorted
-                    .iter()
-                    .map(|(compound, key, center)| {
-                        (*compound, if key.is_finite() { *key } else { *center })
-                    })
-                    .collect();
-                self.assign_rank(&order, &desired, &widths, &mut positions);
-                by_rank[rank] = order;
+                self.sweep_down(
+                    rank,
+                    &mut by_rank,
+                    &mut positions,
+                    &widths,
+                    &parent_families_of,
+                );
             }
-
             for rank in (0..max_rank).rev() {
-                let order = by_rank[rank].clone();
-                let current: Vec<(usize, f32, f32)> = order
-                    .iter()
-                    .map(|&compound| {
-                        let center = positions.get(&compound).copied().unwrap_or(0.0)
-                            + widths.get(&compound).copied().unwrap_or(0.0) * 0.5;
-                        let child_center = children_of
-                            .get(&compound)
-                            .filter(|children| !children.is_empty())
-                            .map(|children| {
-                                children
-                                    .iter()
-                                    .map(|child| {
-                                        positions.get(child).copied().unwrap_or(0.0)
-                                            + widths.get(child).copied().unwrap_or(0.0) * 0.5
-                                    })
-                                    .sum::<f32>()
-                                    / children.len() as f32
-                            })
-                            .unwrap_or(center);
-                        (compound, child_center, center)
-                    })
-                    .collect();
-                let mut sorted = current.clone();
-                sorted.sort_by(|left, right| {
-                    left.1
-                        .total_cmp(&right.1)
-                        .then_with(|| left.2.total_cmp(&right.2))
-                        .then_with(|| left.0.cmp(&right.0))
-                });
-                let order: Vec<usize> = sorted.iter().map(|(compound, _, _)| *compound).collect();
-                let desired: HashMap<usize, f32> = sorted
-                    .iter()
-                    .map(|(compound, center, _)| (*compound, *center))
-                    .collect();
-                self.assign_rank(&order, &desired, &widths, &mut positions);
-                by_rank[rank] = order;
+                self.sweep_up(rank, &mut by_rank, &mut positions, &widths, &children_of);
             }
         }
+        // Finish with family-grouped child rows; roots align to their children.
+        for rank in 1..=max_rank {
+            self.sweep_down(
+                rank,
+                &mut by_rank,
+                &mut positions,
+                &widths,
+                &parent_families_of,
+            );
+        }
+        self.sweep_up(0, &mut by_rank, &mut positions, &widths, &children_of);
 
         let min_x = positions.values().copied().fold(f32::INFINITY, f32::min);
         for x in positions.values_mut() {
@@ -295,6 +235,102 @@ impl<'a> LayoutBuilder<'a> {
         let width = max_x.max(0.0);
         let height = max_rank as f32 * (NODE_H + V_GAP) + NODE_H;
         (positions, (width, height))
+    }
+
+    fn sweep_down(
+        &self,
+        rank: usize,
+        by_rank: &mut [Vec<usize>],
+        positions: &mut HashMap<usize, f32>,
+        widths: &HashMap<usize, f32>,
+        parent_families_of: &HashMap<usize, Vec<usize>>,
+    ) {
+        let order = by_rank[rank].clone();
+        let current: Vec<(usize, f32, f32)> = order
+            .iter()
+            .map(|&compound| {
+                let center = positions.get(&compound).copied().unwrap_or(0.0)
+                    + widths.get(&compound).copied().unwrap_or(0.0) * 0.5;
+                let key = parent_families_of
+                    .get(&compound)
+                    .filter(|families| !families.is_empty())
+                    .map(|families| {
+                        families
+                            .iter()
+                            .filter_map(|family| self.family_union_center(*family, positions))
+                            .fold((0.0, 0usize), |(sum, count), value| {
+                                (sum + value, count + 1)
+                            })
+                    })
+                    .filter(|(_, count)| *count > 0)
+                    .map(|(sum, count)| sum / count as f32)
+                    .unwrap_or(center);
+                (compound, key, center)
+            })
+            .collect();
+        let mut sorted = current.clone();
+        sorted.sort_by(|left, right| {
+            left.1
+                .total_cmp(&right.1)
+                .then_with(|| left.2.total_cmp(&right.2))
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        let order: Vec<usize> = sorted.iter().map(|(compound, _, _)| *compound).collect();
+        let desired: HashMap<usize, f32> = sorted
+            .iter()
+            .map(|(compound, key, center)| {
+                (*compound, if key.is_finite() { *key } else { *center })
+            })
+            .collect();
+        self.assign_rank(&order, &desired, widths, positions);
+        by_rank[rank] = order;
+    }
+
+    fn sweep_up(
+        &self,
+        rank: usize,
+        by_rank: &mut [Vec<usize>],
+        positions: &mut HashMap<usize, f32>,
+        widths: &HashMap<usize, f32>,
+        children_of: &HashMap<usize, Vec<usize>>,
+    ) {
+        let order = by_rank[rank].clone();
+        let current: Vec<(usize, f32, f32)> = order
+            .iter()
+            .map(|&compound| {
+                let center = positions.get(&compound).copied().unwrap_or(0.0)
+                    + widths.get(&compound).copied().unwrap_or(0.0) * 0.5;
+                let child_center = children_of
+                    .get(&compound)
+                    .filter(|children| !children.is_empty())
+                    .map(|children| {
+                        children
+                            .iter()
+                            .map(|child| {
+                                positions.get(child).copied().unwrap_or(0.0)
+                                    + widths.get(child).copied().unwrap_or(0.0) * 0.5
+                            })
+                            .sum::<f32>()
+                            / children.len() as f32
+                    })
+                    .unwrap_or(center);
+                (compound, child_center, center)
+            })
+            .collect();
+        let mut sorted = current.clone();
+        sorted.sort_by(|left, right| {
+            left.1
+                .total_cmp(&right.1)
+                .then_with(|| left.2.total_cmp(&right.2))
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        let order: Vec<usize> = sorted.iter().map(|(compound, _, _)| *compound).collect();
+        let desired: HashMap<usize, f32> = sorted
+            .iter()
+            .map(|(compound, center, _)| (*compound, *center))
+            .collect();
+        self.assign_rank(&order, &desired, widths, positions);
+        by_rank[rank] = order;
     }
 
     fn compound_adjacency(

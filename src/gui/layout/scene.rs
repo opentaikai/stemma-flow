@@ -25,6 +25,8 @@ pub struct UnionGeom {
     /// Row of the branch line: half a rank gap below the top of the
     /// couple's rank, so the trunk never touches a node box.
     pub trunk_y: f32,
+    /// Top of the parent generation row, used to identify multi-rank edges.
+    pub parent_rank_y: f32,
     /// `(child_id, top-centre anchor of the child node)`, rowid order.
     pub children: Vec<(String, Pos2)>,
 }
