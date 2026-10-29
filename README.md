@@ -280,11 +280,15 @@ views (the app always launches on Graph View):
   wheel, cursor-anchored, 0.02x - 3.0x, and **Select** with a left click;
   the selected node gets a blue accent border. **Double-click** a node to
   select it and open the pinned full person editor. Clicking empty space
-  clears the selection. The graph toolbar switches between **All** and
-  **Pedigree** charts. Pedigree pins the selected person as root, offers
-  5 or 6 generations (the root counts as generation one), includes every
-  parent family, and shows ancestors only; **Set selected as root** re-roots
-  it without changing the pinned editor.
+  clears the selection. The graph toolbar switches between **All**,
+  **Pedigree** and **Family** charts. Pedigree pins the selected person as
+  root, offers 5 or 6 generations (the root counts as generation one),
+  includes every parent family, and shows ancestors only. Family view pins
+  the selected person as family root, prefers their spouse family (falling
+  back to the parents' family), and shows the couple plus direct children
+  only; a selector switches between multiple spouse families. Both views
+  use **Set selected as … root** to re-root without changing the pinned
+  editor.
 - **Watch List** — an `egui_extras::TableBuilder` grid listing every
   person with Given Name, Surname, Gender, Birth Date, Death Date and an
   Actions cell. The filter box narrows rows by either name
