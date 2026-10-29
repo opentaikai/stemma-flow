@@ -314,6 +314,13 @@ views (the app always launches on Graph View):
   reuses the association dialog; **Delete** asks for confirmation.
   Relationship labels, source and target are shown exactly as stored; no
   synthetic reverse rows are created.
+- **Root person and relationships** — each tree stores its own root.
+  **Set as root** / **Clear root** appear in the quick inspector, pinned
+  editor and People row actions. The People view includes a visible
+  **Relationship to Root** column, and inspector headers show the selected
+  person's relationship. Labels cover ancestors/descendants, siblings,
+  aunts/uncles, nieces/nephews, cousins and direct spouses; unrelated
+  people and spouses of blood relatives get explicit fallback labels.
 - **View > Surname-first names** — a per-tree toggle that renders composed
   names as `Surname, Prefix Given Middle Suffix` (for example
   `King, Dr. Ada Lynn Jr.`) in graph labels, the People view's composed name,

@@ -114,7 +114,7 @@ places, facts, alternate names and notes as first-class records.
 | People list view with configurable columns | done | P1 | Visibility, order, widths and extra columns |
 | Couple list view | done | P2 | Sortable/filterable pairs with Family graph navigation |
 | Association view | done | P2 | Directed sortable/filterable list with edit/delete |
-| Root person and relationship-to-root display | planned | P1 | Shown in list and info panel |
+| Root person and relationship-to-root display | done | P1 | Per-tree root; People column and inspector label |
 | Relationship calculator between any two people | planned | P1 | Path search over the tree |
 | Duplicate check while adding a person | planned | P1 | Suggest matches before insert |
 | Merge duplicates with side-by-side comparison | planned | P0 | Copy fields, merge families, SmartMerge-style pass |
