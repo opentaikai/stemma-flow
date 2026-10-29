@@ -212,3 +212,12 @@ generations = "Generationen:"
 root = "Wurzel:"
 no_root = "Person auswählen und als Wurzel festlegen"
 set_root = "Auswahl als Wurzel festlegen"
+
+[family]
+mode = "Familie"
+root = "Familienwurzel:"
+no_root = "Person auswählen und als Familienwurzel festlegen"
+set_root = "Auswahl als Familienwurzel festlegen"
+family = "Familie"
+with = "Mit {name}"
+parents = "Eltern: {names}"

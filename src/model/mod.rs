@@ -3,6 +3,7 @@
 pub mod age;
 pub mod date;
 pub mod fact;
+pub mod family_view;
 pub mod graph;
 pub mod name;
 pub mod pedigree;

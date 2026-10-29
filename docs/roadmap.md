@@ -109,7 +109,7 @@ places, facts, alternate names and notes as first-class records.
 | Double-click a person to edit | done | P1 | Opens the pinned editor from graph nodes and watch-list cells |
 | Switch between family members inside the edit screen | done | P2 | Parent/spouse rows switch the pinned editor |
 | Pedigree view (5 or 6 generations) | done | P0 | Pinned-root ancestor chart; all parent families |
-| Family view | planned | P0 | Couple plus children |
+| Family view | done | P0 | Pinned root, spouse/parent family selector, direct children |
 | Descendant view (2 to 7 generations) | planned | P1 | Reuses the graph layout |
 | People list view with configurable columns | planned | P1 | Watch list evolves into this |
 | Couple list view | planned | P2 | Sortable pairs |

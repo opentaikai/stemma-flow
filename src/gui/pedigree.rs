@@ -10,6 +10,7 @@ pub enum GraphMode {
     #[default]
     All,
     Pedigree,
+    Family,
 }
 
 /// Ancestor levels including the root person.
@@ -35,6 +36,8 @@ pub struct PedigreeState {
     pub mode: GraphMode,
     pub root_id: Option<String>,
     pub generations: PedigreeGenerations,
+    pub family_root_id: Option<String>,
+    pub family_id: Option<String>,
 }
 
 /// Draws the graph-mode toolbar; returns true when the scene must rebuild.
@@ -42,7 +45,9 @@ pub fn show_toolbar(
     ui: &mut Ui,
     state: &mut PedigreeState,
     selected: Option<&str>,
-    root_label: Option<&str>,
+    pedigree_root_label: Option<&str>,
+    family_root_label: Option<&str>,
+    family_options: &[(String, String)],
 ) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
@@ -50,10 +55,14 @@ pub fn show_toolbar(
         let mut mode = state.mode;
         ui.selectable_value(&mut mode, GraphMode::All, tr("pedigree.all"));
         ui.selectable_value(&mut mode, GraphMode::Pedigree, tr("pedigree.pedigree"));
+        ui.selectable_value(&mut mode, GraphMode::Family, tr("family.mode"));
         if mode != state.mode {
             state.mode = mode;
             if mode == GraphMode::Pedigree && state.root_id.is_none() {
                 state.root_id = selected.map(str::to_string);
+            }
+            if mode == GraphMode::Family && state.family_root_id.is_none() {
+                state.family_root_id = selected.map(str::to_string);
             }
             changed = true;
         }
@@ -70,7 +79,7 @@ pub fn show_toolbar(
             }
             ui.separator();
             ui.label(tr("pedigree.root"));
-            match root_label {
+            match pedigree_root_label {
                 Some(label) => ui.label(label),
                 None => ui.label(tr("pedigree.no_root")),
             };
@@ -85,6 +94,48 @@ pub fn show_toolbar(
             {
                 state.root_id = Some(selected.to_string());
                 changed = true;
+            }
+        } else if state.mode == GraphMode::Family {
+            ui.separator();
+            ui.label(tr("family.root"));
+            match family_root_label {
+                Some(label) => ui.label(label),
+                None => ui.label(tr("family.no_root")),
+            };
+            if ui
+                .add_enabled(selected.is_some(), egui::Button::new(tr("family.set_root")))
+                .clicked()
+                && let Some(selected) = selected
+                && state.family_root_id.as_deref() != Some(selected)
+            {
+                state.family_root_id = Some(selected.to_string());
+                state.family_id = None;
+                changed = true;
+            }
+            if !family_options.is_empty() {
+                ui.separator();
+                ui.label(tr("family.family"));
+                let current = family_options
+                    .iter()
+                    .find(|(id, _)| state.family_id.as_deref() == Some(id.as_str()))
+                    .map(|(_, label)| label.clone())
+                    .unwrap_or_else(|| family_options[0].1.clone());
+                egui::ComboBox::from_id_salt("family_view_family")
+                    .selected_text(current)
+                    .show_ui(ui, |ui| {
+                        for (id, label) in family_options {
+                            if ui
+                                .selectable_label(
+                                    state.family_id.as_deref() == Some(id.as_str()),
+                                    label,
+                                )
+                                .clicked()
+                            {
+                                state.family_id = Some(id.clone());
+                                changed = true;
+                            }
+                        }
+                    });
             }
         }
     });
@@ -108,7 +159,7 @@ mod tests {
         let ctx = Context::default();
         let mut state = PedigreeState::default();
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            show_toolbar(ui, &mut state, Some("p1"), Some("Ada King"));
+            show_toolbar(ui, &mut state, Some("p1"), Some("Ada King"), None, &[]);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty());

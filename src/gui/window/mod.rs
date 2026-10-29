@@ -973,6 +973,69 @@ mod tests {
     }
 
     #[test]
+    fn family_mode_shows_the_pinned_couple_and_direct_children() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n\
+             0 @I1@ INDI\n1 NAME Root /Person/\n\
+             0 @I2@ INDI\n1 NAME Spouse /Person/\n\
+             0 @I3@ INDI\n1 NAME Child /Person/\n\
+             0 @I4@ INDI\n1 NAME Grandchild /Person/\n\
+             0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I3@\n\
+             0 @F2@ FAM\n1 HUSB @I3@\n1 CHIL @I4@\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let id_for = |window: &TreeWindow, given: &str| {
+            window
+                .rows
+                .iter()
+                .find(|row| row.given_name == given)
+                .expect("person")
+                .id
+                .clone()
+        };
+        let root = id_for(&window, "Root");
+        let spouse = id_for(&window, "Spouse");
+        let child = id_for(&window, "Child");
+        let grandchild = id_for(&window, "Grandchild");
+
+        window.pedigree.mode = crate::gui::pedigree::GraphMode::Family;
+        window.pedigree.family_root_id = Some(root.clone());
+        window.rebuild_scene_layout();
+        let ids: Vec<&str> = window
+            .scene
+            .nodes
+            .iter()
+            .map(|node| node.person_id.as_str())
+            .collect();
+        assert!(ids.contains(&root.as_str()));
+        assert!(ids.contains(&spouse.as_str()));
+        assert!(ids.contains(&child.as_str()));
+        assert!(!ids.contains(&grandchild.as_str()));
+        assert!(
+            window.pedigree.family_id.is_some(),
+            "default family selected"
+        );
+
+        window.app.set_selected_person(Some(grandchild.clone()));
+        window.rebuild_scene_layout();
+        assert_eq!(
+            window.pedigree.family_root_id.as_deref(),
+            Some(root.as_str()),
+            "selection does not re-root the family view"
+        );
+
+        window.pedigree.mode = crate::gui::pedigree::GraphMode::All;
+        window.rebuild_scene_layout();
+        assert_eq!(window.scene.nodes.len(), 4);
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn pedigree_mode_filters_to_the_pinned_ancestor_tree() {
         let db_file = temp_path("db");
         import_people(
