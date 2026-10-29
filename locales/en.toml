@@ -328,3 +328,21 @@ badge = "Root person"
 relationship = "Relationship to root: {relationship}"
 set = "Set as root"
 clear = "Clear root"
+
+[tools]
+menu = "Tools"
+calculator = "Relationship Calculator…"
+
+[calculator]
+title = "Relationship Calculator"
+first = "First person"
+second = "Second person"
+none = "(none)"
+search = "Search people…"
+swap = "Swap"
+common_ancestor = "Common ancestor: {name}"
+no_connection = "No direct connection found."
+choose_two = "Choose two people to calculate their relationship."
+parent_step = "parent of"
+child_step = "child of"
+spouse_step = "spouse of"

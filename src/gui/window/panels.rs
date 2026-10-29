@@ -75,6 +75,12 @@ impl TreeWindow {
                     self.set_surname_first(value);
                 }
             }
+            ui.menu_button(tr("tools.menu"), |ui| {
+                if ui.button(tr("tools.calculator")).clicked() {
+                    ui.close();
+                    self.open_relationship_calculator();
+                }
+            });
             if let Some(path) = self.app.active_db() {
                 let label = tr_args("menu.active_tree", &[("name", welcome::display_name(path))]);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

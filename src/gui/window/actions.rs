@@ -1215,6 +1215,21 @@ impl TreeWindow {
         }
     }
 
+    pub(super) fn open_relationship_calculator(&mut self) {
+        let root = self.tree_settings.root_person_id.as_deref();
+        let selected = self.app.selected_person_id();
+        self.relationship_calculator.open_prefilled(root, selected);
+    }
+
+    pub(super) fn show_relationship_calculator(&mut self, ctx: &egui::Context) {
+        crate::gui::relationship_calculator::show(
+            ctx,
+            &mut self.relationship_calculator,
+            &self.tree,
+            self.tree_settings.surname_first,
+        );
+    }
+
     pub(super) fn open_media(&mut self, owner: MediaOwner, title: String) {
         let mut state = MediaAttachState::new(owner, title);
         self.load_media_attach(&mut state);
