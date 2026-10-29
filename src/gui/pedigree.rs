@@ -11,6 +11,7 @@ pub enum GraphMode {
     All,
     Pedigree,
     Family,
+    Descendants,
 }
 
 /// Ancestor levels including the root person.
@@ -38,6 +39,44 @@ pub struct PedigreeState {
     pub generations: PedigreeGenerations,
     pub family_root_id: Option<String>,
     pub family_id: Option<String>,
+    pub descendant_root_id: Option<String>,
+    pub descendant_generations: DescendantGenerations,
+}
+
+/// Descendant levels including the root.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DescendantGenerations {
+    Two,
+    Three,
+    #[default]
+    Four,
+    Five,
+    Six,
+    Seven,
+}
+
+impl DescendantGenerations {
+    pub fn levels(self) -> usize {
+        match self {
+            Self::Two => 2,
+            Self::Three => 3,
+            Self::Four => 4,
+            Self::Five => 5,
+            Self::Six => 6,
+            Self::Seven => 7,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Two => "2",
+            Self::Three => "3",
+            Self::Four => "4",
+            Self::Five => "5",
+            Self::Six => "6",
+            Self::Seven => "7",
+        }
+    }
 }
 
 /// Draws the graph-mode toolbar; returns true when the scene must rebuild.
@@ -48,6 +87,7 @@ pub fn show_toolbar(
     pedigree_root_label: Option<&str>,
     family_root_label: Option<&str>,
     family_options: &[(String, String)],
+    descendant_root_label: Option<&str>,
 ) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
@@ -56,6 +96,7 @@ pub fn show_toolbar(
         ui.selectable_value(&mut mode, GraphMode::All, tr("pedigree.all"));
         ui.selectable_value(&mut mode, GraphMode::Pedigree, tr("pedigree.pedigree"));
         ui.selectable_value(&mut mode, GraphMode::Family, tr("family.mode"));
+        ui.selectable_value(&mut mode, GraphMode::Descendants, tr("descendants.mode"));
         if mode != state.mode {
             state.mode = mode;
             if mode == GraphMode::Pedigree && state.root_id.is_none() {
@@ -63,6 +104,9 @@ pub fn show_toolbar(
             }
             if mode == GraphMode::Family && state.family_root_id.is_none() {
                 state.family_root_id = selected.map(str::to_string);
+            }
+            if mode == GraphMode::Descendants && state.descendant_root_id.is_none() {
+                state.descendant_root_id = selected.map(str::to_string);
             }
             changed = true;
         }
@@ -137,6 +181,50 @@ pub fn show_toolbar(
                         }
                     });
             }
+        } else if state.mode == GraphMode::Descendants {
+            ui.separator();
+            ui.label(tr("descendants.generations"));
+            egui::ComboBox::from_id_salt("descendant_generations")
+                .selected_text(state.descendant_generations.label())
+                .show_ui(ui, |ui| {
+                    for generations in [
+                        DescendantGenerations::Two,
+                        DescendantGenerations::Three,
+                        DescendantGenerations::Four,
+                        DescendantGenerations::Five,
+                        DescendantGenerations::Six,
+                        DescendantGenerations::Seven,
+                    ] {
+                        if ui
+                            .selectable_value(
+                                &mut state.descendant_generations,
+                                generations,
+                                generations.label(),
+                            )
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                    }
+                });
+            ui.separator();
+            ui.label(tr("descendants.root"));
+            match descendant_root_label {
+                Some(label) => ui.label(label),
+                None => ui.label(tr("descendants.no_root")),
+            };
+            if ui
+                .add_enabled(
+                    selected.is_some(),
+                    egui::Button::new(tr("descendants.set_root")),
+                )
+                .clicked()
+                && let Some(selected) = selected
+                && state.descendant_root_id.as_deref() != Some(selected)
+            {
+                state.descendant_root_id = Some(selected.to_string());
+                changed = true;
+            }
         }
     });
     changed
@@ -155,11 +243,37 @@ mod tests {
     }
 
     #[test]
+    fn descendant_generations_cover_two_to_seven_and_default_to_four() {
+        assert_eq!(
+            DescendantGenerations::default(),
+            DescendantGenerations::Four
+        );
+        for (generations, levels) in [
+            (DescendantGenerations::Two, 2),
+            (DescendantGenerations::Three, 3),
+            (DescendantGenerations::Four, 4),
+            (DescendantGenerations::Five, 5),
+            (DescendantGenerations::Six, 6),
+            (DescendantGenerations::Seven, 7),
+        ] {
+            assert_eq!(generations.levels(), levels);
+        }
+    }
+
+    #[test]
     fn toolbar_renders_headless() {
         let ctx = Context::default();
         let mut state = PedigreeState::default();
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            show_toolbar(ui, &mut state, Some("p1"), Some("Ada King"), None, &[]);
+            show_toolbar(
+                ui,
+                &mut state,
+                Some("p1"),
+                Some("Ada King"),
+                None,
+                &[],
+                None,
+            );
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty());

@@ -10,6 +10,7 @@ use crate::gui::nodes::paint_nodes;
 use crate::gui::pedigree;
 use crate::gui::theme;
 use crate::gui::watchlist;
+use crate::model::descendant_view::descendant_tree;
 use crate::model::family_view::{candidate_families, family_tree};
 use crate::model::pedigree::pedigree_tree;
 use egui::Align2;
@@ -168,6 +169,17 @@ impl TreeWindow {
                 }
                 _ => self.scene = super::loading::empty_scene(),
             },
+            pedigree::GraphMode::Descendants => match self.pedigree.descendant_root_id.as_deref() {
+                Some(root) if self.tree.people.iter().any(|person| person.id == root) => {
+                    let filtered = descendant_tree(
+                        &self.tree,
+                        root,
+                        self.pedigree.descendant_generations.levels(),
+                    );
+                    self.scene = layout::build_scene(&filtered, surname_first);
+                }
+                _ => self.scene = super::loading::empty_scene(),
+            },
         }
     }
 
@@ -192,6 +204,11 @@ impl TreeWindow {
         let family_root_label = self
             .pedigree
             .family_root_id
+            .as_deref()
+            .and_then(person_label);
+        let descendant_root_label = self
+            .pedigree
+            .descendant_root_id
             .as_deref()
             .and_then(person_label);
         let family_options: Vec<(String, String)> = self
@@ -237,6 +254,7 @@ impl TreeWindow {
             pedigree_root_label.as_deref(),
             family_root_label.as_deref(),
             &family_options,
+            descendant_root_label.as_deref(),
         ) {
             self.rebuild_scene_layout();
             self.pending_framing = true;
@@ -307,6 +325,7 @@ impl TreeWindow {
             let hint = match self.pedigree.mode {
                 pedigree::GraphMode::Pedigree => crate::i18n::tr("pedigree.no_root"),
                 pedigree::GraphMode::Family => crate::i18n::tr("family.no_root"),
+                pedigree::GraphMode::Descendants => crate::i18n::tr("descendants.no_root"),
                 pedigree::GraphMode::All => HINT_TEXT.to_string(),
             };
             painter.text(

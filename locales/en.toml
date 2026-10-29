@@ -221,3 +221,10 @@ set_root = "Set selected as family root"
 family = "Family"
 with = "With {name}"
 parents = "Parents: {names}"
+
+[descendants]
+mode = "Descendants"
+generations = "Generations:"
+root = "Descendant root:"
+no_root = "Select a person and set them as descendant root"
+set_root = "Set selected as descendant root"
