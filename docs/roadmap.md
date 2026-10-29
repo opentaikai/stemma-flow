@@ -40,7 +40,7 @@ Priority:
 | GEDCOM 5.5.1 import | done | P0 | Tolerant parser, encodings, CONC/CONT, warnings |
 | Deterministic GEDCOM 5.5.1 export | done | P0 | Stable row order, byte-identical repeat exports |
 | Import report with recoverable warnings | done | P1 | Status bar count plus report window |
-| Graph view with fit, pan, zoom and selection | done | P0 | Layered layout, long connector styling |
+| Graph view with fit, pan, zoom and selection | done | P0 | Per-rank layered layout and long-edge routing |
 | Watch list with filter and sort | done | P0 | Virtualized table |
 | Person inspector: profile, dates, places, notes | done | P0 | Card layout, sticky save |
 | Add or link existing parent, spouse or child | done | P0 | Search picker, duplicate/self/cycle checks |
