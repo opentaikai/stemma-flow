@@ -99,6 +99,9 @@ pub fn build_pedigree_scene(
             resolve_layer(layers.get(d), &targets, &mut x);
         }
     }
+    for layer in &layers {
+        pack_layer(tree, layer, &mut x);
+    }
     let root_x = x.get(root_id).copied().unwrap_or(0.0) + NODE_W * 0.5;
     for value in x.values_mut() {
         *value -= root_x;
@@ -132,6 +135,71 @@ pub fn build_pedigree_scene(
         nodes,
         unions,
         bounds,
+    }
+}
+
+/// Packs a generation into rigid family units so spouses stay adjacent.
+fn pack_layer<'a>(tree: &'a FamilyTree, layer: &[&'a str], x: &mut HashMap<&'a str, f32>) {
+    let present: HashSet<&str> = layer.iter().copied().collect();
+    let mut used: HashSet<&str> = HashSet::new();
+    let mut units: Vec<Vec<&str>> = Vec::new();
+    for &person in layer {
+        if used.contains(person) {
+            continue;
+        }
+        let spouse = tree
+            .families
+            .iter()
+            .find_map(|family| {
+                if family.husband_id.as_deref() == Some(person) {
+                    family.wife_id.as_deref().filter(|id| present.contains(id))
+                } else if family.wife_id.as_deref() == Some(person) {
+                    family
+                        .husband_id
+                        .as_deref()
+                        .filter(|id| present.contains(id))
+                } else {
+                    None
+                }
+            })
+            .filter(|spouse| !used.contains(*spouse));
+        let unit = match spouse {
+            Some(spouse) => {
+                used.insert(spouse);
+                vec![person, spouse]
+            }
+            None => vec![person],
+        };
+        used.insert(person);
+        units.push(unit);
+    }
+    let desired = units
+        .iter()
+        .map(|unit| {
+            unit.iter()
+                .map(|id| x.get(id).copied().unwrap_or(0.0) + NODE_W * 0.5)
+                .sum::<f32>()
+                / unit.len() as f32
+        })
+        .collect::<Vec<_>>();
+    if desired.is_empty() {
+        return;
+    }
+    let total_width = units
+        .iter()
+        .map(|unit| unit.len() as f32 * NODE_W + unit.len().saturating_sub(1) as f32 * SPOUSE_GAP)
+        .sum::<f32>()
+        + units.len().saturating_sub(1) as f32 * H_SPACING;
+    let target_center = desired.iter().sum::<f32>() / desired.len() as f32;
+    let mut cursor = target_center - total_width * 0.5;
+    for (unit, desired) in units.iter().zip(desired) {
+        let width = unit.len() as f32 * NODE_W + unit.len().saturating_sub(1) as f32 * SPOUSE_GAP;
+        let shift = desired - (cursor + width * 0.5);
+        for (index, person) in unit.iter().enumerate() {
+            let left = cursor + index as f32 * (NODE_W + SPOUSE_GAP) + shift;
+            x.insert(person, left);
+        }
+        cursor += width + H_SPACING;
     }
 }
 
@@ -364,8 +432,19 @@ mod tests {
             .iter()
             .find(|node| node.person_id == "mother")
             .expect("mother");
+        println!(
+            "F {} M {} gap {}",
+            father.bounds.min.x,
+            mother.bounds.min.x,
+            mother.bounds.min.x - father.bounds.max.x
+        );
         assert!(father.bounds.min.y < root.bounds.min.y);
         assert!(mother.bounds.min.y < root.bounds.min.y);
+        assert!(
+            (mother.bounds.min.x - father.bounds.min.x - NODE_W - SPOUSE_GAP).abs() < 0.01,
+            "parents stay adjacent as a couple"
+        );
+        assert!(scene.unions.iter().any(|union| union.spouse_line.is_some()));
         assert!(
             !scene.nodes.iter().any(|node| node.person_id == "older"),
             "generation limit applies"
