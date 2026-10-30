@@ -226,7 +226,7 @@ impl<'a> LayoutBuilder<'a> {
 }
 
 /// Gives overlapping family trunks distinct lanes within their generation gap.
-fn assign_trunk_lanes(unions: &mut [UnionGeom]) {
+pub(super) fn assign_trunk_lanes(unions: &mut [UnionGeom]) {
     use std::collections::HashMap;
 
     const SPAN_PADDING: f32 = 6.0;

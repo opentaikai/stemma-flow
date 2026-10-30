@@ -5,6 +5,7 @@ use crate::db::FamilyTree;
 use crate::gui::connectors::{ConnectorCache, paint_connectors};
 use crate::gui::inspector;
 use crate::gui::layout;
+use crate::gui::layout::build_pedigree_scene;
 use crate::gui::nodes::hit_test;
 use crate::gui::nodes::paint_nodes;
 use crate::gui::pedigree;
@@ -12,7 +13,6 @@ use crate::gui::theme;
 use crate::gui::watchlist;
 use crate::model::descendant_view::descendant_tree;
 use crate::model::family_view::{candidate_families, family_tree};
-use crate::model::pedigree::pedigree_tree;
 use egui::Align2;
 use egui::FontId;
 use egui::PointerButton;
@@ -166,9 +166,12 @@ impl TreeWindow {
             }
             pedigree::GraphMode::Pedigree => match self.pedigree.root_id.as_deref() {
                 Some(root) if self.tree.people.iter().any(|person| person.id == root) => {
-                    let filtered =
-                        pedigree_tree(&self.tree, root, self.pedigree.generations.levels());
-                    let scene = layout::build_scene(&filtered, surname_first);
+                    let scene = build_pedigree_scene(
+                        &self.tree,
+                        root,
+                        self.pedigree.generations.levels(),
+                        surname_first,
+                    );
                     self.replace_scene(scene);
                 }
                 _ => self.replace_scene(super::loading::empty_scene()),

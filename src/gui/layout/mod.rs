@@ -12,9 +12,11 @@ mod builder;
 mod compounds;
 mod graph;
 mod packing;
+mod pedigree;
 mod placement;
 mod scene;
 
+pub use pedigree::build_pedigree_scene;
 pub use scene::{NodeGeom, TreeScene, UnionGeom, truncate_name};
 
 use crate::db::FamilyTree;
