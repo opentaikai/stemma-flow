@@ -1,6 +1,6 @@
 //! Family-aware layered layout for the ancestor-only pedigree view.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use egui::{Pos2, Rect, vec2};
 
@@ -40,6 +40,7 @@ pub fn build_pedigree_scene(
         }
     }
 
+    let mut used_links: HashSet<(&str, &str)> = HashSet::new();
     let mut depth: HashMap<&str, usize> = HashMap::from([(root_id, 0)]);
     let mut layers: Vec<Vec<&str>> = vec![Vec::new(); max_depth + 1];
     layers[0].push(root_id);
@@ -52,6 +53,7 @@ pub fn build_pedigree_scene(
             continue;
         };
         for family in families {
+            used_links.insert((family.id.as_str(), child));
             for parent in [family.husband_id.as_deref(), family.wife_id.as_deref()]
                 .into_iter()
                 .flatten()
@@ -118,7 +120,7 @@ pub fn build_pedigree_scene(
         }
     }
 
-    let mut unions = build_unions(tree, &nodes);
+    let mut unions = build_unions(tree, &nodes, &used_links);
     assign_trunk_lanes(&mut unions);
     let bounds = nodes
         .iter()
@@ -231,7 +233,11 @@ fn layer_targets_from_parents<'a>(
         .collect()
 }
 
-fn build_unions(tree: &FamilyTree, nodes: &[NodeGeom]) -> Vec<UnionGeom> {
+fn build_unions(
+    tree: &FamilyTree,
+    nodes: &[NodeGeom],
+    used_links: &HashSet<(&str, &str)>,
+) -> Vec<UnionGeom> {
     let positions: HashMap<&str, Rect> = nodes
         .iter()
         .map(|node| (node.person_id.as_str(), node.bounds))
@@ -250,7 +256,7 @@ fn build_unions(tree: &FamilyTree, nodes: &[NodeGeom]) -> Vec<UnionGeom> {
                 } else {
                     (wife.right_center(), husband.left_center())
                 };
-                let adjacent = (right.x - left.x - SPOUSE_GAP).abs() < NODE_W;
+                let adjacent = (right.x - left.x - SPOUSE_GAP).abs() < 0.5;
                 let bar = adjacent.then_some([left, right]);
                 (bar, left + (right - left) * 0.5)
             }
@@ -261,13 +267,18 @@ fn build_unions(tree: &FamilyTree, nodes: &[NodeGeom]) -> Vec<UnionGeom> {
             .child_links
             .iter()
             .filter(|(family_id, child_id)| {
-                family_id == &family.id && positions.contains_key(child_id.as_str())
+                family_id == &family.id
+                    && used_links.contains(&(family_id.as_str(), child_id.as_str()))
+                    && positions.contains_key(child_id.as_str())
             })
             .filter_map(|(_, child_id)| {
                 let bounds = positions.get(child_id.as_str())?;
                 Some((child_id.clone(), Pos2::new(bounds.center().x, bounds.min.y)))
             })
             .collect();
+        if children.is_empty() {
+            continue;
+        }
         let parent_rank_y = [husband, wife]
             .into_iter()
             .flatten()
@@ -359,6 +370,17 @@ mod tests {
             !scene.nodes.iter().any(|node| node.person_id == "older"),
             "generation limit applies"
         );
+    }
+
+    #[test]
+    fn only_ancestry_family_units_produce_connectors() {
+        let mut tree = tree();
+        let mut unrelated = family("other", "father", "mother");
+        unrelated.id = "other".to_string();
+        tree.families.push(unrelated);
+        let scene = build_pedigree_scene(&tree, "root", 4, false);
+        assert!(scene.unions.iter().all(|union| !union.children.is_empty()));
+        assert_eq!(scene.unions.len(), 2, "only the two ancestry families draw");
     }
 
     #[test]
