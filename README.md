@@ -328,14 +328,17 @@ views (the app always launches on Graph View):
   **Pedigree**, **Family** and **Descendants** charts. Pedigree pins the
   selected person as root, offers 5 or 6 generations (the root counts as
   generation one), includes every parent family, and shows ancestors only.
-  Family view pins the selected person as family root, prefers their spouse
+  Pedigree uses a dedicated family-aware layered layout: the root is
+  bottom-centred, parent couples sit above their ancestry child, and
+  shared ancestors remain single nodes with secondary paths. Family view
+  pins the selected person as family root, prefers their spouse
   family (falling back to the parents' family), and shows the couple plus
   direct children only; a selector switches between multiple spouse
   families. Descendants view pins a root, offers 2–7 generations (the root
   counts as generation one), includes descendant spouses and all descendant
   families, and stops at the selected depth. All specialised views use
   **Set selected as … root** to re-root without changing the pinned editor.
-  The shared layout assigns coordinates rank by rank: marriage compounds
+  Family and Descendants share the generic layout, which assigns coordinates rank by rank: marriage compounds
   keep their generation, children are ordered by their parents' positions,
   and siblings stay grouped without letting one wide descendant row push a
   whole branch sideways. Generation rows use a deliberately generous
