@@ -210,8 +210,11 @@ impl TreeWindow {
         }
     }
 
-    fn replace_scene(&mut self, scene: crate::gui::layout::TreeScene) {
+    fn replace_scene(&mut self, mut scene: crate::gui::layout::TreeScene) {
         self.connectors = ConnectorCache::new(&scene);
+        if let Some(bounds) = self.connectors.bounds() {
+            scene.bounds = scene.bounds.union(bounds);
+        }
         self.scene = scene;
     }
 

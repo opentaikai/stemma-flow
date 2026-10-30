@@ -47,6 +47,14 @@ impl ConnectorCache {
         self.segments.len()
     }
 
+    /// Canvas-space bounds covering every cached segment.
+    pub fn bounds(&self) -> Option<Rect> {
+        self.segments
+            .iter()
+            .map(|segment| segment.bounds)
+            .reduce(Rect::union)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }
