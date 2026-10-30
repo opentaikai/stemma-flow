@@ -22,9 +22,10 @@ pub struct UnionGeom {
     pub spouse_line: Option<[Pos2; 2]>,
     /// Where the drop line to the children starts.
     pub union: Pos2,
-    /// Row of the branch line: half a rank gap below the top of the
-    /// couple's rank, so the trunk never touches a node box.
+    /// Row of the branch line inside the generation gap.
     pub trunk_y: f32,
+    /// Overlap-based lane assigned inside the generation gap.
+    pub trunk_lane: u32,
     /// Top of the parent generation row, used to identify multi-rank edges.
     pub parent_rank_y: f32,
     /// `(child_id, top-centre anchor of the child node)`, rowid order.

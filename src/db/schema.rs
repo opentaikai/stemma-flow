@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 15;
+pub const SCHEMA_VERSION: i64 = 16;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS families (
 CREATE TABLE IF NOT EXISTS family_children (
     family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
     child_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    pedigree TEXT NOT NULL DEFAULT 'unknown',
     PRIMARY KEY (family_id, child_id)
 );
 
@@ -436,6 +437,7 @@ CREATE TABLE IF NOT EXISTS families (
 CREATE TABLE IF NOT EXISTS family_children (
     family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
     child_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    pedigree TEXT NOT NULL DEFAULT 'unknown',
     PRIMARY KEY (family_id, child_id)
 );
 
@@ -483,7 +485,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v11_to_v12(conn)?;
         super::migrations::migrate_v12_to_v13(conn)?;
         super::migrations::migrate_v13_to_v14(conn)?;
-        return super::migrations::migrate_v14_to_v15(conn);
+        super::migrations::migrate_v14_to_v15(conn)?;
+        return super::migrations::migrate_v15_to_v16(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -529,9 +532,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 14 {
             super::migrations::migrate_v13_to_v14(conn)?;
         }
-        return super::migrations::migrate_v14_to_v15(conn);
+        if version < 15 {
+            super::migrations::migrate_v14_to_v15(conn)?;
+        }
+        return super::migrations::migrate_v15_to_v16(conn);
     }
-    ensure_v15(conn)
+    ensure_v16(conn)
 }
 
 fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -545,7 +551,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-fn ensure_v15(conn: &Connection) -> rusqlite::Result<()> {
+fn ensure_v16(conn: &Connection) -> rusqlite::Result<()> {
     ensure_column(conn, "people", "middle_name", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "people", "nickname", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute_batch(CORE_TABLES_SQL)?;
@@ -615,6 +621,12 @@ fn ensure_v15(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(ASSOCIATIONS_INDEXES_SQL)?;
     conn.execute_batch(EVENT_ASSOCIATIONS_TABLE_SQL)?;
     conn.execute_batch(EVENT_ASSOCIATIONS_INDEXES_SQL)?;
+    ensure_column(
+        conn,
+        "family_children",
+        "pedigree",
+        "TEXT NOT NULL DEFAULT 'unknown'",
+    )?;
     Ok(())
 }
 

@@ -12,9 +12,11 @@ mod builder;
 mod compounds;
 mod graph;
 mod packing;
+mod pedigree;
 mod placement;
 mod scene;
 
+pub use pedigree::build_pedigree_scene;
 pub use scene::{NodeGeom, TreeScene, UnionGeom, truncate_name};
 
 use crate::db::FamilyTree;
@@ -33,6 +35,12 @@ const SPOUSE_GAP: f32 = 12.0;
 pub(crate) const V_GAP: f32 = 180.0;
 /// Vertical distance between the tops of two adjacent generation rows.
 pub(crate) const RANK_PITCH: f32 = NODE_H + V_GAP;
+/// Top spacing before the first family trunk lane inside a generation gap.
+pub(crate) const TRUNK_TOP_MARGIN: f32 = 16.0;
+/// Bottom spacing before the next generation's node band.
+pub(crate) const TRUNK_BOTTOM_MARGIN: f32 = 18.0;
+/// Preferred spacing between overlapping family trunk lanes.
+pub(crate) const TRUNK_LANE_SPACING: f32 = 12.0;
 /// Vertical gap between disconnected component boxes on the canvas grid.
 pub(crate) const COMPONENT_GAP: f32 = 120.0;
 /// Character budget for node name labels.
@@ -721,19 +729,58 @@ mod tests {
         let trunk = union(&scene, "f1").trunk_y;
         let parent = node(&scene, "i1").bounds;
         let child = node(&scene, "i3").bounds;
-        assert_eq!(trunk, V_GAP * 0.5, "rank 0 trunk is half a gap below 0");
         assert!(
             trunk > parent.max.y && trunk < child.min.y,
             "the trunk row falls in the open gap between the ranks"
+        );
+        assert_eq!(
+            trunk,
+            TRUNK_TOP_MARGIN + NODE_H + TRUNK_LANE_SPACING,
+            "single-lane trunk uses the first routing lane"
         );
 
         let lineage = build_scene(&lineage_tree(), false);
         let second_rank_trunk = union(&lineage, "f2").trunk_y;
         assert_eq!(
             second_rank_trunk,
-            (RANK_PITCH) + V_GAP * 0.5,
-            "rank 1 trunk follows the same formula"
+            RANK_PITCH + TRUNK_TOP_MARGIN + NODE_H + TRUNK_LANE_SPACING,
+            "rank 1 trunk follows the same lane rule"
         );
+    }
+
+    #[test]
+    fn overlapping_family_trunks_use_distinct_lanes() {
+        let tree = FamilyTree {
+            people: vec![
+                person("h1", "One", "Father"),
+                person("w1", "One", "Mother"),
+                person("h2", "Two", "Father"),
+                person("w2", "Two", "Mother"),
+                person("child", "Shared", "Child"),
+            ],
+            families: vec![
+                family("f1", Some("h1"), Some("w1")),
+                family("f2", Some("h2"), Some("w2")),
+            ],
+            child_links: vec![
+                ("f1".to_string(), "child".to_string()),
+                ("f2".to_string(), "child".to_string()),
+            ],
+        };
+        let scene = build_scene(&tree, false);
+        let first = union(&scene, "f1");
+        let second = union(&scene, "f2");
+        assert_ne!(first.trunk_y, second.trunk_y, "overlapping trunks split");
+        assert_ne!(first.trunk_lane, second.trunk_lane);
+        assert!(
+            first.trunk_y > node(&scene, "h1").bounds.max.y
+                && first.trunk_y < node(&scene, "child").bounds.min.y
+        );
+        assert!(
+            second.trunk_y > node(&scene, "h2").bounds.max.y
+                && second.trunk_y < node(&scene, "child").bounds.min.y
+        );
+        assert_eq!(overlapping_trunk_pairs(&scene), 0);
     }
 
     #[test]
@@ -966,13 +1013,15 @@ mod tests {
             max_trunk_span(&scene) < 11_657.0,
             "longest family trunk should be at least half the old 23,314-unit baseline"
         );
-        assert!(
-            overlapping_trunk_pairs(&scene) <= 13,
-            "overlapping trunks should stay below the checked-in budget"
+        assert_eq!(
+            overlapping_trunk_pairs(&scene),
+            0,
+            "overlapping families must use separate lanes"
         );
-        assert!(
-            strict_crossings(&scene) <= 2,
-            "strict crossings should not exceed the old baseline"
+        assert_eq!(
+            strict_crossings(&scene),
+            0,
+            "unrelated interior crossings must be visually broken"
         );
         assert_eq!(
             scene,

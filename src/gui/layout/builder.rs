@@ -9,7 +9,10 @@ use crate::db::{Family, FamilyTree};
 use super::compounds::Compound;
 use super::graph::compute_person_components;
 use super::scene::{NodeGeom, TreeScene, UnionGeom, person_display_name};
-use super::{SPOUSE_GAP, V_GAP};
+use super::{
+    NODE_H, RANK_PITCH, SPOUSE_GAP, TRUNK_BOTTOM_MARGIN, TRUNK_LANE_SPACING, TRUNK_TOP_MARGIN,
+    V_GAP,
+};
 
 pub(super) struct LayoutBuilder<'a> {
     pub(super) tree: &'a FamilyTree,
@@ -177,10 +180,12 @@ impl<'a> LayoutBuilder<'a> {
                 spouse_line,
                 union,
                 trunk_y: self.trunk_y(family),
+                trunk_lane: 0,
                 parent_rank_y,
                 children,
             });
         }
+        assign_trunk_lanes(&mut unions);
         unions
     }
 
@@ -218,4 +223,70 @@ impl<'a> LayoutBuilder<'a> {
             bounds,
         }
     }
+}
+
+/// Gives overlapping family trunks distinct lanes within their generation gap.
+pub(super) fn assign_trunk_lanes(unions: &mut [UnionGeom]) {
+    use std::collections::HashMap;
+
+    const SPAN_PADDING: f32 = 6.0;
+    let mut groups: HashMap<i64, Vec<usize>> = HashMap::new();
+    for (index, union) in unions.iter().enumerate() {
+        if union.children.is_empty() {
+            continue;
+        }
+        let key = (union.parent_rank_y * 100.0).round() as i64;
+        groups.entry(key).or_default().push(index);
+    }
+    for mut indices in groups.into_values() {
+        indices.sort_by(|&left, &right| {
+            let a = &unions[left];
+            let b = &unions[right];
+            let a_span = span(a);
+            let b_span = span(b);
+            a_span
+                .0
+                .total_cmp(&b_span.0)
+                .then_with(|| a_span.1.total_cmp(&b_span.1))
+                .then_with(|| a.union.x.total_cmp(&b.union.x))
+                .then_with(|| a.family_id.cmp(&b.family_id))
+        });
+        let mut active: Vec<(f32, u32)> = Vec::new();
+        let mut max_lane = 0u32;
+        for &index in &indices {
+            let (start, end) = span(&unions[index]);
+            active.retain(|(active_end, _)| *active_end >= start - SPAN_PADDING);
+            let mut lane = 0u32;
+            while active.iter().any(|(_, used)| *used == lane) {
+                lane += 1;
+            }
+            active.push((end + SPAN_PADDING, lane));
+            max_lane = max_lane.max(lane);
+            if let Some(union) = unions.get_mut(index) {
+                union.trunk_lane = lane;
+            }
+        }
+        let Some(first) = indices.first().and_then(|&index| unions.get(index)) else {
+            continue;
+        };
+        let top = first.parent_rank_y + NODE_H + TRUNK_TOP_MARGIN;
+        let bottom = first.parent_rank_y + RANK_PITCH - TRUNK_BOTTOM_MARGIN;
+        let available = (bottom - top).max(1.0);
+        let step = (available / (max_lane + 1) as f32).clamp(2.0, TRUNK_LANE_SPACING);
+        for index in indices {
+            if let Some(union) = unions.get_mut(index) {
+                union.trunk_y = top + (union.trunk_lane + 1) as f32 * step;
+            }
+        }
+    }
+}
+
+fn span(union: &UnionGeom) -> (f32, f32) {
+    let mut start = union.union.x;
+    let mut end = union.union.x;
+    for (_, anchor) in &union.children {
+        start = start.min(anchor.x);
+        end = end.max(anchor.x);
+    }
+    (start, end)
 }

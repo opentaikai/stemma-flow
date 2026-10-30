@@ -108,7 +108,7 @@ places, facts, alternate names and notes as first-class records.
 | Add relatives from empty parent, spouse and child slots | done | P0 | Role-specific slots reuse the link-existing picker |
 | Double-click a person to edit | done | P1 | Opens the pinned editor from graph nodes and watch-list cells |
 | Switch between family members inside the edit screen | done | P2 | Parent/spouse rows switch the pinned editor |
-| Pedigree view (5 or 6 generations) | done | P0 | Pinned-root ancestor chart; all parent families |
+| Pedigree view (5 or 6 generations) | done | P0 | Dedicated bottom-centred layered DAG; root, couples and shared ancestors grouped |
 | Family view | done | P0 | Pinned root, spouse/parent family selector, direct children |
 | Descendant view (2 to 7 generations) | done | P1 | Pinned root, descendant spouses and all child families |
 | People list view with configurable columns | done | P1 | Visibility, order, widths and extra columns |
@@ -213,7 +213,7 @@ long research sessions.
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
 | Multiple tree windows | deferred | P2 | Up to four, multi-monitor |
-| Large-tree performance (10,000+ people) | partial | P1 | Connector geometry is cached per scene; layout, search and node budgets pending |
+| Large-tree performance (10,000+ people) | partial | P1 | Cached connectors, overlap-based trunk lanes and crossing breaks; layout/search/node budgets pending |
 | Virtualized lists and charts | planned | P1 | Avoid rendering off-screen rows and nodes |
 | Internationalisation | partial | P2 | External TOML catalogs, English/German core UI; remaining editor strings pending |
 | Accessibility and keyboard navigation | deferred | P2 | Focus order, labels, KeyTips |

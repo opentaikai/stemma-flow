@@ -223,6 +223,19 @@ pub(super) fn migrate_v14_to_v15(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// Adds the parentage type to child-to-family links.
+pub(super) fn migrate_v15_to_v16(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    ensure_column(
+        &tx,
+        "family_children",
+        "pedigree",
+        "TEXT NOT NULL DEFAULT 'unknown'",
+    )?;
+    tx.pragma_update(None, "user_version", 16)?;
+    tx.commit()
+}
+
 /// Copies distinct event places into `places` and links the events.
 fn migrate_places(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut stmt = tx.prepare(
