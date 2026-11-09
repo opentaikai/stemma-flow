@@ -122,6 +122,7 @@ impl TreeWindow {
         self.person_facts = facts;
         self.tree_settings = settings;
         self.watch.mark_dirty();
+        self.research.problems.loaded = false;
         self.seen_db = self.app.active_db().map(Path::to_path_buf);
         let generation = self.app.import_generation();
         let generation_changed = self.seen_generation != generation;
