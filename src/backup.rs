@@ -70,7 +70,7 @@ pub fn timestamp_suffix() -> Result<String, String> {
     .map_err(|error| error.to_string())
 }
 
-fn timestamp_text() -> Result<String, String> {
+pub fn timestamp_text() -> Result<String, String> {
     let conn = Connection::open_in_memory().map_err(|error| error.to_string())?;
     conn.query_row(
         "SELECT strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime')",

@@ -107,6 +107,7 @@ pub struct TaskRecord {
 pub struct TaskSummary {
     pub id: String,
     pub title: String,
+    pub description: Option<String>,
     pub status: TaskStatus,
     pub priority: Option<i64>,
     pub folder: Option<String>,
@@ -166,8 +167,8 @@ fn row_status(value: String) -> TaskStatus {
 pub fn list_tasks(conn: &Connection) -> Result<Vec<TaskSummary>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT t.id, t.title, t.status, t.priority, t.folder, t.due_date,
-                    t.completed_at,
+            "SELECT t.id, t.title, t.description, t.status, t.priority, t.folder,
+                    t.due_date, t.completed_at,
                     (SELECT COUNT(*) FROM task_links l WHERE l.task_id = t.id)
              FROM tasks t
              ORDER BY CASE t.status WHEN 'open' THEN 0 ELSE 1 END,
@@ -180,12 +181,13 @@ pub fn list_tasks(conn: &Connection) -> Result<Vec<TaskSummary>, String> {
             Ok(TaskSummary {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                status: row_status(row.get(2)?),
-                priority: row.get(3)?,
-                folder: row.get(4)?,
-                due_date: row.get(5)?,
-                completed_at: row.get(6)?,
-                link_count: row.get(7)?,
+                description: row.get(2)?,
+                status: row_status(row.get(3)?),
+                priority: row.get(4)?,
+                folder: row.get(5)?,
+                due_date: row.get(6)?,
+                completed_at: row.get(7)?,
+                link_count: row.get(8)?,
             })
         })
         .map_err(|error| error.to_string())?
@@ -329,8 +331,8 @@ pub fn list_folders(conn: &Connection) -> Result<Vec<String>, String> {
 /// Lists tasks linked to one record.
 pub fn list_owner_tasks(conn: &Connection, owner: &TaskOwner) -> Result<Vec<TaskSummary>, String> {
     let sql = format!(
-        "SELECT t.id, t.title, t.status, t.priority, t.folder, t.due_date,
-                t.completed_at,
+        "SELECT t.id, t.title, t.description, t.status, t.priority, t.folder,
+                t.due_date, t.completed_at,
                 (SELECT COUNT(*) FROM task_links l WHERE l.task_id = t.id)
          FROM tasks t
          JOIN task_links l ON l.task_id = t.id
@@ -346,12 +348,13 @@ pub fn list_owner_tasks(conn: &Connection, owner: &TaskOwner) -> Result<Vec<Task
             Ok(TaskSummary {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                status: row_status(row.get(2)?),
-                priority: row.get(3)?,
-                folder: row.get(4)?,
-                due_date: row.get(5)?,
-                completed_at: row.get(6)?,
-                link_count: row.get(7)?,
+                description: row.get(2)?,
+                status: row_status(row.get(3)?),
+                priority: row.get(4)?,
+                folder: row.get(5)?,
+                due_date: row.get(6)?,
+                completed_at: row.get(7)?,
+                link_count: row.get(8)?,
             })
         })
         .map_err(|error| error.to_string())?
@@ -650,6 +653,16 @@ mod tests {
             list_folders(&conn).expect("folders"),
             ["Parish records".to_string()]
         );
+        let listed = list_tasks(&conn).expect("list");
+        assert_eq!(
+            listed
+                .iter()
+                .find(|summary| summary.id == id)
+                .expect("listed task")
+                .description
+                .as_deref(),
+            Some("Search the parish books")
+        );
         assert!(save_task(&conn, &draft("  ")).is_err());
     }
 
@@ -678,7 +691,12 @@ mod tests {
         assert!(links.iter().any(|link| link.label == "Ada King"));
         assert!(links.iter().any(|link| link.label == "Parish Book"));
         assert!(links.iter().any(|link| link.label == "photo.jpg"));
-        assert_eq!(list_tasks(&conn).expect("list")[0].link_count, 7);
+        let listed = list_tasks(&conn).expect("list");
+        let research = listed
+            .iter()
+            .find(|task| task.title == "Research")
+            .expect("research task listed");
+        assert_eq!(research.link_count, 7);
 
         detach_task(&conn, &id, &TaskOwner::Person("p1".to_string())).expect("detach");
         assert_eq!(list_task_links(&conn, &id, false).expect("links").len(), 6);

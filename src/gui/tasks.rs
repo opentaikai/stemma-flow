@@ -22,7 +22,7 @@ pub enum TaskFilter {
 }
 
 impl TaskFilter {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::All => "All",
             Self::Open => "Open",
@@ -49,7 +49,7 @@ impl TaskEdit {
         Self {
             id: Some(summary.id.clone()),
             title: summary.title.clone(),
-            description: String::new(),
+            description: summary.description.clone().unwrap_or_default(),
             status: summary.status,
             priority: summary.priority,
             folder: summary.folder.clone().unwrap_or_default(),
@@ -91,6 +91,7 @@ pub enum TaskEvent {
     Select(String),
     Save(Box<TaskDraft>),
     Delete(String),
+    Print,
     Detach {
         owner_type: String,
         owner_id: String,
@@ -111,6 +112,34 @@ pub struct TasksState {
     pub editing: bool,
     pub error: Option<String>,
     pub loaded: bool,
+}
+
+/// Tasks matching the current text, status and folder filters, in list order.
+pub fn filtered_tasks(state: &TasksState) -> Vec<&TaskSummary> {
+    let filter = state.filter.trim().to_lowercase();
+    state
+        .tasks
+        .iter()
+        .filter(|task| match state.status_filter {
+            TaskFilter::All => true,
+            TaskFilter::Open => task.status == TaskStatus::Open,
+            TaskFilter::Done => task.status == TaskStatus::Done,
+        })
+        .filter(|task| match &state.folder_filter {
+            Some(folder) => task.folder.as_deref() == Some(folder.as_str()),
+            None => true,
+        })
+        .filter(|task| {
+            filter.is_empty()
+                || task.title.to_lowercase().contains(&filter)
+                || task
+                    .folder
+                    .as_deref()
+                    .unwrap_or_default()
+                    .to_lowercase()
+                    .contains(&filter)
+        })
+        .collect()
 }
 
 /// Draws the task list and editor.
@@ -160,36 +189,18 @@ pub fn show(ui: &mut Ui, state: &mut TasksState) -> Option<TaskEvent> {
         {
             event = Some(TaskEvent::New);
         }
+        if ui
+            .add(egui::Button::new(crate::i18n::tr("tasks.print")))
+            .clicked()
+        {
+            event = Some(TaskEvent::Print);
+        }
     });
     ui.separator();
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(470.0);
-            let filter = state.filter.trim().to_lowercase();
-            let visible: Vec<TaskSummary> = state
-                .tasks
-                .iter()
-                .filter(|task| match state.status_filter {
-                    TaskFilter::All => true,
-                    TaskFilter::Open => task.status == TaskStatus::Open,
-                    TaskFilter::Done => task.status == TaskStatus::Done,
-                })
-                .filter(|task| match &state.folder_filter {
-                    Some(folder) => task.folder.as_deref() == Some(folder.as_str()),
-                    None => true,
-                })
-                .filter(|task| {
-                    filter.is_empty()
-                        || task.title.to_lowercase().contains(&filter)
-                        || task
-                            .folder
-                            .as_deref()
-                            .unwrap_or_default()
-                            .to_lowercase()
-                            .contains(&filter)
-                })
-                .cloned()
-                .collect();
+            let visible = filtered_tasks(state);
             egui::ScrollArea::vertical()
                 .id_salt("task_log")
                 .auto_shrink([false, false])
@@ -354,7 +365,7 @@ fn task_editor(ui: &mut Ui, state: &mut TasksState, event: &mut Option<TaskEvent
     }
 }
 
-fn priority_label(priority: i64) -> String {
+pub fn priority_label(priority: i64) -> String {
     PRIORITIES
         .iter()
         .find(|(value, _)| *value == Some(priority))
@@ -486,6 +497,7 @@ mod tests {
         TaskSummary {
             id: "t1".to_string(),
             title: "Find the birth record".to_string(),
+            description: Some("Checked the parish register.".to_string()),
             status: TaskStatus::Open,
             priority: Some(3),
             folder: Some("Parish".to_string()),
@@ -493,6 +505,52 @@ mod tests {
             completed_at: None,
             link_count: 1,
         }
+    }
+
+    #[test]
+    fn filtered_tasks_apply_text_status_and_folder_filters() {
+        let mut open = summary();
+        open.id = "open".to_string();
+        let mut done = summary();
+        done.id = "done".to_string();
+        done.status = TaskStatus::Done;
+        done.folder = Some("Archive".to_string());
+        let mut other = summary();
+        other.id = "other".to_string();
+        other.title = "Find the death record".to_string();
+        other.folder = None;
+        let mut state = TasksState {
+            tasks: vec![open, done, other],
+            ..TasksState::default()
+        };
+
+        assert_eq!(filtered_tasks(&state).len(), 3);
+        state.status_filter = TaskFilter::Done;
+        assert_eq!(
+            filtered_tasks(&state)
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            ["done"]
+        );
+        state.status_filter = TaskFilter::All;
+        state.folder_filter = Some("Parish".to_string());
+        assert_eq!(
+            filtered_tasks(&state)
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            ["open"]
+        );
+        state.folder_filter = None;
+        state.filter = "death".to_string();
+        assert_eq!(
+            filtered_tasks(&state)
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            ["other"]
+        );
     }
 
     #[test]

@@ -19,3 +19,4 @@ thiserror = "2"
 toml = "1.1"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+open = "5"

@@ -94,3 +94,16 @@ fn ensure_extension(mut path: PathBuf, extension: &str) -> PathBuf {
     }
     path
 }
+
+/// Opens the save dialog for a print-ready research log.
+pub fn prompt_research_log_path(default_name: &str, directory: Option<&Path>) -> Option<PathBuf> {
+    let mut dialog = FileDialog::new()
+        .add_filter("HTML Report", &["html", "htm"])
+        .set_file_name(default_name);
+    if let Some(directory) = directory {
+        dialog = dialog.set_directory(directory);
+    }
+    dialog
+        .save_file()
+        .map(|path| ensure_extension(path, "html"))
+}

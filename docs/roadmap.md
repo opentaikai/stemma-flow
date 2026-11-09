@@ -130,7 +130,7 @@ Goal: keep research organised beside the people it concerns.
 |---|---|---|---|
 | Tasks and research logs | done | P1 | Goals, results, status, priority and folders |
 | Link tasks to people, families, events, sources, citations and places | done | P1 | Attach from record cards; detach from task editor |
-| Task folders and research-log table view | partial | P1 | Folders and table view done; printing deferred |
+| Task folders and research-log table view | done | P1 | Folder-filtered log and print-ready HTML export |
 | Problem alerts (missing or contradictory data) | planned | P1 | Interactive, mark as not a problem |
 | DataClean for names and places | planned | P1 | Batch normalisation |
 | Advanced person search (facts, dates, places, notes) | planned | P1 | Multiple criteria |
