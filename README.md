@@ -20,13 +20,13 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (27 tables, 46
-  indexes) and records its version in `PRAGMA user_version` (currently 15):
+- `db::init_db(&conn)` creates or upgrades the schema (28 tables, 46
+  indexes) and records its version in `PRAGMA user_version` (currently 17):
   `people`, `alternate_names`, `tree_settings`, `notes`, `associations`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
   `events`, `event_participants`, `citations`, `citation_links`, `media`,
-  `media_links`, `tasks`, `task_links`, `groups` and `group_members`. A v1 database is migrated in place: citation titles
+  `media_links`, `tasks`, `task_links`, `groups`, `group_members` and `problem_dismissals`. A v1 database is migrated in place: citation titles
   become `sources`, event places become `places`, and the new links are
   backfilled. v2 databases gain the v3 source/citation metadata, v4 the
   source template catalogue, v5 the free-form citation outputs, v6 the
@@ -407,10 +407,15 @@ views (the app always launches on Graph View):
   directly and detach links. Citation/place media now round-trip through
   GEDCOM; relative paths, copying files into the tree and broken-link repair
   remain deferred.
-- **Research** — sub-tabs for **Tasks** and **Groups**. Tasks form a
-  research log with title/goal, description/results, open/done status,
-  priority, folder, due date, completion time and linked-record counts;
-  filters cover text, status and folder. **Print log…** exports the current
+- **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
+  Problems surfaces focused missing data and contradictions: unnamed people,
+  missing birth dates, impossible chronology, implausible parent ages,
+  marriage dates outside a spouse's lifetime and multiple birth/death
+  events. Clicking an alert selects the affected person; **Not a problem**
+  dismisses that exact alert persistently and **Reset dismissals** restores
+  them. Tasks form a research log with title/goal, description/results,
+  open/done status, priority, folder, due date, completion time and
+  linked-record counts; filters cover text, status and folder. **Print log…** exports the current
   filtered research log as print-ready HTML, grouped by folder with the
   research-log/results text and opened in the default browser for printing
   or PDF creation. Groups are static named people groups with an editor,
