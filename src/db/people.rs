@@ -126,9 +126,11 @@ pub struct VitalDates {
     pub birth: Option<String>,
     pub birth_place: Option<String>,
     pub birth_event_id: Option<String>,
+    pub birth_events: usize,
     pub death: Option<String>,
     pub death_place: Option<String>,
     pub death_event_id: Option<String>,
+    pub death_events: usize,
 }
 
 pub(crate) fn normalize(details: &PersonDetails) -> Result<PersonDetails, String> {
@@ -586,6 +588,7 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
         let entry = dates.entry(person_id).or_default();
         match event_type.as_str() {
             "BIRTH" => {
+                entry.birth_events += 1;
                 if entry.birth.is_none() {
                     entry.birth = date;
                 }
@@ -597,6 +600,7 @@ pub fn load_vital_dates(conn: &Connection) -> Result<HashMap<String, VitalDates>
                 }
             }
             "DEATH" => {
+                entry.death_events += 1;
                 if entry.death.is_none() {
                     entry.death = date;
                 }
