@@ -570,6 +570,35 @@ mod tests {
     }
 
     #[test]
+    fn old_parents_and_posthumous_marriages_are_detected() {
+        let tree = tree();
+        let mut data = HashMap::new();
+        data.insert("parent".to_string(), dates(Some("1800"), None));
+        data.insert("child".to_string(), dates(Some("1900"), None));
+        let alerts = detect(&tree, &data, &HashMap::new());
+        assert!(kinds(&alerts).contains(&ProblemKind::ParentTooOld));
+
+        let tree = FamilyTree {
+            people: vec![person("a", "Ada", "King"), person("b", "Ben", "King")],
+            families: vec![family("f1", Some("a"), Some("b"))],
+            child_links: Vec::new(),
+        };
+        let mut data = HashMap::new();
+        data.insert("a".to_string(), dates(Some("1850"), Some("1900")));
+        data.insert("b".to_string(), dates(Some("1850"), None));
+        let mut marriages = HashMap::new();
+        marriages.insert(
+            "f1".to_string(),
+            MarriageInfo {
+                date: Some("1910".to_string()),
+                ..MarriageInfo::default()
+            },
+        );
+        let alerts = detect(&tree, &data, &marriages);
+        assert!(kinds(&alerts).contains(&ProblemKind::MarriageAfterDeath));
+    }
+
+    #[test]
     fn keys_change_when_the_underlying_value_changes() {
         let tree = FamilyTree {
             people: vec![person("a", "Ada", "King")],
