@@ -410,10 +410,13 @@ views (the app always launches on Graph View):
 - **Research** — sub-tabs for **Tasks** and **Groups**. Tasks form a
   research log with title/goal, description/results, open/done status,
   priority, folder, due date, completion time and linked-record counts;
-  filters cover text, status and folder. Groups are static named people
-  groups with an editor, member search and add/remove actions. **Tasks…**
-  dialogs on people, families, facts, citations, sources, places and media
-  attach existing tasks and detach links. Tasks and groups remain app-only.
+  filters cover text, status and folder. **Print log…** exports the current
+  filtered research log as print-ready HTML, grouped by folder with the
+  research-log/results text and opened in the default browser for printing
+  or PDF creation. Groups are static named people groups with an editor,
+  member search and add/remove actions. **Tasks…** dialogs on people,
+  families, facts, citations, sources, places and media attach existing
+  tasks and detach links. Tasks and groups remain app-only.
 - **Fact Types** — a filterable, sortable grid of the built-in and custom
   fact types with category, scope, kind, GEDCOM tag, role count and event
   usage, plus an editor. Custom types get an immutable generated key and a
