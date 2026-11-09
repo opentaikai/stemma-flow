@@ -42,6 +42,7 @@ use crate::db::tasks::{
 use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options};
 use crate::gui::dialogs;
 use crate::model::source_template::SourceTemplate;
+use crate::report::research_log::{self, ResearchLogReport};
 
 /// Outcome of a background import/export job.
 #[derive(Debug)]
@@ -69,6 +70,11 @@ pub enum JobEvent {
     Maintenance {
         report: MaintenanceReport,
         backup_path: Option<PathBuf>,
+    },
+    ResearchLogExported {
+        path: PathBuf,
+        bytes: usize,
+        tasks: usize,
     },
     Failed(String),
 }
@@ -102,6 +108,7 @@ enum Job {
         kind: MaintenanceKind,
         backup_first: bool,
     },
+    ResearchLog(Box<ResearchLogReport>),
 }
 
 /// Application state shared between the UI shell and job workers.
@@ -226,6 +233,11 @@ impl StemmaApp {
     /// Returns a maintenance failure exactly once for the tools dialog.
     pub fn take_maintenance_error(&mut self) -> Option<String> {
         self.maintenance_error.take()
+    }
+
+    /// Writes a print-ready HTML research log on a worker thread.
+    pub fn begin_research_log_export(&mut self, report: ResearchLogReport) {
+        self.begin(Job::ResearchLog(Box::new(report)), self.active_db.clone());
     }
 
     /// Writes a timestamped backup archive of the active tree and its media.
@@ -1076,6 +1088,7 @@ impl StemmaApp {
             Job::Backup => "Choosing backup destination\u{2026}",
             Job::Restore => "Choosing backup to restore\u{2026}",
             Job::Maintenance { .. } => "Running database maintenance\u{2026}",
+            Job::ResearchLog(_) => "Choosing research log destination\u{2026}",
         });
         let (tx, rx) = channel();
         self.rx = Some(rx);
@@ -1176,6 +1189,10 @@ impl StemmaApp {
                 self.maintenance_error = None;
                 status
             }
+            JobEvent::ResearchLogExported { path, bytes, tasks } => UiStatus::Success(format!(
+                "Exported {tasks} tasks ({bytes} bytes) to {}",
+                path.display()
+            )),
             JobEvent::Cancelled => UiStatus::Cancelled,
             JobEvent::Failed(message) => {
                 if was_maintenance {
@@ -1295,6 +1312,28 @@ impl Job {
                     None => JobEvent::Cancelled,
                     Some(dest) => match backup::restore_backup(&archive, &dest) {
                         Ok(report) => JobEvent::Restored { path: dest, report },
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::ResearchLog(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name = research_log::file_name(&report.tree_name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_research_log_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match research_log::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::ResearchLogExported {
+                                path: dest,
+                                bytes,
+                                tasks: report.tasks.len(),
+                            }
+                        }
                         Err(message) => JobEvent::Failed(message),
                     },
                 }
@@ -1645,6 +1684,21 @@ mod tests {
 
         app.begin_maintenance(MaintenanceKind::Integrity, false);
         assert!(!app.is_maintenance(), "maintenance needs an open tree");
+    }
+
+    #[test]
+    fn research_log_export_event_reports_success() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        app.apply_event(JobEvent::ResearchLogExported {
+            path: PathBuf::from("/tmp/research-log.html"),
+            bytes: 2048,
+            tasks: 4,
+        });
+        assert!(!app.is_busy());
+        assert!(
+            matches!(app.status(), UiStatus::Success(message) if message.contains("4 tasks") && message.contains("research-log.html"))
+        );
     }
 
     #[test]

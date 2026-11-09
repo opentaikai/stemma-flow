@@ -39,9 +39,10 @@ use crate::gui::tasks::{self as task_ui, TaskAttachOutcome, TaskAttachState, Tas
 use crate::gui::watchlist;
 use crate::gui::watchlist::WatchEvent;
 use crate::gui::welcome;
+use crate::report::research_log::ResearchLogReport;
 use eframe::Frame;
 use egui::Ui;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::RECENT_TREES_KEY;
 use super::loading::{load_error, pan_centering};
@@ -487,6 +488,43 @@ impl TreeWindow {
         }
     }
 
+    fn print_research_log(&mut self) {
+        let Some(path) = self.app.active_db() else {
+            self.app
+                .set_status(UiStatus::Error("No tree is open".to_string()));
+            return;
+        };
+        let tasks: Vec<_> = task_ui::filtered_tasks(&self.research.tasks)
+            .into_iter()
+            .cloned()
+            .collect();
+        if tasks.is_empty() {
+            self.app.set_status(UiStatus::Error(
+                "No tasks match the current filters".to_string(),
+            ));
+            return;
+        }
+        let tree_name = Path::new(path)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("family_tree")
+            .to_string();
+        let status_filter = match self.research.tasks.status_filter {
+            task_ui::TaskFilter::All => crate::i18n::tr("research_report.filter_all"),
+            task_ui::TaskFilter::Open => crate::i18n::tr("research_report.filter_open"),
+            task_ui::TaskFilter::Done => crate::i18n::tr("research_report.filter_done"),
+        };
+        let report = ResearchLogReport {
+            tree_name,
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            text_filter: self.research.tasks.filter.clone(),
+            status_filter,
+            folder_filter: self.research.tasks.folder_filter.clone(),
+            tasks,
+        };
+        self.app.begin_research_log_export(report);
+    }
+
     fn apply_task_event(&mut self, event: TaskEvent) {
         match event {
             TaskEvent::New => {
@@ -516,6 +554,7 @@ impl TreeWindow {
                 }
                 Err(message) => self.research.tasks.error = Some(message),
             },
+            TaskEvent::Print => self.print_research_log(),
             TaskEvent::Detach {
                 owner_type,
                 owner_id,
