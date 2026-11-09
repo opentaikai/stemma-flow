@@ -29,6 +29,7 @@ use crate::db::participants::{self as participant_store, EventContext, Participa
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
 use crate::db::privacy::{self as privacy_store, DEFAULT_LIVING_AGE, PersonPrivacy};
+use crate::db::problems as problem_store;
 use crate::db::repositories::{
     self as repository_store, RepositoryDraft, RepositoryRecord, RepositorySummary,
 };
@@ -664,6 +665,34 @@ impl StemmaApp {
         task_store::delete_task(&conn, id)?;
         self.set_status(UiStatus::Success("Task deleted".to_string()));
         Ok(())
+    }
+
+    /// Loads the keys of problem alerts marked as not a problem.
+    pub fn list_problem_dismissals(&self) -> Result<std::collections::HashSet<String>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        problem_store::list_dismissed(&conn)
+    }
+
+    /// Marks one problem alert as not a problem.
+    pub fn dismiss_problem(&mut self, alert_key: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        problem_store::dismiss(&conn, alert_key)
+    }
+
+    /// Restores one dismissed problem alert.
+    pub fn restore_problem(&mut self, alert_key: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        problem_store::restore(&conn, alert_key)
+    }
+
+    /// Restores every dismissed problem alert.
+    pub fn clear_problem_dismissals(&mut self) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        problem_store::clear(&conn)
     }
 
     /// Lists the distinct task folders.

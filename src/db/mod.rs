@@ -15,6 +15,7 @@ pub mod participants;
 pub mod people;
 pub mod places;
 pub mod privacy;
+pub mod problems;
 pub mod repositories;
 pub mod schema;
 pub mod settings;

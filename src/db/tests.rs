@@ -10,7 +10,7 @@ use rusqlite::{Connection, params};
 use super::{Citation, Event, Family, Person, init_db, open_connection};
 use crate::model::fact::builtin_facts;
 
-const TABLES: [&str; 27] = [
+const TABLES: [&str; 28] = [
     "people",
     "families",
     "family_children",
@@ -38,6 +38,7 @@ const TABLES: [&str; 27] = [
     "notes",
     "associations",
     "event_associations",
+    "problem_dismissals",
 ];
 const INDEXES: [&str; 46] = [
     "idx_families_husband",
@@ -758,10 +759,10 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<
 }
 
 #[test]
-fn new_database_is_schema_v16() -> rusqlite::Result<()> {
+fn new_database_is_schema_v17() -> rusqlite::Result<()> {
     let conn = setup_test_db()?;
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert!(has_column(&conn, "citations", "source_id")?);
     assert!(!has_column(&conn, "citations", "source_title")?);
     assert!(has_column(&conn, "citations", "quality_certainty")?);
@@ -829,7 +830,7 @@ fn init_db_migrates_a_v2_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert!(has_column(&conn, "sources", "abbreviation")?);
     assert!(has_column(&conn, "sources", "footnote")?);
     assert!(has_column(&conn, "citations", "quality_certainty")?);
@@ -867,7 +868,7 @@ fn init_db_migrates_a_v1_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(scalar_count(&conn, "SELECT COUNT(*) FROM people")?, 2);
     assert_eq!(
         scalar_count(&conn, "SELECT COUNT(*) FROM source_templates")?,
@@ -935,7 +936,7 @@ fn init_db_migrates_a_v3_database() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(
         scalar_count(&conn, "SELECT COUNT(*) FROM source_templates")?,
         5
@@ -965,7 +966,7 @@ fn init_db_migrates_citation_attachments_to_current() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(
         scalar_count(
             &conn,
@@ -1019,7 +1020,7 @@ fn init_db_migrates_fact_types_to_current() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert!(has_column(&conn, "fact_types", "scope")?);
     assert!(has_column(&conn, "fact_types", "kind")?);
     assert_eq!(
@@ -1070,7 +1071,7 @@ fn init_db_migrates_fact_roles_and_tags_to_v8() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(
         scalar_count(
             &conn,
@@ -1126,7 +1127,7 @@ fn init_db_migrates_participants_to_current() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(
         scalar_count(
             &conn,
@@ -1162,7 +1163,7 @@ fn init_db_migrates_privacy_flags_to_v10() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert!(has_column(&conn, "people", "private")?);
     assert!(has_column(&conn, "people", "living_override")?);
     assert!(has_column(&conn, "events", "private")?);
@@ -1179,7 +1180,7 @@ fn init_db_migrates_names_to_v11() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert!(has_column(&conn, "people", "name_prefix")?);
     assert!(has_column(&conn, "people", "name_suffix")?);
     assert_eq!(
@@ -1198,7 +1199,7 @@ fn init_db_migrates_names_to_v11() -> rusqlite::Result<()> {
 }
 
 #[test]
-fn init_db_migrates_tree_settings_and_notes_to_v16() -> rusqlite::Result<()> {
+fn init_db_migrates_tree_settings_and_notes_to_v17() -> rusqlite::Result<()> {
     let conn = Connection::open_in_memory()?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     init_db(&conn)?;
@@ -1207,7 +1208,7 @@ fn init_db_migrates_tree_settings_and_notes_to_v16() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(
         scalar_count(
             &conn,
@@ -1245,7 +1246,7 @@ fn init_db_moves_legacy_notes_into_the_notes_table() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert!(!has_column(&conn, "people", "notes")?);
     assert!(!has_column(&conn, "citations", "notes")?);
     assert!(!has_column(&conn, "places", "notes")?);
@@ -1280,7 +1281,7 @@ fn init_db_migrates_associations_to_v14() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(
         scalar_count(
             &conn,
@@ -1294,7 +1295,7 @@ fn init_db_migrates_associations_to_v14() -> rusqlite::Result<()> {
 }
 
 #[test]
-fn init_db_migrates_event_associations_to_v16() -> rusqlite::Result<()> {
+fn init_db_migrates_event_associations_to_v17() -> rusqlite::Result<()> {
     let conn = Connection::open_in_memory()?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     init_db(&conn)?;
@@ -1303,7 +1304,7 @@ fn init_db_migrates_event_associations_to_v16() -> rusqlite::Result<()> {
     init_db(&conn)?;
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(
         scalar_count(
             &conn,
@@ -1317,14 +1318,14 @@ fn init_db_migrates_event_associations_to_v16() -> rusqlite::Result<()> {
 
 #[test]
 fn migration_versions_rerun_safely_to_current() -> rusqlite::Result<()> {
-    for version in 2..=15 {
+    for version in 2..=16 {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         init_db(&conn)?;
         conn.pragma_update(None, "user_version", version)?;
         init_db(&conn)?;
         let current: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        assert_eq!(current, 16, "version {version} upgrades to current");
+        assert_eq!(current, 17, "version {version} upgrades to current");
         assert_eq!(
             scalar_count(
                 &conn,
@@ -1347,17 +1348,27 @@ fn migration_versions_rerun_safely_to_current() -> rusqlite::Result<()> {
 }
 
 #[test]
-fn init_db_migrates_parentage_to_v16() -> rusqlite::Result<()> {
+fn init_db_migrates_parentage_and_problem_dismissals_to_v17() -> rusqlite::Result<()> {
     let conn = Connection::open_in_memory()?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     init_db(&conn)?;
     conn.execute_batch(
-        "ALTER TABLE family_children DROP COLUMN pedigree; PRAGMA user_version = 15;",
+        "ALTER TABLE family_children DROP COLUMN pedigree;
+         DROP TABLE problem_dismissals;
+         PRAGMA user_version = 15;",
     )?;
     init_db(&conn)?;
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert!(has_column(&conn, "family_children", "pedigree")?);
+    assert_eq!(
+        scalar_count(
+            &conn,
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name = 'problem_dismissals'",
+        )?,
+        1
+    );
     Ok(())
 }
 
@@ -1392,7 +1403,7 @@ fn migrates_the_local_family_tree_db_when_present() -> rusqlite::Result<()> {
         assert!(before > 0, "the fixture must contain people");
         init_db(&conn)?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        assert_eq!(version, 16);
+        assert_eq!(version, 17);
         let after: i64 = conn.query_row("SELECT COUNT(*) FROM people", [], |row| row.get(0))?;
         assert_eq!(after, before, "migration preserves every person");
     }
