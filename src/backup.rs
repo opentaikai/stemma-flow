@@ -603,7 +603,12 @@ mod tests {
         let media_entries = (0..zip.len())
             .filter(|index| {
                 zip.by_index(*index)
-                    .map(|entry| entry.name().starts_with("media/"))
+                    .map(|entry| {
+                        entry
+                            .name()
+                            .map(|name| name.starts_with("media/"))
+                            .unwrap_or(false)
+                    })
                     .unwrap_or(false)
             })
             .count();

@@ -13,7 +13,7 @@ use crate::i18n::{tr, tr_args};
 /// truncated to the window width with the full text on hover.
 pub fn show(ctx: &Context, report: &ImportReport, open: &mut bool) {
     Window::new(tr("import_report.title"))
-        .id(Id::new("import_report_window"))
+        .id(Id::unique("import_report_window"))
         .open(open)
         .default_width(560.0)
         .default_height(360.0)

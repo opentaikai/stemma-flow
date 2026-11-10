@@ -76,7 +76,7 @@ pub fn show(
     let mut open = true;
     let mut outcome = None;
     Window::new("Witnesses")
-        .id(egui::Id::new("event_participants_window"))
+        .id(egui::Id::unique("event_participants_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(440.0)

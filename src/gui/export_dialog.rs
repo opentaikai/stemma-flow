@@ -14,7 +14,7 @@ pub fn show(ctx: &Context, options: &mut ExportOptions, open: &mut bool) -> Opti
     let mut outcome = None;
     let mut visible = true;
     Window::new(tr("export.title"))
-        .id(egui::Id::new("export_options_window"))
+        .id(egui::Id::unique("export_options_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut visible)

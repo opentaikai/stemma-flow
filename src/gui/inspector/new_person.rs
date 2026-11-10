@@ -48,7 +48,7 @@ pub fn show(
     let mut open = true;
     let mut outcome = None;
     Window::new(tr("new_person.title"))
-        .id(egui::Id::new("new_person_window"))
+        .id(egui::Id::unique("new_person_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(460.0)

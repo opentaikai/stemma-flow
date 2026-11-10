@@ -416,7 +416,7 @@ pub fn show_attach(ctx: &Context, state: &mut TaskAttachState) -> Option<TaskAtt
     let mut outcome = None;
     let mut open = true;
     Window::new(&state.title)
-        .id(egui::Id::new("task_attach_window"))
+        .id(egui::Id::unique("task_attach_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(460.0)

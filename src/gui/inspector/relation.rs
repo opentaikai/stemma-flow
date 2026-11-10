@@ -181,7 +181,7 @@ pub fn relation_window(
     let mut outcome = None;
     let mut open = true;
     egui::Window::new(form.kind.title(&form.target_label, form.role))
-        .id(egui::Id::new("relation_form_window"))
+        .id(egui::Id::unique("relation_form_window"))
         .collapsible(false)
         .resizable(false)
         .default_width(360.0)

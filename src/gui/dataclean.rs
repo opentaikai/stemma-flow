@@ -53,7 +53,7 @@ pub fn show(ctx: &Context, state: &mut DataCleanState) -> Option<DataCleanEvent>
     let mut open = true;
     let mut event = None;
     Window::new(tr("dataclean.title"))
-        .id(egui::Id::new("dataclean_window"))
+        .id(egui::Id::unique("dataclean_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(680.0)

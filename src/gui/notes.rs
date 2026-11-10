@@ -65,7 +65,7 @@ pub fn show(ctx: &Context, state: &mut NotesState) -> Option<NotesOutcome> {
     let mut outcome = None;
     let mut open = true;
     egui::Window::new(&state.title)
-        .id(egui::Id::new("record_notes_window"))
+        .id(egui::Id::unique("record_notes_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(440.0)
