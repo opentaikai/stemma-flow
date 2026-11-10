@@ -2,6 +2,7 @@
 
 pub mod age;
 pub mod couples;
+pub mod dataclean;
 pub mod date;
 pub mod descendant_view;
 pub mod duplicates;
