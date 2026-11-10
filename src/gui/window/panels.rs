@@ -112,6 +112,13 @@ impl TreeWindow {
                     ui.close();
                     self.open_database_tools();
                 }
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
+                    && ui.button(tr("tools.dataclean")).clicked()
+                {
+                    ui.close();
+                    self.open_data_clean();
+                }
             });
             if let Some(path) = self.app.active_db() {
                 let label = tr_args("menu.active_tree", &[("name", welcome::display_name(path))]);

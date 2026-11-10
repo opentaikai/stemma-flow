@@ -85,6 +85,36 @@ pub fn list_alternate_names(
     Ok(rows)
 }
 
+/// Lists every alternate name in tree order.
+pub fn list_all_alternate_names(conn: &Connection) -> Result<Vec<AlternateName>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, person_id, name_type, prefix, given_name, middle_name,
+                    surname, suffix, nickname, sort_order
+             FROM alternate_names ORDER BY person_id, sort_order, id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(AlternateName {
+                id: row.get(0)?,
+                person_id: row.get(1)?,
+                name_type: row.get(2)?,
+                prefix: row.get(3)?,
+                given_name: row.get(4)?,
+                middle_name: row.get(5)?,
+                surname: row.get(6)?,
+                suffix: row.get(7)?,
+                nickname: row.get(8)?,
+                sort_order: row.get(9)?,
+            })
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    Ok(rows)
+}
+
 /// Inserts or updates an alternate name.
 pub fn save_alternate_name(
     conn: &mut Connection,

@@ -2,6 +2,7 @@
 
 pub mod associations;
 pub mod citations;
+pub mod dataclean;
 pub mod facts;
 pub mod groups;
 pub mod maintenance;

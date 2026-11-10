@@ -15,6 +15,7 @@ use super::citations;
 use super::connectors::ConnectorCache;
 use super::couples;
 use super::database_tools;
+use super::dataclean as dataclean_ui;
 use super::fact_types;
 use super::import_report;
 use super::inspector::InspectorForm;
@@ -79,6 +80,7 @@ pub struct TreeWindow {
     pub(super) relationship_calculator: relationship_calculator::RelationshipCalculatorState,
     pub(super) merge: merge_dialog::MergeState,
     pub(super) db_tools: database_tools::DatabaseToolsState,
+    pub(super) data_clean: dataclean_ui::DataCleanState,
     pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
     pub(super) media: media::MediaState,
@@ -144,6 +146,7 @@ impl TreeWindow {
             ),
             merge: merge_dialog::MergeState::default(),
             db_tools: database_tools::DatabaseToolsState::default(),
+            data_clean: dataclean_ui::DataCleanState::default(),
             association_rows: Vec::new(),
             places: places::PlacesState::default(),
             media: media::MediaState::default(),
@@ -264,6 +267,7 @@ impl App for TreeWindow {
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
             self.show_database_tools(ui.ctx());
+            self.show_data_clean_window(ui.ctx());
             self.show_task_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());

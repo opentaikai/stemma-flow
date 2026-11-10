@@ -249,6 +249,28 @@ dialog reports index counts, page/free-page details, before/after sizes and
 elapsed time, and lists foreign-key or integrity problems when a check
 fails.
 
+## DataClean
+
+**Tools > DataClean…** previews batch normalization of person and place
+names before anything changes:
+
+- Names are trimmed, whitespace is collapsed, spacing around punctuation is
+  repaired, and obviously all-uppercase or all-lowercase tokens are converted
+  to conservative title case. Mixed-case forms such as `McDonald`, short
+  acronyms/initials, and particles such as `van der` are preserved.
+- Place names receive the same treatment plus normalized comma spacing.
+  Places whose case-insensitive normalized names match are merged: events,
+  notes, media links and task links move to the surviving place, coordinates
+  are kept, and duplicate place rows are deleted.
+- Every proposed primary-name, alternate-name, place-rename and place-merge
+  row has a checkbox. The dialog shows before → after values, event counts,
+  and the number of duplicates being merged.
+- **Apply selected** asks for confirmation and applies the chosen rows in one
+  transaction. The People, Places and inspector data reload afterwards.
+
+No schema change is required; DataClean only changes name text and merges
+existing place records.
+
 ## Native file dialogs & background jobs
 
 - `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path,

@@ -14,6 +14,7 @@ use crate::db::associations::{self, AssociationDraft, AssociationRecord, Associa
 use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
+use crate::db::dataclean::{self as dataclean_store, DataCleanReport, DataCleanSelection};
 use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
@@ -42,6 +43,7 @@ use crate::db::tasks::{
 };
 use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options};
 use crate::gui::dialogs;
+use crate::model::dataclean::{DataCleanPlan, build_plan};
 use crate::model::source_template::SourceTemplate;
 use crate::report::research_log::{self, ResearchLogReport};
 
@@ -665,6 +667,35 @@ impl StemmaApp {
         task_store::delete_task(&conn, id)?;
         self.set_status(UiStatus::Success("Task deleted".to_string()));
         Ok(())
+    }
+
+    /// Builds a DataClean preview from the active tree.
+    pub fn data_clean_plan(&self) -> Result<DataCleanPlan, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let tree = db::load_family_tree(&conn).map_err(|error| error.to_string())?;
+        let alternate_names = name_store::list_all_alternate_names(&conn)?;
+        let places = place_store::list_places(&conn)?;
+        Ok(build_plan(&tree.people, &alternate_names, &places))
+    }
+
+    /// Applies the selected DataClean rows and bumps the scene generation.
+    pub fn apply_data_clean(
+        &mut self,
+        plan: &DataCleanPlan,
+        selection: &DataCleanSelection,
+    ) -> Result<DataCleanReport, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let report = dataclean_store::apply_plan(&mut conn, plan, selection)?;
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success(format!(
+            "DataClean applied: {} names, {} alternate names, {} places",
+            report.names_changed,
+            report.alternate_names_changed,
+            report.places_renamed + report.places_merged
+        )));
+        Ok(report)
     }
 
     /// Loads the keys of problem alerts marked as not a problem.
@@ -1649,6 +1680,27 @@ mod tests {
         app.busy = true;
         app.apply_event(JobEvent::Failed("disk full".to_string()));
         assert_eq!(app.status(), &UiStatus::Error("disk full".to_string()));
+    }
+
+    #[test]
+    fn data_clean_preview_and_apply_update_names() -> Result<(), String> {
+        let path = temp_path("db");
+        create_tree(&path)?;
+        let mut app = StemmaApp::new();
+        app.activate_tree(&path);
+        app.add_person(&PersonDetails::new("ADA", "", "KING", "", "F", None, None))?;
+
+        let plan = app.data_clean_plan()?;
+        assert_eq!(plan.names.len(), 1);
+        let selection = DataCleanSelection::select_all(&plan);
+        let report = app.apply_data_clean(&plan, &selection)?;
+        assert_eq!(report.names_changed, 1);
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        let tree = db::load_family_tree(&conn).map_err(|error| error.to_string())?;
+        assert_eq!(tree.people[0].given_name, "Ada");
+        assert_eq!(tree.people[0].surname, "King");
+        let _ = std::fs::remove_file(path);
+        Ok(())
     }
 
     #[test]

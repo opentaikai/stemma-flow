@@ -138,6 +138,7 @@ impl TreeWindow {
             self.pending_new_person = None;
             self.merge = crate::gui::merge::MergeState::default();
             self.db_tools = crate::gui::database_tools::DatabaseToolsState::default();
+            self.data_clean = crate::gui::dataclean::DataCleanState::default();
             self.person_privacy = None;
             self.notes = crate::gui::notes::NotesState::default();
             self.person_editor = None;

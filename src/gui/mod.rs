@@ -7,6 +7,7 @@ pub mod citations;
 pub mod connectors;
 pub mod couples;
 pub mod database_tools;
+pub mod dataclean;
 pub mod dialogs;
 pub mod export_dialog;
 pub mod fact_types;
