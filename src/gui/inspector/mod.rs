@@ -135,6 +135,8 @@ mod tests {
                 death: Some("1852".to_string()),
                 death_place: Some("Cuckfield".to_string()),
                 death_event_id: Some("e-death".to_string()),
+                birth_events: 1,
+                death_events: 1,
             },
         );
         (person, dates)

@@ -11,6 +11,7 @@ pub mod graph;
 pub mod name;
 pub mod pedigree;
 pub mod people_columns;
+pub mod problems;
 pub mod quality;
 pub mod relationship;
 pub mod source_template;

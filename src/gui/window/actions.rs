@@ -31,6 +31,7 @@ use crate::gui::notes::{self as notes_dialog, NotesOutcome};
 use crate::gui::pedigree;
 use crate::gui::person_editor::{EditorPrompt, PersonEditor};
 use crate::gui::places::{self, PlacesEvent};
+use crate::gui::problems::ProblemsEvent;
 use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::research::{self as research_ui, ResearchEvent};
 use crate::gui::sources::{self, SourcesEvent};
@@ -386,6 +387,9 @@ impl TreeWindow {
         if !self.research.groups.loaded {
             self.reload_groups();
         }
+        if !self.research.problems.loaded {
+            self.reload_problems();
+        }
         if let Some(event) = research_ui::show(
             ui,
             &mut self.research,
@@ -485,6 +489,53 @@ impl TreeWindow {
         match event {
             ResearchEvent::Task(event) => self.apply_task_event(event),
             ResearchEvent::Group(event) => self.apply_group_event(event),
+            ResearchEvent::Problem(event) => self.apply_problem_event(event),
+        }
+    }
+
+    pub(super) fn reload_problems(&mut self) {
+        match self.app.list_problem_dismissals() {
+            Ok(dismissed) => {
+                let alerts =
+                    crate::model::problems::detect(&self.tree, &self.dates, &self.marriages);
+                self.research.problems.alerts = alerts;
+                self.research.problems.dismissed = dismissed;
+                self.research.problems.error = None;
+                self.research.problems.loaded = true;
+            }
+            Err(message) => {
+                self.research.problems.error = Some(message);
+                self.research.problems.loaded = true;
+            }
+        }
+    }
+
+    fn apply_problem_event(&mut self, event: ProblemsEvent) {
+        match event {
+            ProblemsEvent::SelectPerson(person_id) => {
+                self.app.set_selected_person(Some(person_id));
+            }
+            ProblemsEvent::Dismiss(key) => match self.app.dismiss_problem(&key) {
+                Ok(()) => {
+                    self.research.problems.dismissed.insert(key);
+                    self.research.problems.error = None;
+                }
+                Err(message) => self.research.problems.error = Some(message),
+            },
+            ProblemsEvent::Restore(key) => match self.app.restore_problem(&key) {
+                Ok(()) => {
+                    self.research.problems.dismissed.remove(&key);
+                    self.research.problems.error = None;
+                }
+                Err(message) => self.research.problems.error = Some(message),
+            },
+            ProblemsEvent::ResetDismissals => match self.app.clear_problem_dismissals() {
+                Ok(()) => {
+                    self.research.problems.dismissed.clear();
+                    self.research.problems.error = None;
+                }
+                Err(message) => self.research.problems.error = Some(message),
+            },
         }
     }
 

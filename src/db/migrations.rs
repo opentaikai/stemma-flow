@@ -10,8 +10,9 @@ use super::schema::{
     ASSOCIATIONS_TABLE_SQL, CITATION_LINKS_INDEXES_SQL, CITATION_LINKS_TABLE_SQL, CORE_TABLES_SQL,
     EVENT_ASSOCIATIONS_INDEXES_SQL, EVENT_ASSOCIATIONS_TABLE_SQL, EVENT_PARTICIPANTS_INDEX_SQL,
     EVENT_PARTICIPANTS_TABLE_SQL, FACT_ROLES_TABLE_SQL, FACT_TAG_INDEX_SQL, INDEXES_SQL,
-    LINK_TABLES_SQL, NOTES_INDEXES_SQL, NOTES_TABLE_SQL, TREE_SETTINGS_TABLE_SQL, V3_COLUMNS,
-    V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS, ensure_column, seed_source_templates,
+    LINK_TABLES_SQL, NOTES_INDEXES_SQL, NOTES_TABLE_SQL, PROBLEM_DISMISSALS_TABLE_SQL,
+    TREE_SETTINGS_TABLE_SQL, V3_COLUMNS, V3_INDEXES_SQL, V3_TABLES_SQL, V4_TABLES_SQL, V5_COLUMNS,
+    ensure_column, seed_source_templates,
 };
 
 /// Upgrades a v1 database (source titles and places stored as text) to v2.
@@ -233,6 +234,14 @@ pub(super) fn migrate_v15_to_v16(conn: &Connection) -> rusqlite::Result<()> {
         "TEXT NOT NULL DEFAULT 'unknown'",
     )?;
     tx.pragma_update(None, "user_version", 16)?;
+    tx.commit()
+}
+
+/// Adds persisted dismissal state for research problem alerts.
+pub(super) fn migrate_v16_to_v17(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch(PROBLEM_DISMISSALS_TABLE_SQL)?;
+    tx.pragma_update(None, "user_version", 17)?;
     tx.commit()
 }
 

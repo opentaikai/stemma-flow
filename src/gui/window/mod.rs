@@ -762,6 +762,35 @@ mod tests {
     }
 
     #[test]
+    fn problem_alerts_load_and_persist_dismissals() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        window.reload_problems();
+        let key = window
+            .research
+            .problems
+            .alerts
+            .iter()
+            .find(|alert| alert.kind == crate::model::problems::ProblemKind::MissingBirthDate)
+            .expect("missing birth alert")
+            .key
+            .clone();
+        assert!(!window.research.problems.dismissed.contains(&key));
+
+        window.app.dismiss_problem(&key).expect("dismiss");
+        window.reload_problems();
+        assert!(window.research.problems.dismissed.contains(&key));
+
+        window.app.clear_problem_dismissals().expect("reset");
+        window.reload_problems();
+        assert!(window.research.problems.dismissed.is_empty());
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn adding_a_person_opens_the_dialog_then_inserts_on_submit() {
         let db_file = temp_path("db");
         import_people(

@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 16;
+pub const SCHEMA_VERSION: i64 = 17;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -331,6 +331,14 @@ CREATE TABLE IF NOT EXISTS tree_settings (
 );
 "#;
 
+/// Dismissed research problem alerts, keyed by their stable fingerprint.
+pub(super) const PROBLEM_DISMISSALS_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS problem_dismissals (
+    alert_key TEXT PRIMARY KEY,
+    dismissed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
+
 /// Additional names for a person.
 pub(super) const ALTERNATE_NAMES_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS alternate_names (
@@ -486,7 +494,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v12_to_v13(conn)?;
         super::migrations::migrate_v13_to_v14(conn)?;
         super::migrations::migrate_v14_to_v15(conn)?;
-        return super::migrations::migrate_v15_to_v16(conn);
+        super::migrations::migrate_v15_to_v16(conn)?;
+        return super::migrations::migrate_v16_to_v17(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -535,7 +544,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         if version < 15 {
             super::migrations::migrate_v14_to_v15(conn)?;
         }
-        return super::migrations::migrate_v15_to_v16(conn);
+        super::migrations::migrate_v15_to_v16(conn)?;
+        return super::migrations::migrate_v16_to_v17(conn);
     }
     ensure_v16(conn)
 }
@@ -627,6 +637,7 @@ fn ensure_v16(conn: &Connection) -> rusqlite::Result<()> {
         "pedigree",
         "TEXT NOT NULL DEFAULT 'unknown'",
     )?;
+    conn.execute_batch(PROBLEM_DISMISSALS_TABLE_SQL)?;
     Ok(())
 }
 
