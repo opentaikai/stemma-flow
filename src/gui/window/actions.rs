@@ -9,6 +9,7 @@ use crate::db::notes::NoteOwner;
 use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::sources::SourceDraft;
 use crate::db::tasks::TaskOwner;
+use crate::gui::advanced_search::{self as advanced_search_ui, AdvancedSearchEvent};
 use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
 use crate::gui::associations_view::{self as association_view_ui, AssociationViewEvent};
 use crate::gui::citations::CitationDraft;
@@ -138,6 +139,31 @@ impl TreeWindow {
             }
             WatchEvent::SetRoot(person_id) => self.set_root_person(Some(&person_id)),
             WatchEvent::ClearRoot => self.set_root_person(None),
+            WatchEvent::OpenAdvancedSearch => {
+                self.advanced_search.open_with(self.watch.advanced.as_ref());
+            }
+            WatchEvent::ClearAdvancedSearch => {
+                self.watch.advanced = None;
+                self.watch.mark_dirty();
+            }
+        }
+    }
+
+    pub(super) fn show_advanced_search_window(&mut self, ctx: &egui::Context) {
+        if !self.advanced_search.open {
+            return;
+        }
+        match advanced_search_ui::show(ctx, &mut self.advanced_search) {
+            Some(AdvancedSearchEvent::Apply(criteria)) => {
+                self.watch.advanced = Some(*criteria);
+                self.watch.mark_dirty();
+                self.advanced_search.open = false;
+            }
+            Some(AdvancedSearchEvent::Clear) => {
+                self.watch.advanced = None;
+                self.watch.mark_dirty();
+            }
+            None => {}
         }
     }
 

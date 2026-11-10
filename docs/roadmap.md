@@ -133,7 +133,7 @@ Goal: keep research organised beside the people it concerns.
 | Task folders and research-log table view | done | P1 | Folder-filtered log and print-ready HTML export |
 | Problem alerts (missing or contradictory data) | done | P1 | Research tab with persistent reversible dismissals |
 | DataClean for names and places | done | P1 | Previewed name normalisation and place merging |
-| Advanced person search (facts, dates, places, notes) | planned | P1 | Multiple criteria |
+| Advanced person search (facts, dates, places, notes) | done | P1 | AND-combined criteria filtering the People grid |
 | Saved search criteria | planned | P1 | Reusable rules |
 | Find Everywhere across all record types | planned | P2 | Global text search |
 | Search and replace for names, places, notes and filenames | planned | P2 | Explicit confirmation |

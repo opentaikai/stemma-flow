@@ -110,6 +110,7 @@ impl TreeWindow {
             &tree,
             &dates,
             &extras,
+            &facts,
             settings.root_person_id.as_deref(),
             settings.surname_first,
         );
@@ -139,6 +140,8 @@ impl TreeWindow {
             self.merge = crate::gui::merge::MergeState::default();
             self.db_tools = crate::gui::database_tools::DatabaseToolsState::default();
             self.data_clean = crate::gui::dataclean::DataCleanState::default();
+            self.advanced_search = crate::gui::advanced_search::AdvancedSearchState::default();
+            self.watch.advanced = None;
             self.person_privacy = None;
             self.notes = crate::gui::notes::NotesState::default();
             self.person_editor = None;

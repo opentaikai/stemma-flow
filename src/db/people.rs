@@ -1334,7 +1334,10 @@ mod tests {
              INSERT INTO associations (id, person_id, associate_id, relationship)
              VALUES ('a1', 'p1', 'p2', 'Friend');
              INSERT INTO notes (id, body, sort_order, person_id)
-             VALUES ('n1', 'First line\nSecond line', 0, 'p1');",
+             VALUES ('n1', 'First line\nSecond line', 0, 'p1'),
+                    ('n2', 'Third note', 1, 'p1');
+             INSERT INTO alternate_names (id, person_id, given_name, surname, nickname)
+             VALUES ('an1', 'p1', 'Augusta', 'King', 'Addy');",
         )
         .expect("extras insert");
         let extras = load_person_extras(&conn).expect("extras");
@@ -1343,6 +1346,8 @@ mod tests {
             ada.notes_preview.as_deref(),
             Some("First line\nSecond line")
         );
+        assert_eq!(ada.notes_text, "First line\nSecond line\nThird note");
+        assert_eq!(ada.alternate_names, "Augusta King Addy");
         assert_eq!(ada.event_count, 1);
         assert_eq!(ada.citation_count, 1);
         assert_eq!(ada.media_count, 1);
@@ -1553,6 +1558,8 @@ pub fn load_person_details(
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PersonExtras {
     pub notes_preview: Option<String>,
+    pub notes_text: String,
+    pub alternate_names: String,
     pub event_count: i64,
     pub citation_count: i64,
     pub media_count: i64,
@@ -1580,11 +1587,49 @@ pub fn load_person_extras(conn: &Connection) -> Result<HashMap<String, PersonExt
             ))
         })
         .map_err(|error| error.to_string())?;
-    let mut seen_notes = std::collections::HashSet::new();
     for row in rows {
         let (person_id, body, _) = row.map_err(|error| error.to_string())?;
-        if seen_notes.insert(person_id.clone()) {
-            extras.entry(person_id).or_default().notes_preview = Some(body);
+        let entry = extras.entry(person_id).or_default();
+        if entry.notes_preview.is_none() {
+            entry.notes_preview = Some(body.clone());
+        }
+        if !entry.notes_text.is_empty() {
+            entry.notes_text.push('\n');
+        }
+        entry.notes_text.push_str(&body);
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT person_id, prefix, given_name, middle_name, surname, suffix, nickname
+             FROM alternate_names ORDER BY person_id, sort_order, rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                crate::model::name::full_name(
+                    &row.get::<_, String>(1)?,
+                    &row.get::<_, String>(2)?,
+                    &row.get::<_, String>(3)?,
+                    &row.get::<_, String>(4)?,
+                    &row.get::<_, String>(5)?,
+                ),
+                row.get::<_, String>(6)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (person_id, name, nickname) = row.map_err(|error| error.to_string())?;
+        let entry = extras.entry(person_id).or_default();
+        if !entry.alternate_names.is_empty() {
+            entry.alternate_names.push(' ');
+        }
+        entry.alternate_names.push_str(&name);
+        if !nickname.trim().is_empty() {
+            entry.alternate_names.push(' ');
+            entry.alternate_names.push_str(nickname.trim());
         }
     }
 

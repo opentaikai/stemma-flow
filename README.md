@@ -377,6 +377,12 @@ views (the app always launches on Graph View):
   header clicks sort any visible column. Clicking selects, double-clicking
   or **Edit** opens the pinned editor, and **Delete** confirms before
   cascading. **+ Add Independent Person** inserts an unnamed draft.
+  **Advanced…** opens a modeless criteria dialog that filters the same grid.
+  Name, alternate-name, gender, birth/death year range, place, fact type,
+  fact text and full-note criteria are combined with AND semantics; an
+  **Advanced search active** indicator and **Clear search** action show and
+  remove the filter. The simple filter composes with the advanced criteria,
+  sorting and editing keep working, and all searches stay in memory.
 - **Couples** — a virtualized, filterable and sortable list of families with
   at least one recorded spouse. Columns show neutral Partner 1/Partner 2
   names, first-marriage date and place, child count and an **Open family**
