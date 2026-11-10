@@ -332,7 +332,7 @@ pub fn show_attach(ctx: &Context, state: &mut MediaAttachState) -> Option<MediaA
     let mut outcome = None;
     let mut open = true;
     Window::new(&state.title)
-        .id(egui::Id::new("media_attach_window"))
+        .id(egui::Id::unique("media_attach_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(460.0)

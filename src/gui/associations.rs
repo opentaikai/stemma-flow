@@ -80,7 +80,7 @@ pub fn show(
     let mut open = true;
     let mut outcome = None;
     Window::new(title)
-        .id(egui::Id::new("association_form_window"))
+        .id(egui::Id::unique("association_form_window"))
         .collapsible(false)
         .resizable(false)
         .default_width(380.0)

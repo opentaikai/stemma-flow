@@ -469,7 +469,7 @@ fn columns_dialog(ui: &mut Ui, state: &mut WatchState, events: &mut Vec<WatchEve
     let mut move_up = None;
     let mut move_down = None;
     egui::Window::new(tr("people.columns"))
-        .id(egui::Id::new("people_columns_window"))
+        .id(egui::Id::unique("people_columns_window"))
         .collapsible(false)
         .resizable(true)
         .open(&mut open)

@@ -53,7 +53,7 @@ pub fn show(
     let mut open = true;
     let mut event = None;
     Window::new(tr("db_tools.title"))
-        .id(egui::Id::new("database_tools_window"))
+        .id(egui::Id::unique("database_tools_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(520.0)

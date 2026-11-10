@@ -1212,7 +1212,7 @@ impl TreeWindow {
             "Edit Person — {}",
             inspector::person_label(&person, surname_first)
         ))
-        .id(egui::Id::new("person_editor_window"))
+        .id(egui::Id::unique("person_editor_window"))
         .resizable(true)
         .default_width(760.0)
         .default_height(720.0)
@@ -1250,7 +1250,7 @@ impl TreeWindow {
         if editor.prompt.is_some() {
             let mut outcome = None;
             egui::Window::new(crate::i18n::tr("editor.unsaved_title"))
-                .id(egui::Id::new("person_editor_prompt"))
+                .id(egui::Id::unique("person_editor_prompt"))
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {

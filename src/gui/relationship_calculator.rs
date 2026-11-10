@@ -54,7 +54,7 @@ pub fn show(
     let mut open = true;
     let mut changed = false;
     Window::new(tr("calculator.title"))
-        .id(egui::Id::new("relationship_calculator"))
+        .id(egui::Id::unique("relationship_calculator"))
         .collapsible(false)
         .resizable(true)
         .default_width(680.0)

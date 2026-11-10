@@ -4,19 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dirs = "6"
-eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "persistence", "wayland", "x11"] }
-egui = "0.36.2"
-egui_extras = { version = "0.36.2", default-features = false }
+dirs = "7.0"
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "persistence", "wayland", "x11"] }
+egui = "0.37.0"
+egui_extras = { version = "0.37.0", default-features = false }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
-encoding_rs = "0.8"
+encoding_rs = "0.8.44"
 petgraph = "0.8"
-rfd = "0.17.2"
-rusqlite = { version = "0.40", features = ["backup", "bundled"] }
+rfd = "0.18.0"
+rusqlite = { version = "0.41.1", features = ["backup", "bundled"] }
 serde = { version = "1", features = ["derive"] }
 strsim = "0.11"
 thiserror = "2"
-toml = "1.1"
-uuid = { version = "1", features = ["v4"] }
-zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+toml = "1.2.1"
+uuid = { version = "1.29.2", features = ["v4"] }
+zip = { version = "9.5.0", default-features = false, features = ["deflate-flate2"] }
 open = "5"

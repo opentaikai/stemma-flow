@@ -187,7 +187,7 @@ pub fn show(
     let mut open = true;
     let mut event = None;
     Window::new(tr("merge.title"))
-        .id(egui::Id::new("merge_people_window"))
+        .id(egui::Id::unique("merge_people_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(760.0)

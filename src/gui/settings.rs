@@ -20,7 +20,7 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
     let mut places_changed = false;
     let mut language_changed = false;
     Window::new(tr("app.settings"))
-        .id(egui::Id::new("settings_window"))
+        .id(egui::Id::unique("settings_window"))
         .collapsible(false)
         .resizable(false)
         .open(open)
