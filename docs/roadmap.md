@@ -132,7 +132,7 @@ Goal: keep research organised beside the people it concerns.
 | Link tasks to people, families, events, sources, citations and places | done | P1 | Attach from record cards; detach from task editor |
 | Task folders and research-log table view | done | P1 | Folder-filtered log and print-ready HTML export |
 | Problem alerts (missing or contradictory data) | done | P1 | Research tab with persistent reversible dismissals |
-| DataClean for names and places | planned | P1 | Batch normalisation |
+| DataClean for names and places | done | P1 | Previewed name normalisation and place merging |
 | Advanced person search (facts, dates, places, notes) | planned | P1 | Multiple criteria |
 | Saved search criteria | planned | P1 | Reusable rules |
 | Find Everywhere across all record types | planned | P2 | Global text search |
