@@ -2,6 +2,7 @@
 
 use crate::app;
 use crate::app::UiStatus;
+use crate::db::dataclean::DataCleanSelection;
 use crate::db::media::{MediaDraft, MediaOwner};
 use crate::db::merge::MergeDraft;
 use crate::db::notes::NoteOwner;
@@ -13,6 +14,7 @@ use crate::gui::associations_view::{self as association_view_ui, AssociationView
 use crate::gui::citations::CitationDraft;
 use crate::gui::couples::{self as couples_ui, CouplesEvent};
 use crate::gui::database_tools::{self as database_tools_ui, DatabaseToolsEvent};
+use crate::gui::dataclean::{self as dataclean_ui, DataCleanEvent};
 use crate::gui::dialogs;
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
@@ -1675,6 +1677,45 @@ impl TreeWindow {
                     self.db_tools.error = None;
                     self.app.begin_maintenance(kind, backup_first);
                 }
+            }
+        }
+    }
+
+    pub(super) fn open_data_clean(&mut self) {
+        match self.app.data_clean_plan() {
+            Ok(plan) => self.data_clean.set_plan(plan),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn show_data_clean_window(&mut self, ctx: &egui::Context) {
+        if !self.data_clean.open {
+            return;
+        }
+        if let Some(DataCleanEvent { names, places }) =
+            dataclean_ui::show(ctx, &mut self.data_clean)
+        {
+            let selection = DataCleanSelection { names, places };
+            match self.app.apply_data_clean(&self.data_clean.plan, &selection) {
+                Ok(_) => {
+                    let editor_id = self
+                        .person_editor
+                        .as_ref()
+                        .map(|editor| editor.person_id.clone());
+                    self.data_clean = dataclean_ui::DataCleanState::default();
+                    self.inspected = None;
+                    self.associations.clear();
+                    self.associations_owner = None;
+                    self.places.loaded = false;
+                    self.names = crate::gui::names::NamesState::default();
+                    self.watch.mark_dirty();
+                    self.reload_scene_quiet();
+                    if let Some(id) = editor_id {
+                        let next = self.build_person_editor(&id);
+                        self.person_editor = next;
+                    }
+                }
+                Err(message) => self.data_clean.error = Some(message),
             }
         }
     }
