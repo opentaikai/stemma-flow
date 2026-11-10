@@ -57,6 +57,7 @@ pub fn show(
         .id(egui::Id::unique("relationship_calculator"))
         .collapsible(false)
         .resizable(true)
+        .vscroll(true)
         .default_width(680.0)
         .open(&mut open)
         .show(ctx, |ui| {
@@ -114,7 +115,13 @@ pub fn show(
                     .map(|from| path_text(tree, result, from, surname_first))
                     .unwrap_or_default();
                 if !path.is_empty() {
-                    ui.label(RichText::new(path).weak());
+                    egui::ScrollArea::vertical()
+                        .id_salt("calculator_path")
+                        .max_height(160.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(path).weak());
+                        });
                 }
             } else if state.from.is_some() && state.to.is_some() {
                 ui.label(RichText::new(tr("calculator.no_connection")).weak());
@@ -251,6 +258,65 @@ mod tests {
         assert_eq!(
             state.result.as_ref().expect("result").kinship.label(),
             "Father"
+        );
+    }
+
+    #[test]
+    fn long_relationship_path_stays_within_the_screen() {
+        let mut people = Vec::new();
+        let mut families = Vec::new();
+        let mut child_links = Vec::new();
+        for index in 0..120 {
+            let mut person = Person::new(format!("Person{index:03}"), "Test", "U");
+            person.id = format!("p{index}");
+            people.push(person);
+            if index > 0 {
+                families.push(Family {
+                    id: format!("f{index}"),
+                    husband_id: Some(format!("p{}", index - 1)),
+                    wife_id: None,
+                    created_at: String::new(),
+                });
+                child_links.push((format!("f{index}"), format!("p{index}")));
+            }
+        }
+        let tree = FamilyTree {
+            people,
+            families,
+            child_links,
+        };
+        let ctx = Context::default();
+        let mut state = RelationshipCalculatorState {
+            open: true,
+            from: Some("p0".to_string()),
+            to: Some("p119".to_string()),
+            ..RelationshipCalculatorState::default()
+        };
+        let raw = RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 600.0),
+            )),
+            ..RawInput::default()
+        };
+        let mut output = ctx.run_ui(raw, |ui| {
+            show(ui.ctx(), &mut state, &tree, false);
+        });
+        output.textures_delta.clear();
+        let area = egui::AreaState::load(&ctx, egui::Id::unique("relationship_calculator"))
+            .expect("calculator window");
+        let rect = area.rect();
+        assert!(
+            rect.top() >= 0.0,
+            "window starts above the screen: {rect:?}"
+        );
+        assert!(
+            rect.bottom() <= 600.0,
+            "window bottom exceeds the screen: {rect:?}"
+        );
+        assert!(
+            rect.height() < 520.0,
+            "long paths should not inflate the window: {rect:?}"
         );
     }
 }
