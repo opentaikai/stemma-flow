@@ -7,11 +7,13 @@ use egui::{Color32, Layout, RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
 use crate::db::FamilyTree;
+use crate::db::facts::PersonFact;
 use crate::db::people::{PersonExtras, VitalDates};
 use crate::i18n::tr;
 use crate::model::people_columns::{
     PeopleColumn, PeopleColumnConfig, default_columns, sanitize_columns,
 };
+use crate::model::person_search::{PersonSearchCriteria, PersonSearchDocument, year_of};
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 const ROW_HEIGHT: f32 = 24.0;
@@ -33,6 +35,13 @@ pub struct PersonRow {
     pub death_place: Option<String>,
     pub age_at_death: Option<String>,
     pub notes_preview: String,
+    pub notes_text: String,
+    pub alternate_names: String,
+    pub birth_year: Option<i32>,
+    pub death_year: Option<i32>,
+    pub places: String,
+    pub fact_types: String,
+    pub fact_text: String,
     pub event_count: i64,
     pub citation_count: i64,
     pub media_count: i64,
@@ -48,13 +57,57 @@ impl PersonRow {
     pub fn display_name(&self) -> String {
         self.display_name.clone()
     }
+
+    pub fn search_document(&self) -> PersonSearchDocument {
+        PersonSearchDocument {
+            names: [
+                &self.prefix,
+                &self.given_name,
+                &self.middle_name,
+                &self.surname,
+                &self.suffix,
+                &self.nickname,
+            ]
+            .into_iter()
+            .filter(|part| !part.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" "),
+            alternate_names: self.alternate_names.clone(),
+            gender: self.gender.clone(),
+            birth_year: self.birth_year,
+            death_year: self.death_year,
+            places: self.places.clone(),
+            fact_types: self.fact_types.clone(),
+            fact_text: self.fact_text.clone(),
+            notes: self.notes_text.clone(),
+        }
+    }
 }
 
-/// Flattens the loaded tree plus vitals and extras into grid rows.
+fn append_part(target: &mut String, value: &str) {
+    let value = value.trim();
+    if value.is_empty() {
+        return;
+    }
+    if !target.is_empty() {
+        target.push(' ');
+    }
+    target.push_str(value);
+}
+
+fn append_optional(target: &mut String, value: Option<&str>) {
+    if let Some(value) = value {
+        append_part(target, value);
+    }
+}
+
+/// Flattens the loaded tree plus vitals, extras and facts into grid rows.
 pub fn rows(
     tree: &FamilyTree,
     dates: &HashMap<String, VitalDates>,
     extras: &HashMap<String, PersonExtras>,
+    facts: &HashMap<String, Vec<PersonFact>>,
     root_id: Option<&str>,
     surname_first: bool,
 ) -> Vec<PersonRow> {
@@ -75,6 +128,39 @@ pub fn rows(
             .and_then(|notes| notes.lines().next())
             .unwrap_or_default()
             .to_string();
+        let person_facts = facts.get(&person.id).map(Vec::as_slice).unwrap_or(&[]);
+        let mut places = String::new();
+        append_optional(
+            &mut places,
+            vitals.and_then(|vitals| vitals.birth_place.as_deref()),
+        );
+        append_optional(
+            &mut places,
+            vitals.and_then(|vitals| vitals.death_place.as_deref()),
+        );
+        let mut fact_types = String::new();
+        if vitals.is_some_and(|vitals| vitals.birth_events > 0) {
+            append_part(&mut fact_types, "BIRTH");
+        }
+        if vitals.is_some_and(|vitals| vitals.death_events > 0) {
+            append_part(&mut fact_types, "DEATH");
+        }
+        let mut fact_text = String::new();
+        for fact in person_facts {
+            append_part(&mut places, fact.place.as_deref().unwrap_or_default());
+            append_part(&mut fact_types, &fact.event_type);
+            append_part(&mut fact_types, &fact.label);
+            append_part(&mut fact_text, &fact.label);
+            append_optional(&mut fact_text, fact.date.as_deref());
+            append_optional(&mut fact_text, fact.place.as_deref());
+            append_optional(&mut fact_text, fact.value.as_deref());
+            append_optional(&mut fact_text, fact.role.as_deref());
+            append_optional(&mut fact_text, fact.principal.as_deref());
+            for participant in &fact.participants {
+                append_part(&mut fact_text, &participant.person_name);
+                append_part(&mut fact_text, &participant.role_label);
+            }
+        }
         rows.push(PersonRow {
             id: person.id.clone(),
             prefix: person.name_prefix.clone(),
@@ -94,6 +180,17 @@ pub fn rows(
             )
             .map(|age| age.to_string()),
             notes_preview,
+            notes_text: extra
+                .map(|extra| extra.notes_text.clone())
+                .unwrap_or_default(),
+            alternate_names: extra
+                .map(|extra| extra.alternate_names.clone())
+                .unwrap_or_default(),
+            birth_year: year_of(vitals.and_then(|vitals| vitals.birth.as_deref())),
+            death_year: year_of(vitals.and_then(|vitals| vitals.death.as_deref())),
+            places,
+            fact_types,
+            fact_text,
             event_count: extra.map_or(0, |extra| extra.event_count),
             citation_count: extra.map_or(0, |extra| extra.citation_count),
             media_count: extra.map_or(0, |extra| extra.media_count),
@@ -138,12 +235,15 @@ pub enum WatchEvent {
     ColumnsChanged(Vec<PeopleColumnConfig>),
     SetRoot(String),
     ClearRoot,
+    OpenAdvancedSearch,
+    ClearAdvancedSearch,
 }
 
 /// Filter/sort/column-dialog state.
 #[derive(Debug, Clone)]
 pub struct WatchState {
     pub filter: String,
+    pub advanced: Option<PersonSearchCriteria>,
     sort: Option<(PeopleColumn, bool)>,
     view: Vec<usize>,
     dirty: bool,
@@ -156,6 +256,7 @@ impl Default for WatchState {
     fn default() -> Self {
         Self {
             filter: String::new(),
+            advanced: None,
             sort: None,
             view: Vec::new(),
             dirty: true,
@@ -200,21 +301,33 @@ impl WatchState {
     }
 
     fn matches(&self, row: &PersonRow) -> bool {
-        if self.filter.is_empty() {
-            return true;
-        }
-        let needle = self.filter.to_lowercase();
-        [
-            &row.prefix,
-            &row.given_name,
-            &row.middle_name,
-            &row.surname,
-            &row.suffix,
-            &row.nickname,
-            &row.notes_preview,
-        ]
-        .into_iter()
-        .any(|value| value.to_lowercase().contains(&needle))
+        let simple = if self.filter.is_empty() {
+            true
+        } else {
+            let needle = self.filter.to_lowercase();
+            [
+                &row.prefix,
+                &row.given_name,
+                &row.middle_name,
+                &row.surname,
+                &row.suffix,
+                &row.nickname,
+                &row.notes_preview,
+            ]
+            .into_iter()
+            .any(|value| value.to_lowercase().contains(&needle))
+        };
+        simple
+            && self
+                .advanced
+                .as_ref()
+                .is_none_or(|criteria| row.search_document().matches(criteria))
+    }
+
+    pub fn has_advanced_search(&self) -> bool {
+        self.advanced
+            .as_ref()
+            .is_some_and(|criteria| !criteria.is_empty())
     }
 }
 
@@ -328,6 +441,19 @@ pub fn show(
             state.column_draft = columns.to_vec();
             state.column_error = None;
             state.show_columns = true;
+        }
+        if ui.button(tr("people.advanced")).clicked() {
+            events.push(WatchEvent::OpenAdvancedSearch);
+        }
+        if state.has_advanced_search() {
+            ui.label(
+                RichText::new(tr("people.advanced_active"))
+                    .color(ACCENT)
+                    .size(12.0),
+            );
+            if ui.button(tr("people.advanced_clear")).clicked() {
+                events.push(WatchEvent::ClearAdvancedSearch);
+            }
         }
     });
     if state.show_columns {
@@ -561,7 +687,14 @@ mod tests {
         for (given, surname) in names {
             tree.people.push(Person::new(*given, *surname, "U"));
         }
-        rows(&tree, &HashMap::new(), &HashMap::new(), None, false)
+        rows(
+            &tree,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            false,
+        )
     }
 
     #[test]
@@ -580,6 +713,97 @@ mod tests {
         state.filter = "zzz".to_string();
         state.rebuild(&rows);
         assert!(state.view.is_empty());
+    }
+
+    #[test]
+    fn rows_collect_fact_search_fields_and_vital_years() {
+        let mut tree = FamilyTree::default();
+        let mut person = Person::new("Ada", "King", "F");
+        person.id = "p1".to_string();
+        tree.people.push(person);
+        let mut dates = HashMap::new();
+        dates.insert(
+            "p1".to_string(),
+            VitalDates {
+                birth: Some("12 JAN 1815".to_string()),
+                birth_place: Some("London".to_string()),
+                birth_events: 1,
+                death: Some("ABT 1852".to_string()),
+                death_events: 1,
+                ..VitalDates::default()
+            },
+        );
+        let mut extras = HashMap::new();
+        extras.insert(
+            "p1".to_string(),
+            PersonExtras {
+                notes_text: "First line\nParish register".to_string(),
+                alternate_names: "Augusta King".to_string(),
+                ..PersonExtras::default()
+            },
+        );
+        let mut facts = HashMap::new();
+        facts.insert(
+            "p1".to_string(),
+            vec![PersonFact {
+                event_id: "e1".to_string(),
+                event_type: "OCCUPATION".to_string(),
+                label: "Occupation".to_string(),
+                date: Some("1834".to_string()),
+                place: Some("Cambridge".to_string()),
+                value: Some("Teacher".to_string()),
+                role: None,
+                principal: None,
+                principal_id: None,
+                participants: Vec::new(),
+            }],
+        );
+        let rows = rows(&tree, &dates, &extras, &facts, None, false);
+        let row = &rows[0];
+        assert_eq!(row.birth_year, Some(1815));
+        assert_eq!(row.death_year, Some(1852));
+        assert_eq!(row.notes_text, "First line\nParish register");
+        assert_eq!(row.alternate_names, "Augusta King");
+        assert!(row.places.contains("London"));
+        assert!(row.places.contains("Cambridge"));
+        assert!(row.fact_types.contains("OCCUPATION"));
+        assert!(row.fact_types.contains("BIRTH"));
+        assert!(row.fact_text.contains("Teacher"));
+        assert!(row.fact_text.contains("1834"));
+    }
+
+    #[test]
+    fn advanced_criteria_compose_with_the_simple_filter() {
+        let mut rows = rows_for(&[("Ada", "King"), ("Bo", "Tester")]);
+        rows[0].notes_text = "First line\nParish register".to_string();
+        rows[0].fact_types = "BIRTH DEATH OCCUPATION".to_string();
+        rows[0].fact_text = "Teacher at Cambridge".to_string();
+        rows[0].places = "London, England".to_string();
+        rows[0].birth_year = Some(1815);
+        let mut state = WatchState {
+            advanced: Some(PersonSearchCriteria {
+                fact_type: "occupation".to_string(),
+                birth: crate::model::person_search::YearRange {
+                    from: Some(1800),
+                    to: Some(1820),
+                },
+                ..PersonSearchCriteria::default()
+            }),
+            ..WatchState::default()
+        };
+        state.rebuild(&rows);
+        assert_eq!(state.view, vec![0]);
+        assert!(state.has_advanced_search());
+
+        state.filter = "bo".to_string();
+        state.rebuild(&rows);
+        assert!(state.view.is_empty(), "the simple filter still applies");
+
+        state.filter.clear();
+        state.advanced = None;
+        state.rebuild(&rows);
+        assert_eq!(state.view.len(), 2);
+        assert!(!state.has_advanced_search());
     }
 
     #[test]

@@ -8,6 +8,7 @@ mod panels;
 
 use loading::{empty_scene, loadable};
 
+use super::advanced_search;
 use super::associations as associations_dialog;
 use super::associations_view;
 use super::canvas::ViewportState;
@@ -74,6 +75,7 @@ pub struct TreeWindow {
     pub(super) drag_started_on_node: bool,
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
+    pub(super) advanced_search: advanced_search::AdvancedSearchState,
     pub(super) couples: couples::CouplesState,
     pub(super) couple_rows: Vec<crate::model::couples::Couple>,
     pub(super) association_view: associations_view::AssociationViewState,
@@ -139,6 +141,7 @@ impl TreeWindow {
             drag_started_on_node: false,
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
+            advanced_search: advanced_search::AdvancedSearchState::default(),
             couples: couples::CouplesState::default(),
             couple_rows: Vec::new(),
             association_view: associations_view::AssociationViewState::default(),
@@ -268,6 +271,7 @@ impl App for TreeWindow {
             self.show_merge_window(ui.ctx());
             self.show_database_tools(ui.ctx());
             self.show_data_clean_window(ui.ctx());
+            self.show_advanced_search_window(ui.ctx());
             self.show_task_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
