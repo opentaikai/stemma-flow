@@ -8,6 +8,7 @@ use crate::db::media::{MediaDraft, MediaOwner};
 use crate::db::merge::MergeDraft;
 use crate::db::notes::NoteOwner;
 use crate::db::people::{ParentRole, PersonDetails};
+use crate::db::search_replace::ReplaceSelection;
 use crate::db::sources::SourceDraft;
 use crate::db::tasks::TaskOwner;
 use crate::gui::advanced_search::{self as advanced_search_ui, AdvancedSearchEvent};
@@ -39,6 +40,7 @@ use crate::gui::places::{self, PlacesEvent};
 use crate::gui::problems::ProblemsEvent;
 use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::research::{self as research_ui, ResearchEvent};
+use crate::gui::search_replace::{self as search_replace_ui, SearchReplaceEvent};
 use crate::gui::sources::{self, SourcesEvent};
 use crate::gui::tabs;
 use crate::gui::tasks::{self as task_ui, TaskAttachOutcome, TaskAttachState, TaskEvent};
@@ -214,6 +216,55 @@ impl TreeWindow {
             Some(FindEvent::Open(target)) => {
                 self.find.open = false;
                 self.open_find_target(target);
+            }
+            None => {}
+        }
+    }
+
+    pub(super) fn show_search_replace_window(&mut self, ctx: &egui::Context) {
+        if !self.search_replace.open {
+            return;
+        }
+        match search_replace_ui::show(ctx, &mut self.search_replace) {
+            Some(SearchReplaceEvent::Preview(request)) => {
+                match self
+                    .app
+                    .preview_search_replace(&request, self.tree_settings.surname_first)
+                {
+                    Ok(plan) => self.search_replace.set_plan(plan),
+                    Err(error) => self.search_replace.error = Some(error),
+                }
+            }
+            Some(SearchReplaceEvent::Apply(keys)) => {
+                let selection = ReplaceSelection { keys };
+                match self
+                    .app
+                    .apply_search_replace(&self.search_replace.plan, &selection)
+                {
+                    Ok(_) => {
+                        let editor_id = self
+                            .person_editor
+                            .as_ref()
+                            .map(|editor| editor.person_id.clone());
+                        self.search_replace =
+                            crate::gui::search_replace::SearchReplaceState::default();
+                        self.inspected = None;
+                        self.associations.clear();
+                        self.associations_owner = None;
+                        self.association_view.loaded = false;
+                        self.places.loaded = false;
+                        self.names = crate::gui::names::NamesState::default();
+                        self.media = crate::gui::media::MediaState::default();
+                        self.media_attach = None;
+                        self.notes = crate::gui::notes::NotesState::default();
+                        self.watch.mark_dirty();
+                        self.reload_scene_quiet();
+                        if let Some(id) = editor_id {
+                            self.person_editor = self.build_person_editor(&id);
+                        }
+                    }
+                    Err(error) => self.search_replace.error = Some(error),
+                }
             }
             None => {}
         }

@@ -102,7 +102,7 @@ fn clean(value: &str) -> Option<String> {
     }
 }
 
-fn inferred_format(path: &str) -> Option<String> {
+pub(crate) fn inferred_format(path: &str) -> Option<String> {
     Path::new(path)
         .extension()
         .and_then(|extension| extension.to_str())

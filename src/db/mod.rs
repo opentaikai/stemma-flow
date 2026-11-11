@@ -20,6 +20,7 @@ pub mod privacy;
 pub mod problems;
 pub mod repositories;
 pub mod schema;
+pub mod search_replace;
 pub mod settings;
 pub mod sources;
 pub mod tasks;

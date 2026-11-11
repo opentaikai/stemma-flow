@@ -16,6 +16,7 @@ pub mod person_search;
 pub mod problems;
 pub mod quality;
 pub mod relationship;
+pub mod search_replace;
 pub mod source_template;
 
 pub use graph::{GenealogyDb, PersonNode, Relationship};
