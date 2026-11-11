@@ -153,7 +153,8 @@ impl TreeWindow {
         if !self.advanced_search.open {
             return;
         }
-        match advanced_search_ui::show(ctx, &mut self.advanced_search) {
+        match advanced_search_ui::show(ctx, &mut self.advanced_search, &self.config.saved_searches)
+        {
             Some(AdvancedSearchEvent::Apply(criteria)) => {
                 self.watch.advanced = Some(*criteria);
                 self.watch.mark_dirty();
@@ -163,7 +164,42 @@ impl TreeWindow {
                 self.watch.advanced = None;
                 self.watch.mark_dirty();
             }
+            Some(AdvancedSearchEvent::Save(saved)) => {
+                let name = saved.name.clone();
+                self.config.upsert_saved_search(*saved);
+                self.advanced_search.selected_saved = Some(name.clone());
+                match self.config.save() {
+                    Ok(()) => self.app.set_status(UiStatus::Success(crate::i18n::tr_args(
+                        "people.search_saved_status",
+                        &[("name", name)],
+                    ))),
+                    Err(error) => self.app.set_status(UiStatus::Error(error)),
+                }
+            }
+            Some(AdvancedSearchEvent::Delete(name)) => self.delete_saved_search(&name),
             None => {}
+        }
+    }
+
+    fn delete_saved_search(&mut self, name: &str) {
+        if !self.config.remove_saved_search(name) {
+            return;
+        }
+        if self
+            .advanced_search
+            .selected_saved
+            .as_deref()
+            .is_some_and(|selected| selected.to_lowercase() == name.to_lowercase())
+        {
+            self.advanced_search.selected_saved = None;
+            self.advanced_search.save_name.clear();
+        }
+        match self.config.save() {
+            Ok(()) => self.app.set_status(UiStatus::Success(crate::i18n::tr_args(
+                "people.search_deleted_status",
+                &[("name", name.to_string())],
+            ))),
+            Err(error) => self.app.set_status(UiStatus::Error(error)),
         }
     }
 

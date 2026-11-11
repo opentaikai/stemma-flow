@@ -3,7 +3,9 @@
 use egui::{Context, RichText, Window};
 
 use crate::i18n::tr;
-use crate::model::person_search::{GenderFilter, PersonSearchCriteria, YearRange};
+use crate::model::person_search::{
+    GenderFilter, PersonSearchCriteria, SavedPersonSearch, YearRange,
+};
 
 /// State of the Advanced Search window.
 #[derive(Debug, Default)]
@@ -20,6 +22,8 @@ pub struct AdvancedSearchState {
     pub fact_text: String,
     pub notes: String,
     pub error: Option<String>,
+    pub selected_saved: Option<String>,
+    pub save_name: String,
 }
 
 impl AdvancedSearchState {
@@ -27,21 +31,33 @@ impl AdvancedSearchState {
     pub fn open_with(&mut self, criteria: Option<&PersonSearchCriteria>) {
         self.open = true;
         self.error = None;
+        self.selected_saved = None;
+        self.save_name.clear();
         match criteria {
-            Some(criteria) => {
-                self.name = criteria.name.clone();
-                self.gender = criteria.gender;
-                self.birth_from = year_text(criteria.birth.from);
-                self.birth_to = year_text(criteria.birth.to);
-                self.death_from = year_text(criteria.death.from);
-                self.death_to = year_text(criteria.death.to);
-                self.place = criteria.place.clone();
-                self.fact_type = criteria.fact_type.clone();
-                self.fact_text = criteria.fact_text.clone();
-                self.notes = criteria.notes.clone();
-            }
+            Some(criteria) => self.load_criteria(criteria),
             None => self.clear_fields(),
         }
+    }
+
+    fn load_criteria(&mut self, criteria: &PersonSearchCriteria) {
+        self.name = criteria.name.clone();
+        self.gender = criteria.gender;
+        self.birth_from = year_text(criteria.birth.from);
+        self.birth_to = year_text(criteria.birth.to);
+        self.death_from = year_text(criteria.death.from);
+        self.death_to = year_text(criteria.death.to);
+        self.place = criteria.place.clone();
+        self.fact_type = criteria.fact_type.clone();
+        self.fact_text = criteria.fact_text.clone();
+        self.notes = criteria.notes.clone();
+    }
+
+    /// Loads a saved rule into the fields without applying it.
+    pub fn load_saved(&mut self, saved: &SavedPersonSearch) {
+        self.load_criteria(&saved.criteria);
+        self.selected_saved = Some(saved.name.clone());
+        self.save_name = saved.name.clone();
+        self.error = None;
     }
 
     pub fn clear_fields(&mut self) {
@@ -55,7 +71,24 @@ impl AdvancedSearchState {
         self.fact_type.clear();
         self.fact_text.clear();
         self.notes.clear();
+        self.selected_saved = None;
+        self.save_name.clear();
         self.error = None;
+    }
+
+    /// Validates the current fields and builds a named rule.
+    pub fn saved_search(&mut self) -> Option<SavedPersonSearch> {
+        let name = self.save_name.trim().to_string();
+        if name.is_empty() {
+            self.error = Some(tr("people.search_saved_name_required"));
+            return None;
+        }
+        let criteria = self.criteria()?;
+        if criteria.is_empty() {
+            self.error = Some(tr("people.search_saved_empty"));
+            return None;
+        }
+        Some(SavedPersonSearch::new(name, criteria))
     }
 
     /// Converts the fields into criteria, reporting invalid years inline.
@@ -109,10 +142,16 @@ impl AdvancedSearchState {
 pub enum AdvancedSearchEvent {
     Apply(Box<PersonSearchCriteria>),
     Clear,
+    Save(Box<SavedPersonSearch>),
+    Delete(String),
 }
 
 /// Draws the criteria window.
-pub fn show(ctx: &Context, state: &mut AdvancedSearchState) -> Option<AdvancedSearchEvent> {
+pub fn show(
+    ctx: &Context,
+    state: &mut AdvancedSearchState,
+    saved: &[SavedPersonSearch],
+) -> Option<AdvancedSearchEvent> {
     if !state.open {
         return None;
     }
@@ -127,6 +166,51 @@ pub fn show(ctx: &Context, state: &mut AdvancedSearchState) -> Option<AdvancedSe
         .show(ctx, |ui| {
             ui.label(RichText::new(tr("people.search_hint")).weak().small());
             ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.label(tr("people.search_saved"));
+                let selected_text = state
+                    .selected_saved
+                    .clone()
+                    .unwrap_or_else(|| tr("people.search_saved_none"));
+                egui::ComboBox::from_id_salt("advanced_saved_search")
+                    .selected_text(selected_text)
+                    .width(200.0)
+                    .show_ui(ui, |ui| {
+                        for saved in saved {
+                            let selected =
+                                state.selected_saved.as_deref() == Some(saved.name.as_str());
+                            if ui.selectable_label(selected, &saved.name).clicked() {
+                                state.load_saved(saved);
+                            }
+                        }
+                    });
+                let can_delete = state.selected_saved.as_deref().is_some_and(|name| {
+                    let name = name.to_lowercase();
+                    saved.iter().any(|item| item.name.to_lowercase() == name)
+                });
+                if ui
+                    .add_enabled(can_delete, egui::Button::new(tr("common.delete")))
+                    .clicked()
+                    && let Some(name) = state.selected_saved.clone()
+                {
+                    event = Some(AdvancedSearchEvent::Delete(name));
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut state.save_name)
+                        .hint_text(tr("people.search_saved_name"))
+                        .char_limit(80),
+                );
+                if ui.button(tr("people.search_saved_save")).clicked()
+                    && let Some(saved) = state.saved_search()
+                {
+                    event = Some(AdvancedSearchEvent::Save(Box::new(saved)));
+                }
+            });
+            ui.separator();
+
             egui::Grid::new("advanced_search_grid")
                 .num_columns(2)
                 .spacing([8.0, 6.0])
@@ -314,10 +398,52 @@ mod tests {
         let mut state = AdvancedSearchState::default();
         state.open_with(None);
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            assert!(show(ui.ctx(), &mut state).is_none());
+            assert!(show(ui.ctx(), &mut state, &[]).is_none());
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty());
         assert!(state.open);
+    }
+
+    #[test]
+    fn loading_a_saved_search_fills_the_fields_without_applying() {
+        let saved = SavedPersonSearch::new(
+            "London",
+            PersonSearchCriteria {
+                name: "Ada".to_string(),
+                gender: GenderFilter::Female,
+                birth: YearRange {
+                    from: Some(1815),
+                    to: Some(1820),
+                },
+                place: "London".to_string(),
+                ..PersonSearchCriteria::default()
+            },
+        );
+        let mut state = AdvancedSearchState::default();
+        state.load_saved(&saved);
+        assert_eq!(state.name, "Ada");
+        assert_eq!(state.gender, GenderFilter::Female);
+        assert_eq!(state.birth_from, "1815");
+        assert_eq!(state.place, "London");
+        assert_eq!(state.selected_saved.as_deref(), Some("London"));
+        assert_eq!(state.save_name, "London");
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn saving_requires_a_name_and_at_least_one_criterion() {
+        let mut state = AdvancedSearchState::default();
+        assert!(state.saved_search().is_none());
+        assert!(state.error.is_some());
+
+        state.save_name = "Unnamed".to_string();
+        assert!(state.saved_search().is_none());
+        assert!(state.error.is_some());
+
+        state.name = "Ada".to_string();
+        let saved = state.saved_search().expect("saved search");
+        assert_eq!(saved.name, "Unnamed");
+        assert_eq!(saved.criteria.name, "Ada");
     }
 }
