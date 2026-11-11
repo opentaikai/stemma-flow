@@ -4,6 +4,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
 use crate::model::name::format_name;
+use crate::model::person_search::PersonSearchCriteria;
 
 /// One stored group.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,6 +12,7 @@ pub struct GroupRecord {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    pub rule: Option<PersonSearchCriteria>,
     pub created_at: String,
 }
 
@@ -20,6 +22,7 @@ pub struct GroupSummary {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    pub rule: Option<PersonSearchCriteria>,
     pub member_count: i64,
 }
 
@@ -29,6 +32,7 @@ pub struct GroupDraft {
     pub id: Option<String>,
     pub name: String,
     pub description: String,
+    pub rule: Option<PersonSearchCriteria>,
 }
 
 impl GroupDraft {
@@ -37,6 +41,7 @@ impl GroupDraft {
             id: Some(record.id.clone()),
             name: record.name.clone(),
             description: record.description.clone().unwrap_or_default(),
+            rule: record.rule.clone(),
         }
     }
 }
@@ -61,7 +66,7 @@ fn clean(value: &str) -> Option<String> {
 pub fn list_groups(conn: &Connection) -> Result<Vec<GroupSummary>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT g.id, g.name, g.description,
+            "SELECT g.id, g.name, g.description, g.rule,
                     (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id)
              FROM groups g ORDER BY g.name COLLATE NOCASE, g.rowid",
         )
@@ -72,7 +77,8 @@ pub fn list_groups(conn: &Connection) -> Result<Vec<GroupSummary>, String> {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                member_count: row.get(3)?,
+                rule: parse_rule(row.get(3)?),
+                member_count: row.get(4)?,
             })
         })
         .map_err(|error| error.to_string())?
@@ -84,14 +90,15 @@ pub fn list_groups(conn: &Connection) -> Result<Vec<GroupSummary>, String> {
 /// Loads one group for editing.
 pub fn load_group(conn: &Connection, id: &str) -> Result<Option<GroupRecord>, String> {
     conn.query_row(
-        "SELECT id, name, description, created_at FROM groups WHERE id = ?1",
+        "SELECT id, name, description, rule, created_at FROM groups WHERE id = ?1",
         params![id],
         |row| {
             Ok(GroupRecord {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                created_at: row.get(3)?,
+                rule: parse_rule(row.get(3)?),
+                created_at: row.get(4)?,
             })
         },
     )
@@ -103,18 +110,19 @@ pub fn load_group(conn: &Connection, id: &str) -> Result<Option<GroupRecord>, St
 pub fn save_group(conn: &Connection, draft: &GroupDraft) -> Result<String, String> {
     let name = clean(&draft.name).ok_or_else(|| "group name is required".to_string())?;
     let description = clean(&draft.description);
+    let rule = encode_rule(&draft.rule)?;
     let id = draft
         .id
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     let result = match &draft.id {
         Some(existing) => conn.execute(
-            "UPDATE groups SET name = ?1, description = ?2 WHERE id = ?3",
-            params![name, description, existing],
+            "UPDATE groups SET name = ?1, description = ?2, rule = ?3 WHERE id = ?4",
+            params![name, description, rule, existing],
         ),
         None => conn.execute(
-            "INSERT INTO groups (id, name, description) VALUES (?1, ?2, ?3)",
-            params![id, name, description],
+            "INSERT INTO groups (id, name, description, rule) VALUES (?1, ?2, ?3, ?4)",
+            params![id, name, description, rule],
         ),
     };
     match result {
@@ -191,7 +199,7 @@ pub fn list_groups_for_person(
 ) -> Result<Vec<GroupSummary>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT g.id, g.name, g.description,
+            "SELECT g.id, g.name, g.description, g.rule,
                     (SELECT COUNT(*) FROM group_members c WHERE c.group_id = g.id)
              FROM groups g JOIN group_members m ON m.group_id = g.id
              WHERE m.person_id = ?1
@@ -204,7 +212,8 @@ pub fn list_groups_for_person(
                 id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                member_count: row.get(3)?,
+                rule: parse_rule(row.get(3)?),
+                member_count: row.get(4)?,
             })
         })
         .map_err(|error| error.to_string())?
@@ -237,6 +246,25 @@ pub fn remove_member(conn: &Connection, group_id: &str, person_id: &str) -> Resu
         return Err("group member no longer exists".to_string());
     }
     Ok(())
+}
+
+fn parse_rule(value: Option<String>) -> Option<PersonSearchCriteria> {
+    let value = value?;
+    toml::from_str(&value).ok()
+}
+
+fn encode_rule(rule: &Option<PersonSearchCriteria>) -> Result<Option<String>, String> {
+    let Some(rule) = rule else {
+        return Ok(None);
+    };
+    let mut rule = rule.clone();
+    rule.sanitize();
+    if rule.is_empty() {
+        return Err("group rule needs at least one criterion".to_string());
+    }
+    toml::to_string(&rule)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 fn ensure_exists(conn: &Connection, table: &str, id: &str) -> Result<(), String> {
@@ -341,6 +369,72 @@ mod tests {
             list_members(&conn, &first, false)
                 .expect("members")
                 .is_empty()
+        );
+    }
+    #[test]
+    fn stores_dynamic_rules_and_preserves_manual_members() {
+        use crate::model::person_search::{GenderFilter, PersonSearchCriteria};
+
+        let conn = connection();
+        let id = save_group(
+            &conn,
+            &GroupDraft {
+                name: "Researchers".to_string(),
+                ..GroupDraft::default()
+            },
+        )
+        .expect("group");
+        add_member(&conn, &id, "p1").expect("member");
+
+        let rule = PersonSearchCriteria {
+            gender: GenderFilter::Female,
+            ..PersonSearchCriteria::default()
+        };
+        save_group(
+            &conn,
+            &GroupDraft {
+                id: Some(id.clone()),
+                name: "Researchers".to_string(),
+                rule: Some(rule.clone()),
+                ..GroupDraft::default()
+            },
+        )
+        .expect("rule save");
+        let loaded = load_group(&conn, &id).expect("load").expect("group");
+        assert_eq!(loaded.rule, Some(rule.clone()));
+        assert_eq!(
+            list_groups(&conn).expect("list")[0].rule,
+            Some(rule.clone())
+        );
+        assert_eq!(
+            list_members(&conn, &id, false).expect("members").len(),
+            1,
+            "manual members are preserved alongside the rule"
+        );
+
+        let error = save_group(
+            &conn,
+            &GroupDraft {
+                id: Some(id.clone()),
+                name: "Researchers".to_string(),
+                rule: Some(PersonSearchCriteria::default()),
+                ..GroupDraft::default()
+            },
+        )
+        .expect_err("empty rule");
+        assert!(error.contains("at least one criterion"));
+
+        conn.execute(
+            "UPDATE groups SET rule = 'not toml' WHERE id = ?1",
+            params![id],
+        )
+        .expect("corrupt rule");
+        assert!(
+            load_group(&conn, &id)
+                .expect("load")
+                .expect("group")
+                .rule
+                .is_none()
         );
     }
 }

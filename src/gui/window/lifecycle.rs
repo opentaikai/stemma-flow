@@ -124,6 +124,15 @@ impl TreeWindow {
         self.tree_settings = settings;
         self.watch.mark_dirty();
         self.research.problems.loaded = false;
+        if self.research.groups.loaded {
+            for group in &mut self.research.groups.groups {
+                if let Some(rule) = &group.rule {
+                    group.member_count =
+                        crate::gui::groups::rule_members(&self.rows, rule).len() as i64;
+                }
+            }
+            self.research.groups.rule_signature = None;
+        }
         self.seen_db = self.app.active_db().map(Path::to_path_buf);
         let generation = self.app.import_generation();
         let generation_changed = self.seen_generation != generation;

@@ -245,6 +245,14 @@ pub(super) fn migrate_v16_to_v17(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// Adds optional person-search rules to named groups.
+pub(super) fn migrate_v17_to_v18(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    ensure_column(&tx, "groups", "rule", "TEXT")?;
+    tx.pragma_update(None, "user_version", 18)?;
+    tx.commit()
+}
+
 /// Copies distinct event places into `places` and links the events.
 fn migrate_places(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut stmt = tx.prepare(
