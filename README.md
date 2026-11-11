@@ -75,9 +75,10 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   person, family, event/fact, source, citation or place and cascade with
   either side. `tasks` stores research goals, logs, status, priority, folder
   and due/completion dates; `task_links` attaches a task to people, families,
-  events, sources, citations, places or media. `groups` and `group_members`
-  hold static named groups of people. Media and task links are typed,
-  cascading rows; tasks and groups are app-only.
+  events, sources, citations, places or media. `groups` holds named people
+  groups with an optional dynamic rule, while `group_members` stores manual
+  membership. Media and task links are typed, cascading rows; tasks and
+  groups are app-only.
 
 Relationships are modelled through events and the `family_children` junction
 table. Foreign keys cascade deletes from people/families down to events,
@@ -501,10 +502,14 @@ views (the app always launches on Graph View):
   linked-record counts; filters cover text, status and folder. **Print log…** exports the current
   filtered research log as print-ready HTML, grouped by folder with the
   research-log/results text and opened in the default browser for printing
-  or PDF creation. Groups are static named people groups with an editor,
-  member search and add/remove actions. **Tasks…** dialogs on people,
-  families, facts, citations, sources, places and media attach existing
-  tasks and detach links. Tasks and groups remain app-only.
+  or PDF creation. Groups have an editor for name, description and either
+  manual membership or a dynamic rule built from the same criteria as
+  Advanced Search. Rule membership updates automatically as people change;
+  switching back to manual restores the preserved stored members.
+  **Print group…** exports a printable HTML roster with names, dates and
+  places. **Tasks…** dialogs on people, families, facts, citations, sources,
+  places and media attach existing tasks and detach links. Tasks and groups
+  remain app-only.
 - **Fact Types** — a filterable, sortable grid of the built-in and custom
   fact types with category, scope, kind, GEDCOM tag, role count and event
   usage, plus an editor. Custom types get an immutable generated key and a
