@@ -190,6 +190,7 @@ pub fn show(
         .id(egui::Id::unique("merge_people_window"))
         .collapsible(false)
         .resizable(true)
+        .vscroll(true)
         .default_width(760.0)
         .open(&mut open)
         .show(ctx, |ui| {
@@ -284,103 +285,109 @@ pub fn show(
                 ))
                 .strong(),
             );
-            egui::Grid::new("merge_field_grid")
-                .num_columns(3)
-                .striped(true)
-                .spacing([12.0, 5.0])
+            egui::ScrollArea::vertical()
+                .id_salt("merge_field_grid_scroll")
+                .max_height(320.0)
+                .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    ui.label(RichText::new(tr("merge.field")).strong());
-                    ui.label(RichText::new(tr("merge.keep_column")).strong());
-                    ui.label(RichText::new(tr("merge.merge_column")).strong());
-                    ui.end_row();
-                    choice_row(
-                        ui,
-                        &tr("merge.field_prefix"),
-                        &preview.keep.details.name_prefix,
-                        &preview.merge.details.name_prefix,
-                        &mut state.choices.name_prefix,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_given"),
-                        &preview.keep.details.given_name,
-                        &preview.merge.details.given_name,
-                        &mut state.choices.given_name,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_middle"),
-                        &preview.keep.details.middle_name,
-                        &preview.merge.details.middle_name,
-                        &mut state.choices.middle_name,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_surname"),
-                        &preview.keep.details.surname,
-                        &preview.merge.details.surname,
-                        &mut state.choices.surname,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_suffix"),
-                        &preview.keep.details.name_suffix,
-                        &preview.merge.details.name_suffix,
-                        &mut state.choices.name_suffix,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_nickname"),
-                        &preview.keep.details.nickname,
-                        &preview.merge.details.nickname,
-                        &mut state.choices.nickname,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_gender"),
-                        &gender_label(&preview.keep.details.gender),
-                        &gender_label(&preview.merge.details.gender),
-                        &mut state.choices.gender,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_birth_date"),
-                        preview.keep.details.birth_date.as_deref().unwrap_or(""),
-                        preview.merge.details.birth_date.as_deref().unwrap_or(""),
-                        &mut state.choices.birth_date,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_birth_place"),
-                        preview.keep.details.birth_place.as_deref().unwrap_or(""),
-                        preview.merge.details.birth_place.as_deref().unwrap_or(""),
-                        &mut state.choices.birth_place,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_death_date"),
-                        preview.keep.details.death_date.as_deref().unwrap_or(""),
-                        preview.merge.details.death_date.as_deref().unwrap_or(""),
-                        &mut state.choices.death_date,
-                    );
-                    choice_row(
-                        ui,
-                        &tr("merge.field_death_place"),
-                        preview.keep.details.death_place.as_deref().unwrap_or(""),
-                        preview.merge.details.death_place.as_deref().unwrap_or(""),
-                        &mut state.choices.death_place,
-                    );
-                    let keep_privacy =
-                        privacy_label(preview.keep.private, preview.keep.living_override);
-                    let merge_privacy =
-                        privacy_label(preview.merge.private, preview.merge.living_override);
-                    choice_row(
-                        ui,
-                        &tr("merge.field_privacy"),
-                        &keep_privacy,
-                        &merge_privacy,
-                        &mut state.choices.privacy,
-                    );
+                    egui::Grid::new("merge_field_grid")
+                        .num_columns(3)
+                        .striped(true)
+                        .spacing([12.0, 5.0])
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(tr("merge.field")).strong());
+                            ui.label(RichText::new(tr("merge.keep_column")).strong());
+                            ui.label(RichText::new(tr("merge.merge_column")).strong());
+                            ui.end_row();
+                            choice_row(
+                                ui,
+                                &tr("merge.field_prefix"),
+                                &preview.keep.details.name_prefix,
+                                &preview.merge.details.name_prefix,
+                                &mut state.choices.name_prefix,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_given"),
+                                &preview.keep.details.given_name,
+                                &preview.merge.details.given_name,
+                                &mut state.choices.given_name,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_middle"),
+                                &preview.keep.details.middle_name,
+                                &preview.merge.details.middle_name,
+                                &mut state.choices.middle_name,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_surname"),
+                                &preview.keep.details.surname,
+                                &preview.merge.details.surname,
+                                &mut state.choices.surname,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_suffix"),
+                                &preview.keep.details.name_suffix,
+                                &preview.merge.details.name_suffix,
+                                &mut state.choices.name_suffix,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_nickname"),
+                                &preview.keep.details.nickname,
+                                &preview.merge.details.nickname,
+                                &mut state.choices.nickname,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_gender"),
+                                &gender_label(&preview.keep.details.gender),
+                                &gender_label(&preview.merge.details.gender),
+                                &mut state.choices.gender,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_birth_date"),
+                                preview.keep.details.birth_date.as_deref().unwrap_or(""),
+                                preview.merge.details.birth_date.as_deref().unwrap_or(""),
+                                &mut state.choices.birth_date,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_birth_place"),
+                                preview.keep.details.birth_place.as_deref().unwrap_or(""),
+                                preview.merge.details.birth_place.as_deref().unwrap_or(""),
+                                &mut state.choices.birth_place,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_death_date"),
+                                preview.keep.details.death_date.as_deref().unwrap_or(""),
+                                preview.merge.details.death_date.as_deref().unwrap_or(""),
+                                &mut state.choices.death_date,
+                            );
+                            choice_row(
+                                ui,
+                                &tr("merge.field_death_place"),
+                                preview.keep.details.death_place.as_deref().unwrap_or(""),
+                                preview.merge.details.death_place.as_deref().unwrap_or(""),
+                                &mut state.choices.death_place,
+                            );
+                            let keep_privacy =
+                                privacy_label(preview.keep.private, preview.keep.living_override);
+                            let merge_privacy =
+                                privacy_label(preview.merge.private, preview.merge.living_override);
+                            choice_row(
+                                ui,
+                                &tr("merge.field_privacy"),
+                                &keep_privacy,
+                                &merge_privacy,
+                                &mut state.choices.privacy,
+                            );
+                        });
                 });
 
             ui.checkbox(
@@ -715,6 +722,53 @@ mod tests {
         assert!(!output.shapes.is_empty());
         assert!(event.is_none(), "no input does not merge");
         assert!(state.open);
+    }
+
+    #[test]
+    fn dialog_stays_within_the_screen() {
+        let ctx = Context::default();
+        let mut state = MergeState {
+            open: true,
+            keep: Some("keep".to_string()),
+            merge: Some("merge".to_string()),
+            ..MergeState::default()
+        };
+        state.set_preview(preview());
+        let mut keep = crate::db::Person::new("Ada", "King", "F");
+        keep.id = "keep".to_string();
+        let mut merge = crate::db::Person::new("Augusta", "Lovelace", "F");
+        merge.id = "merge".to_string();
+        let tree = FamilyTree {
+            people: vec![keep, merge],
+            families: Vec::new(),
+            child_links: Vec::new(),
+        };
+        let raw = RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 600.0),
+            )),
+            ..RawInput::default()
+        };
+        let mut output = ctx.run_ui(raw, |ui| {
+            show(ui.ctx(), &mut state, &tree, false);
+        });
+        output.textures_delta.clear();
+        let area = egui::AreaState::load(&ctx, egui::Id::unique("merge_people_window"))
+            .expect("merge window");
+        let rect = area.rect();
+        assert!(
+            rect.top() >= 0.0,
+            "window starts above the screen: {rect:?}"
+        );
+        assert!(
+            rect.bottom() <= 600.0,
+            "window bottom exceeds the screen: {rect:?}"
+        );
+        assert!(
+            rect.height() < 520.0,
+            "the comparison grid should not inflate the window: {rect:?}"
+        );
     }
 
     #[test]
