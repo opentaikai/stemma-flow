@@ -29,6 +29,7 @@ pub mod problems;
 pub mod relationship_calculator;
 pub mod repositories;
 pub mod research;
+pub mod search_replace;
 pub mod settings;
 pub mod sources;
 pub mod tabs;

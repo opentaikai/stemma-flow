@@ -35,6 +35,7 @@ use crate::db::problems as problem_store;
 use crate::db::repositories::{
     self as repository_store, RepositoryDraft, RepositoryRecord, RepositorySummary,
 };
+use crate::db::search_replace::{self as replace_store, ReplaceReport, ReplaceSelection};
 use crate::db::settings::{self as settings_store, TreeSettings};
 use crate::db::sources::{
     self as source_store, SourceDraft, SourceMergeReport, SourceRecord, SourceSummary,
@@ -45,6 +46,7 @@ use crate::db::tasks::{
 use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options};
 use crate::gui::dialogs;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
+use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::research_log::{self, ResearchLogReport};
 
@@ -702,6 +704,34 @@ impl StemmaApp {
             report.names_changed,
             report.alternate_names_changed,
             report.places_renamed + report.places_merged
+        )));
+        Ok(report)
+    }
+
+    /// Builds a literal search-and-replace preview from the active tree.
+    pub fn preview_search_replace(
+        &self,
+        request: &ReplaceRequest,
+        surname_first: bool,
+    ) -> Result<ReplacePlan, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        replace_store::preview(&conn, request, surname_first)
+    }
+
+    /// Applies selected replacement rows and bumps the scene generation.
+    pub fn apply_search_replace(
+        &mut self,
+        plan: &ReplacePlan,
+        selection: &ReplaceSelection,
+    ) -> Result<ReplaceReport, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let report = replace_store::apply_plan(&mut conn, plan, selection)?;
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success(format!(
+            "Replaced {} fields",
+            report.total()
         )));
         Ok(report)
     }
@@ -1726,6 +1756,35 @@ mod tests {
         let tree = db::load_family_tree(&conn).map_err(|error| error.to_string())?;
         assert_eq!(tree.people[0].given_name, "Ada");
         assert_eq!(tree.people[0].surname, "King");
+        let _ = std::fs::remove_file(path);
+        Ok(())
+    }
+
+    #[test]
+    fn search_replace_preview_and_apply_update_names() -> Result<(), String> {
+        let path = temp_path("db");
+        create_tree(&path)?;
+        let mut app = StemmaApp::new();
+        app.activate_tree(&path);
+        app.add_person(&PersonDetails::new("Ann", "", "King", "", "F", None, None))?;
+
+        let request = ReplaceRequest {
+            find: "Ann".to_string(),
+            replace: "Jane".to_string(),
+            match_case: true,
+            names: true,
+            places: false,
+            notes: false,
+            filenames: false,
+        };
+        let plan = app.preview_search_replace(&request, false)?;
+        assert_eq!(plan.changes.len(), 1);
+        let report = app.apply_search_replace(&plan, &ReplaceSelection::select_all(&plan))?;
+        assert_eq!(report.names, 1);
+
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        let tree = db::load_family_tree(&conn).map_err(|error| error.to_string())?;
+        assert_eq!(tree.people[0].given_name, "Jane");
         let _ = std::fs::remove_file(path);
         Ok(())
     }
