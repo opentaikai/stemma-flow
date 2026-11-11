@@ -370,6 +370,27 @@ merge_people = "Personen zusammenführen…"
 menu = "Werkzeuge"
 calculator = "Beziehungsrechner…"
 
+
+find = "Überall suchen…"
+
+[find]
+title = "Überall suchen"
+hint = "Namen, Fakten, Notizen, Orte, Quellen, Aufgaben und mehr durchsuchen."
+placeholder = "Gesamten Baum durchsuchen…"
+prompt = "Suchbegriff eingeben und Enter drücken."
+no_matches = "Keine Treffer für „{query}“."
+total = "{count} Treffer"
+truncated = "Es werden nur die ersten Treffer angezeigt; Suche weiter eingrenzen."
+kind_person = "Personen"
+kind_family = "Paare"
+kind_place = "Orte"
+kind_source = "Quellen"
+kind_repository = "Archive"
+kind_task = "Aufgaben"
+kind_group = "Gruppen"
+kind_media = "Medien"
+kind_fact_type = "Faktentypen"
+
 [calculator]
 title = "Beziehungsrechner"
 first = "Erste Person"

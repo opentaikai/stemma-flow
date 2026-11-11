@@ -12,6 +12,7 @@ pub mod dataclean;
 pub mod dialogs;
 pub mod export_dialog;
 pub mod fact_types;
+pub mod find_everywhere;
 pub mod groups;
 pub mod import_report;
 pub mod inspector;

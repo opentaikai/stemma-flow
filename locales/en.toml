@@ -370,6 +370,27 @@ merge_people = "Merge People…"
 menu = "Tools"
 calculator = "Relationship Calculator…"
 
+
+find = "Find Everywhere…"
+
+[find]
+title = "Find Everywhere"
+hint = "Search names, facts, notes, places, sources, tasks and more."
+placeholder = "Search the whole tree…"
+prompt = "Enter a search term and press Enter."
+no_matches = "No matches for “{query}”."
+total = "{count} results"
+truncated = "Showing the first results; refine the search to narrow it down."
+kind_person = "People"
+kind_family = "Couples"
+kind_place = "Places"
+kind_source = "Sources"
+kind_repository = "Repositories"
+kind_task = "Tasks"
+kind_group = "Groups"
+kind_media = "Media"
+kind_fact_type = "Fact Types"
+
 [calculator]
 title = "Relationship Calculator"
 first = "First person"

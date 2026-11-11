@@ -97,6 +97,13 @@ impl TreeWindow {
                 }
             }
             ui.menu_button(tr("tools.menu"), |ui| {
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
+                    && ui.button(tr("tools.find")).clicked()
+                {
+                    ui.close();
+                    self.find.open = true;
+                }
                 if ui.button(tr("tools.calculator")).clicked() {
                     ui.close();
                     self.open_relationship_calculator();

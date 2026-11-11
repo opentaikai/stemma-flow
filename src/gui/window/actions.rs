@@ -3,6 +3,7 @@
 use crate::app;
 use crate::app::UiStatus;
 use crate::db::dataclean::DataCleanSelection;
+use crate::db::find::{FindResults, FindTarget};
 use crate::db::media::{MediaDraft, MediaOwner};
 use crate::db::merge::MergeDraft;
 use crate::db::notes::NoteOwner;
@@ -19,6 +20,7 @@ use crate::gui::dataclean::{self as dataclean_ui, DataCleanEvent};
 use crate::gui::dialogs;
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
+use crate::gui::find_everywhere::{self as find_ui, FindEvent};
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
 use crate::gui::inspector::InspectorForm;
@@ -200,6 +202,80 @@ impl TreeWindow {
                 &[("name", name.to_string())],
             ))),
             Err(error) => self.app.set_status(UiStatus::Error(error)),
+        }
+    }
+
+    pub(super) fn show_find_window(&mut self, ctx: &egui::Context) {
+        if !self.find.open {
+            return;
+        }
+        match find_ui::show(ctx, &mut self.find) {
+            Some(FindEvent::Search) => self.run_find(),
+            Some(FindEvent::Open(target)) => {
+                self.find.open = false;
+                self.open_find_target(target);
+            }
+            None => {}
+        }
+    }
+
+    fn run_find(&mut self) {
+        let query = self.find.query.trim().to_string();
+        if query.is_empty() {
+            self.find.submitted_query.clear();
+            self.find.results = FindResults::default();
+            self.find.searched = false;
+            self.find.error = None;
+            return;
+        }
+        match self
+            .app
+            .find_everywhere(&query, self.tree_settings.surname_first)
+        {
+            Ok(results) => {
+                self.find.submitted_query = query;
+                self.find.results = results;
+                self.find.searched = true;
+                self.find.error = None;
+            }
+            Err(error) => self.find.error = Some(error),
+        }
+    }
+
+    fn open_find_target(&mut self, target: FindTarget) {
+        match target {
+            FindTarget::Person(id) => self.focus_person(&id),
+            FindTarget::Family(id) => self.open_couple_family(&id),
+            FindTarget::Place(id) => {
+                self.tab = tabs::AppTab::Places;
+                self.load_place_draft(&id);
+            }
+            FindTarget::Source(id) => {
+                self.tab = tabs::AppTab::Sources;
+                self.load_source_draft(&id);
+            }
+            FindTarget::Repository(id) => {
+                self.tab = tabs::AppTab::Repositories;
+                self.load_repository_draft(&id);
+            }
+            FindTarget::Task(id) => {
+                self.tab = tabs::AppTab::Research;
+                self.research.tab = research_ui::ResearchTab::Tasks;
+                self.load_task_draft(&id);
+            }
+            FindTarget::Group(id) => {
+                self.tab = tabs::AppTab::Research;
+                self.research.tab = research_ui::ResearchTab::Groups;
+                self.load_group_draft(&id);
+            }
+            FindTarget::Media(id) => {
+                self.tab = tabs::AppTab::Media;
+                self.load_media_draft(&id);
+            }
+            FindTarget::FactType(key) => {
+                self.tab = tabs::AppTab::FactTypes;
+                self.load_fact_type_draft(&key);
+            }
         }
     }
 
