@@ -428,6 +428,23 @@ field_place_name = "Ortsname"
 field_note = "Notiz"
 field_media_path = "Dateipfad"
 
+
+[group_report]
+title = "Gruppenliste"
+title_named = "Gruppenliste — {name}"
+print = "Drucken"
+print_hint = "Browser-Druckdialog verwenden oder als PDF speichern."
+tree = "Baum: {name}"
+generated = "Erstellt: {timestamp}"
+member_count = "{count} Mitglieder"
+rule = "Übereinstimmende Regel"
+empty = "Diese Gruppe hat keine Mitglieder."
+column_name = "Name"
+column_birth = "Geburt"
+column_death = "Tod"
+column_birth_place = "Geburtsort"
+column_death_place = "Sterbeort"
+
 [calculator]
 title = "Beziehungsrechner"
 first = "Erste Person"
