@@ -6,6 +6,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::model::people_columns::{PeopleColumnConfig, default_columns, sanitize_columns};
+use crate::model::person_search::SavedPersonSearch;
+
+const MAX_SAVED_SEARCHES: usize = 50;
+const MAX_SAVED_SEARCH_NAME: usize = 80;
 
 /// How the UI picks its light or dark visuals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +34,9 @@ pub struct AppConfig {
     /// Visible columns, order and widths for the People view.
     #[serde(default = "default_columns")]
     pub people_columns: Vec<PeopleColumnConfig>,
+    /// Named advanced-search rules shared by every tree.
+    #[serde(default)]
+    pub saved_searches: Vec<SavedPersonSearch>,
 }
 
 impl Default for AppConfig {
@@ -40,6 +47,7 @@ impl Default for AppConfig {
             reverse_place_names: false,
             language: "en".to_string(),
             people_columns: default_columns(),
+            saved_searches: Vec::new(),
         }
     }
 }
@@ -88,6 +96,21 @@ impl AppConfig {
         fs::rename(&temp_path, path).map_err(|error| error.to_string())
     }
 
+    /// Adds a saved search or replaces the rule with the same name.
+    pub fn upsert_saved_search(&mut self, saved: SavedPersonSearch) {
+        SavedPersonSearch::upsert(&mut self.saved_searches, saved);
+        self.saved_searches = sanitize_saved_searches(std::mem::take(&mut self.saved_searches));
+    }
+
+    /// Removes a saved search by name, returning whether one was removed.
+    pub fn remove_saved_search(&mut self, name: &str) -> bool {
+        let removed = SavedPersonSearch::remove(&mut self.saved_searches, name);
+        if removed {
+            self.saved_searches = sanitize_saved_searches(std::mem::take(&mut self.saved_searches));
+        }
+        removed
+    }
+
     fn sanitize(&mut self) {
         if !self.font_size.is_finite() || !(10.0..=24.0).contains(&self.font_size) {
             self.font_size = 14.0;
@@ -96,7 +119,35 @@ impl AppConfig {
             self.language = "en".to_string();
         }
         self.people_columns = sanitize_columns(&self.people_columns);
+        self.saved_searches = sanitize_saved_searches(std::mem::take(&mut self.saved_searches));
     }
+}
+
+fn sanitize_saved_searches(items: Vec<SavedPersonSearch>) -> Vec<SavedPersonSearch> {
+    let mut sanitized: Vec<SavedPersonSearch> = Vec::new();
+    for mut saved in items {
+        saved.name = saved
+            .name
+            .trim()
+            .chars()
+            .take(MAX_SAVED_SEARCH_NAME)
+            .collect();
+        saved.criteria.sanitize();
+        if saved.name.is_empty() || saved.criteria.is_empty() {
+            continue;
+        }
+        if sanitized
+            .iter()
+            .any(|item| item.name.to_lowercase() == saved.name.to_lowercase())
+        {
+            continue;
+        }
+        sanitized.push(saved);
+        if sanitized.len() >= MAX_SAVED_SEARCHES {
+            break;
+        }
+    }
+    sanitized
 }
 
 /// `<config_dir>/stemma-flow/config.toml`, or `None` without a config dir.
@@ -133,6 +184,13 @@ mod tests {
             font_size: 18.5,
             reverse_place_names: true,
             language: "de".to_string(),
+            saved_searches: vec![SavedPersonSearch::new(
+                "London born",
+                crate::model::person_search::PersonSearchCriteria {
+                    place: "London".to_string(),
+                    ..Default::default()
+                },
+            )],
             ..AppConfig::default()
         };
         let text = toml::to_string_pretty(&config).expect("serialize");
@@ -222,6 +280,85 @@ mod tests {
 
         assert!(!loaded.reverse_place_names);
         assert_eq!(loaded.theme, ThemeMode::Dark);
+        assert!(loaded.saved_searches.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn saved_searches_are_trimmed_deduplicated_and_upserted() {
+        use crate::model::person_search::{PersonSearchCriteria, YearRange};
+
+        let dir = temp_dir("saved-searches");
+        let path = dir.join("config.toml");
+        let config = AppConfig {
+            saved_searches: vec![
+                SavedPersonSearch::new(
+                    "  London  ",
+                    PersonSearchCriteria {
+                        name: " Ada ".to_string(),
+                        birth: YearRange {
+                            from: Some(1900),
+                            to: Some(1800),
+                        },
+                        ..PersonSearchCriteria::default()
+                    },
+                ),
+                SavedPersonSearch::new(
+                    "london",
+                    PersonSearchCriteria {
+                        place: "Paris".to_string(),
+                        ..PersonSearchCriteria::default()
+                    },
+                ),
+                SavedPersonSearch::new(
+                    "Paris",
+                    PersonSearchCriteria {
+                        place: "Paris".to_string(),
+                        ..PersonSearchCriteria::default()
+                    },
+                ),
+                SavedPersonSearch::new(
+                    "   ",
+                    PersonSearchCriteria {
+                        place: "London".to_string(),
+                        ..PersonSearchCriteria::default()
+                    },
+                ),
+                SavedPersonSearch::new("Empty", PersonSearchCriteria::default()),
+            ],
+            ..AppConfig::default()
+        };
+        config.save_to(&path).expect("save");
+
+        let mut loaded = AppConfig::load_from(&path);
+        assert_eq!(loaded.saved_searches.len(), 2);
+        assert_eq!(loaded.saved_searches[0].name, "London");
+        assert_eq!(loaded.saved_searches[0].criteria.name, "Ada");
+        assert_eq!(loaded.saved_searches[0].criteria.birth.from, Some(1800));
+        assert_eq!(loaded.saved_searches[0].criteria.birth.to, Some(1900));
+
+        loaded.upsert_saved_search(SavedPersonSearch::new(
+            "LONDON",
+            PersonSearchCriteria {
+                place: "Cambridge".to_string(),
+                ..PersonSearchCriteria::default()
+            },
+        ));
+        assert_eq!(
+            loaded.saved_searches.len(),
+            2,
+            "the rule stays at its index"
+        );
+        assert_eq!(loaded.saved_searches[0].name, "LONDON");
+        assert_eq!(loaded.saved_searches[0].criteria.place, "Cambridge");
+        assert_eq!(loaded.saved_searches[1].name, "Paris");
+
+        assert!(loaded.remove_saved_search("london"));
+        assert_eq!(loaded.saved_searches.len(), 1);
+        assert!(loaded.remove_saved_search("paris"));
+        assert!(loaded.saved_searches.is_empty());
+        assert!(!loaded.remove_saved_search("london"));
 
         let _ = fs::remove_dir_all(&dir);
     }
