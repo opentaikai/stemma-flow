@@ -271,6 +271,30 @@ names before anything changes:
 No schema change is required; DataClean only changes name text and merges
 existing place records.
 
+## Find Everywhere
+
+**Tools > Find Everywhere…** or **Ctrl+Shift+F** opens a modeless global
+search dialog. Enter a term and press Enter or click **Search**; matching is
+case-insensitive and whitespace-tolerant, including non-ASCII text.
+
+Results are grouped by record type and clicking one opens the record:
+
+- **People** — names, alternate names, notes, vital data, facts, event
+  participants, citations and association labels
+- **Couples** — spouse names, marriage and family facts, notes and citations
+- **Places** — names and notes
+- **Sources** — source fields, notes and citation page text
+- **Repositories** — names, addresses, notes and linked-source details
+- **Tasks** — titles, descriptions and folders
+- **Groups** — names and descriptions
+- **Media** — captions, paths, formats and notes
+- **Fact Types** — labels, keys, categories, GEDCOM tags and roles
+
+Nested text is folded into its owning record, so a matching fact or note
+returns the person, couple or source that owns it. Up to 25 hits are shown
+per type, with a prompt to refine the search when a group is truncated.
+Searching runs on demand and does not require a schema change or index.
+
 ## Native file dialogs & background jobs
 
 - `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path,

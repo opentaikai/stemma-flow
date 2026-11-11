@@ -135,7 +135,7 @@ Goal: keep research organised beside the people it concerns.
 | DataClean for names and places | done | P1 | Previewed name normalisation and place merging |
 | Advanced person search (facts, dates, places, notes) | done | P1 | AND-combined criteria filtering the People grid |
 | Saved search criteria | done | P1 | Named rules stored in global config and reloaded from the People search dialog |
-| Find Everywhere across all record types | planned | P2 | Global text search |
+| Find Everywhere across all record types | done | P2 | Grouped modeless search with nested text folded into owning records |
 | Search and replace for names, places, notes and filenames | planned | P2 | Explicit confirmation |
 | Named groups (static and rule-based) | partial | P1 | Static membership done; rules and report integration deferred |
 | Colour-code sets and labels | planned | P2 | Visual grouping |

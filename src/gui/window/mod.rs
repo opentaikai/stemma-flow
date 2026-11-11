@@ -18,6 +18,7 @@ use super::couples;
 use super::database_tools;
 use super::dataclean as dataclean_ui;
 use super::fact_types;
+use super::find_everywhere;
 use super::import_report;
 use super::inspector::InspectorForm;
 use super::inspector::ParticipantForm;
@@ -76,6 +77,7 @@ pub struct TreeWindow {
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
     pub(super) advanced_search: advanced_search::AdvancedSearchState,
+    pub(super) find: find_everywhere::FindState,
     pub(super) couples: couples::CouplesState,
     pub(super) couple_rows: Vec<crate::model::couples::Couple>,
     pub(super) association_view: associations_view::AssociationViewState,
@@ -142,6 +144,7 @@ impl TreeWindow {
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
             advanced_search: advanced_search::AdvancedSearchState::default(),
+            find: find_everywhere::FindState::default(),
             couples: couples::CouplesState::default(),
             couple_rows: Vec::new(),
             association_view: associations_view::AssociationViewState::default(),
@@ -219,6 +222,17 @@ impl App for TreeWindow {
             ui.ctx().request_repaint();
             return;
         }
+        if self.app.active_db().is_some()
+            && !self.app.is_busy()
+            && ui.input_mut(|input| {
+                input.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                    egui::Key::F,
+                )
+            })
+        {
+            self.find.open = true;
+        }
         self.sync_scene();
         if let Some(path) = self.app.take_restored_path() {
             self.note_recent(path, frame);
@@ -272,6 +286,7 @@ impl App for TreeWindow {
             self.show_database_tools(ui.ctx());
             self.show_data_clean_window(ui.ctx());
             self.show_advanced_search_window(ui.ctx());
+            self.show_find_window(ui.ctx());
             self.show_task_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());

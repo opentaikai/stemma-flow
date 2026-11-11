@@ -18,6 +18,7 @@ use crate::db::dataclean::{self as dataclean_store, DataCleanReport, DataCleanSe
 use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
+use crate::db::find::{self as find_store, FindResults};
 use crate::db::groups::{self as group_store, GroupDraft, GroupMember, GroupRecord, GroupSummary};
 use crate::db::maintenance::{self as maintenance_store, MaintenanceKind, MaintenanceReport};
 use crate::db::media::{
@@ -167,6 +168,13 @@ impl StemmaApp {
     /// The tree database currently open, if any.
     pub fn active_db(&self) -> Option<&Path> {
         self.active_db.as_deref()
+    }
+
+    /// Searches every top-level record type in the active tree.
+    pub fn find_everywhere(&self, query: &str, surname_first: bool) -> Result<FindResults, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        find_store::find_everywhere(&conn, query, surname_first, find_store::HITS_PER_KIND)
     }
 
     /// Makes `path` the active tree and clears any stale selection.
@@ -1649,6 +1657,25 @@ mod tests {
         let tree = db::load_family_tree(&conn).map_err(|error| error.to_string())?;
         assert!(tree.people.is_empty(), "a fresh tree has no people");
         assert!(tree.families.is_empty(), "a fresh tree has no families");
+        let _ = std::fs::remove_file(path);
+        Ok(())
+    }
+
+    #[test]
+    fn find_everywhere_opens_the_active_tree() -> Result<(), String> {
+        let path = temp_path("db");
+        create_tree(&path)?;
+        let mut app = StemmaApp::new();
+        app.activate_tree(&path);
+        app.add_person(&PersonDetails::new("Ada", "", "King", "", "F", None, None))?;
+
+        let results = app.find_everywhere("Ada", false)?;
+        let people = results
+            .groups
+            .iter()
+            .find(|group| group.kind == crate::db::find::FindKind::Person)
+            .expect("person hit");
+        assert!(people.hits[0].title.contains("Ada"));
         let _ = std::fs::remove_file(path);
         Ok(())
     }
