@@ -271,6 +271,33 @@ names before anything changes:
 No schema change is required; DataClean only changes name text and merges
 existing place records.
 
+## Search and replace
+
+**Tools > Search and Replace…** performs literal replacement across selected
+record text:
+
+- primary and alternate person name fields
+- place names
+- all note bodies
+- stored media file paths
+
+**Match case** is enabled by default; clearing it enables case-insensitive
+matching. Replacing with an empty string deletes the matched text.
+
+**Preview changes** lists every affected field with its owner and
+before → after values. Rows are individually selectable with select-all and
+select-none actions. Nothing is written until **Apply selected…** is clicked
+and the explicit confirmation is accepted.
+
+Selected changes are applied in one transaction and use optimistic
+before-value checks, so a record edited after the preview aborts the whole
+replacement instead of being overwritten. Media path replacement updates the
+stored database path and keeps a custom format, refreshing a derived format
+when the extension changes; files on disk are not renamed. After applying,
+the People, Places, Notes, Media and inspector views reload.
+
+No schema change is required.
+
 ## Native file dialogs & background jobs
 
 - `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path,
