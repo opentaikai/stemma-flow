@@ -33,6 +33,7 @@ use super::places;
 use super::relationship_calculator;
 use super::repositories;
 use super::research;
+use super::search_replace;
 use super::settings;
 use super::sources;
 use super::tabs;
@@ -76,6 +77,7 @@ pub struct TreeWindow {
     pub(super) tab: tabs::AppTab,
     pub(super) watch: watchlist::WatchState,
     pub(super) advanced_search: advanced_search::AdvancedSearchState,
+    pub(super) search_replace: search_replace::SearchReplaceState,
     pub(super) couples: couples::CouplesState,
     pub(super) couple_rows: Vec<crate::model::couples::Couple>,
     pub(super) association_view: associations_view::AssociationViewState,
@@ -142,6 +144,7 @@ impl TreeWindow {
             tab: tabs::AppTab::default(),
             watch: watchlist::WatchState::default(),
             advanced_search: advanced_search::AdvancedSearchState::default(),
+            search_replace: search_replace::SearchReplaceState::default(),
             couples: couples::CouplesState::default(),
             couple_rows: Vec::new(),
             association_view: associations_view::AssociationViewState::default(),
@@ -272,6 +275,7 @@ impl App for TreeWindow {
             self.show_database_tools(ui.ctx());
             self.show_data_clean_window(ui.ctx());
             self.show_advanced_search_window(ui.ctx());
+            self.show_search_replace_window(ui.ctx());
             self.show_task_attach(ui.ctx());
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());

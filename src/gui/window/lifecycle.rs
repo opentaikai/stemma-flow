@@ -141,6 +141,7 @@ impl TreeWindow {
             self.db_tools = crate::gui::database_tools::DatabaseToolsState::default();
             self.data_clean = crate::gui::dataclean::DataCleanState::default();
             self.advanced_search = crate::gui::advanced_search::AdvancedSearchState::default();
+            self.search_replace = crate::gui::search_replace::SearchReplaceState::default();
             self.watch.advanced = None;
             self.person_privacy = None;
             self.notes = crate::gui::notes::NotesState::default();
