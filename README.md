@@ -382,7 +382,11 @@ views (the app always launches on Graph View):
   fact text and full-note criteria are combined with AND semantics; an
   **Advanced search active** indicator and **Clear search** action show and
   remove the filter. The simple filter composes with the advanced criteria,
-  sorting and editing keep working, and all searches stay in memory.
+  and sorting and editing keep working. Named rules can be saved from the
+  dialog and loaded later from its **Saved searches** chooser; saving under
+  an existing name updates that rule. The rule list is stored globally in
+  `config.toml`, so it is available across trees, while the active search
+  itself stays in memory.
 - **Couples** — a virtualized, filterable and sortable list of families with
   at least one recorded spouse. Columns show neutral Partner 1/Partner 2
   names, first-marriage date and place, child count and an **Open family**
