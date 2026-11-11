@@ -134,7 +134,7 @@ Goal: keep research organised beside the people it concerns.
 | Problem alerts (missing or contradictory data) | done | P1 | Research tab with persistent reversible dismissals |
 | DataClean for names and places | done | P1 | Previewed name normalisation and place merging |
 | Advanced person search (facts, dates, places, notes) | done | P1 | AND-combined criteria filtering the People grid |
-| Saved search criteria | planned | P1 | Reusable rules |
+| Saved search criteria | done | P1 | Named rules stored in global config and reloaded from the People search dialog |
 | Find Everywhere across all record types | planned | P2 | Global text search |
 | Search and replace for names, places, notes and filenames | planned | P2 | Explicit confirmation |
 | Named groups (static and rule-based) | partial | P1 | Static membership done; rules and report integration deferred |
