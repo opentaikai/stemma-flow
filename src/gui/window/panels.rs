@@ -168,6 +168,10 @@ impl TreeWindow {
                     ui.close();
                     self.date_calculator.open = true;
                 }
+                if ui.button(tr("tools.soundex")).clicked() {
+                    ui.close();
+                    self.soundex.open = true;
+                }
                 if self.app.active_db().is_some() && ui.button(tr("tools.merge_people")).clicked() {
                     ui.close();
                     self.open_merge_dialog(self.app.selected_person_id().map(str::to_string));

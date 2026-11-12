@@ -44,6 +44,7 @@ use crate::gui::problems::ProblemsEvent;
 use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::research::{self as research_ui, ResearchEvent};
 use crate::gui::search_replace::{self as search_replace_ui, SearchReplaceEvent};
+use crate::gui::soundex;
 use crate::gui::sources::{self, SourcesEvent};
 use crate::gui::tabs;
 use crate::gui::tasks::{self as task_ui, TaskAttachOutcome, TaskAttachState, TaskEvent};
@@ -208,6 +209,10 @@ impl TreeWindow {
             ))),
             Err(error) => self.app.set_status(UiStatus::Error(error)),
         }
+    }
+
+    pub(super) fn show_soundex(&mut self, ctx: &egui::Context) {
+        soundex::show(ctx, &mut self.soundex);
     }
 
     pub(super) fn show_date_calculator(&mut self, ctx: &egui::Context) {

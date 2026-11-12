@@ -37,6 +37,7 @@ use super::repositories;
 use super::research;
 use super::search_replace;
 use super::settings;
+use super::soundex;
 use super::sources;
 use super::tabs;
 use super::tasks;
@@ -104,6 +105,7 @@ pub struct TreeWindow {
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
     pub(super) sources: sources::SourcesState,
+    pub(super) soundex: soundex::SoundexState,
     pub(super) citations: citations::CitationsState,
     pub(super) repositories: repositories::RepositoriesState,
     pub(super) tree: FamilyTree,
@@ -178,6 +180,7 @@ impl TreeWindow {
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
             sources: sources::SourcesState::default(),
+            soundex: soundex::SoundexState::default(),
             citations: citations::CitationsState::default(),
             repositories: repositories::RepositoriesState::default(),
             tree: FamilyTree::default(),
@@ -327,6 +330,7 @@ impl App for TreeWindow {
             self.show_export_dialog(ui.ctx());
         }
         self.show_date_calculator(ui.ctx());
+        self.show_soundex(ui.ctx());
         if self.show_settings
             && let Some(error) = settings::show(ui.ctx(), &mut self.config, &mut self.show_settings)
         {

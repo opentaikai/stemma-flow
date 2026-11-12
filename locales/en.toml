@@ -369,6 +369,7 @@ clear = "Clear root"
 [tools]
 find = "Find Everywhere…"
 dataclean = "DataClean…"
+soundex = "Soundex Calculator…"
 date_calculator = "Date Calculator…"
 replace = "Search and Replace…"
 database = "Database Tools…"
@@ -483,6 +484,20 @@ reversed = "The second date is before the first date."
 shifted = "Result: {date}"
 weekday = "Weekday: {weekday}"
 prompt = "Enter full dates, or use the calendar buttons."
+
+
+[phonetics]
+title = "Soundex Calculator"
+hint = "Accented Latin letters are folded to ASCII; punctuation and non-Latin letters are ignored."
+name = "Name"
+compare = "Compare with"
+clear = "Clear"
+prompt = "Enter a name to calculate phonetic codes."
+method = "Method"
+match = "Match"
+soundex = "American Soundex"
+daitch_mokotoff = "Daitch–Mokotoff"
+cologne = "Cologne Phonetic"
 
 [date_picker]
 button = "Cal"

@@ -35,6 +35,7 @@ pub mod repositories;
 pub mod research;
 pub mod search_replace;
 pub mod settings;
+pub mod soundex;
 pub mod sources;
 pub mod tabs;
 pub mod tasks;
