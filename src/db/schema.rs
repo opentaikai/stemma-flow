@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 19;
+pub const SCHEMA_VERSION: i64 = 20;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -342,6 +342,14 @@ CREATE TABLE IF NOT EXISTS person_labels (
 CREATE INDEX IF NOT EXISTS idx_person_labels_label ON person_labels(label_id);
 "#;
 
+/// Persistent person bookmarks.
+pub(super) const BOOKMARKS_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS bookmarks (
+    person_id TEXT PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
+
 /// Per-tree display preferences.
 pub(super) const TREE_SETTINGS_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS tree_settings (
@@ -516,7 +524,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v15_to_v16(conn)?;
         super::migrations::migrate_v16_to_v17(conn)?;
         super::migrations::migrate_v17_to_v18(conn)?;
-        return super::migrations::migrate_v18_to_v19(conn);
+        super::migrations::migrate_v18_to_v19(conn)?;
+        return super::migrations::migrate_v19_to_v20(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -568,7 +577,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v15_to_v16(conn)?;
         super::migrations::migrate_v16_to_v17(conn)?;
         super::migrations::migrate_v17_to_v18(conn)?;
-        return super::migrations::migrate_v18_to_v19(conn);
+        super::migrations::migrate_v18_to_v19(conn)?;
+        return super::migrations::migrate_v19_to_v20(conn);
     }
     ensure_v16(conn)
 }
@@ -589,6 +599,7 @@ fn ensure_v16(conn: &Connection) -> rusqlite::Result<()> {
     ensure_column(conn, "groups", "color", "INTEGER")?;
     conn.execute_batch(LABELS_TABLE_SQL)?;
     conn.execute_batch(PERSON_LABELS_TABLE_SQL)?;
+    conn.execute_batch(BOOKMARKS_TABLE_SQL)?;
     ensure_column(conn, "people", "middle_name", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "people", "nickname", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute_batch(CORE_TABLES_SQL)?;
