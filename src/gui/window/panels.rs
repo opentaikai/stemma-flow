@@ -164,6 +164,10 @@ impl TreeWindow {
                     ui.close();
                     self.open_relationship_calculator();
                 }
+                if ui.button(tr("tools.date_calculator")).clicked() {
+                    ui.close();
+                    self.date_calculator.open = true;
+                }
                 if self.app.active_db().is_some() && ui.button(tr("tools.merge_people")).clicked() {
                     ui.close();
                     self.open_merge_dialog(self.app.selected_person_id().map(str::to_string));

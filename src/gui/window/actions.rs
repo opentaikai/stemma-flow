@@ -19,6 +19,7 @@ use crate::gui::citations::CitationDraft;
 use crate::gui::couples::{self as couples_ui, CouplesEvent};
 use crate::gui::database_tools::{self as database_tools_ui, DatabaseToolsEvent};
 use crate::gui::dataclean::{self as dataclean_ui, DataCleanEvent};
+use crate::gui::date_calculator;
 use crate::gui::dialogs;
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
@@ -207,6 +208,10 @@ impl TreeWindow {
             ))),
             Err(error) => self.app.set_status(UiStatus::Error(error)),
         }
+    }
+
+    pub(super) fn show_date_calculator(&mut self, ctx: &egui::Context) {
+        date_calculator::show(ctx, &mut self.date_calculator);
     }
 
     pub(super) fn show_find_window(&mut self, ctx: &egui::Context) {

@@ -9,6 +9,8 @@ pub mod connectors;
 pub mod couples;
 pub mod database_tools;
 pub mod dataclean;
+pub mod date_calculator;
+pub mod date_picker;
 pub mod dialogs;
 pub mod export_dialog;
 pub mod fact_types;

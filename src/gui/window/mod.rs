@@ -17,6 +17,7 @@ use super::connectors::ConnectorCache;
 use super::couples;
 use super::database_tools;
 use super::dataclean as dataclean_ui;
+use super::date_calculator;
 use super::fact_types;
 use super::find_everywhere;
 use super::import_report;
@@ -90,6 +91,7 @@ pub struct TreeWindow {
     pub(super) merge: merge_dialog::MergeState,
     pub(super) db_tools: database_tools::DatabaseToolsState,
     pub(super) data_clean: dataclean_ui::DataCleanState,
+    pub(super) date_calculator: date_calculator::DateCalculatorState,
     pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
     pub(super) media: media::MediaState,
@@ -163,6 +165,7 @@ impl TreeWindow {
             merge: merge_dialog::MergeState::default(),
             db_tools: database_tools::DatabaseToolsState::default(),
             data_clean: dataclean_ui::DataCleanState::default(),
+            date_calculator: date_calculator::DateCalculatorState::default(),
             association_rows: Vec::new(),
             places: places::PlacesState::default(),
             media: media::MediaState::default(),
@@ -323,6 +326,7 @@ impl App for TreeWindow {
             self.show_notes(ui.ctx());
             self.show_export_dialog(ui.ctx());
         }
+        self.show_date_calculator(ui.ctx());
         if self.show_settings
             && let Some(error) = settings::show(ui.ctx(), &mut self.config, &mut self.show_settings)
         {

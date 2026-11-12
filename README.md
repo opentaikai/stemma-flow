@@ -342,6 +342,21 @@ pinned editor.
   **Ctrl+Shift+D** toggles the selected person's bookmark.
 - Both controls use the current surname-first display setting.
 
+## Date calculator and calendar
+
+**Tools > Date Calculator…** opens a modeless date tool with two modes:
+
+- **Difference** reports the total days and the whole-year/month/day
+  difference between two full dates, including a note when the second date
+  is earlier.
+- **Add / subtract** applies a whole number of days, months or years to a
+  base date and shows the resulting GEDCOM date and weekday.
+
+Date fields for birth, death and task due dates have a **Cal** button that
+opens an anchored calendar. It supports exact days, **This month**
+(`JAN 1850`) and **This year** (`1850`), plus Today and Clear. The calendar
+uses the local system date for Today.
+
 ## Native file dialogs & background jobs
 
 - `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path,
