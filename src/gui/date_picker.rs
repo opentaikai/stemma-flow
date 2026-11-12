@@ -49,7 +49,7 @@ fn current_parts(text: &str) -> Option<DateParts> {
 fn calendar_popup(ui: &mut Ui, text: &mut String, calendar: &mut (i32, u32), changed: &mut bool) {
     let (mut year, mut month) = *calendar;
     ui.horizontal(|ui| {
-        if ui.small_button("◀").clicked() {
+        if ui.small_button("<").clicked() {
             (year, month) = previous_month(year, month);
         }
         let title = DateParts {
@@ -58,7 +58,7 @@ fn calendar_popup(ui: &mut Ui, text: &mut String, calendar: &mut (i32, u32), cha
             day: None,
         };
         ui.label(RichText::new(date::format_parts(title)).strong());
-        if ui.small_button("▶").clicked() {
+        if ui.small_button(">").clicked() {
             (year, month) = next_month(year, month);
         }
     });

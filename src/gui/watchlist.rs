@@ -523,8 +523,10 @@ pub fn show(
             for column in &visible {
                 header.col(|ui| {
                     let arrow = match state.sort {
-                        Some((active, true)) if active == *column => " \u{25b2}",
-                        Some((active, false)) if active == *column => " \u{25bc}",
+                        Some((active, true)) if active == *column => crate::gui::symbols::SORT_ASC,
+                        Some((active, false)) if active == *column => {
+                            crate::gui::symbols::SORT_DESC
+                        }
                         _ => "",
                     };
                     let text = format!("{}{}", tr(column.label_key()), arrow);
@@ -625,10 +627,13 @@ fn columns_dialog(ui: &mut Ui, state: &mut WatchState, events: &mut Vec<WatchEve
                     for (index, config) in state.column_draft.iter_mut().enumerate() {
                         ui.horizontal(|ui| {
                             ui.checkbox(&mut config.visible, tr(config.column.label_key()));
-                            if ui.small_button("\u{25b2}").clicked() && index > 0 {
+                            if ui.small_button(crate::gui::symbols::SORT_UP).clicked() && index > 0
+                            {
                                 move_up = Some(index);
                             }
-                            if ui.small_button("\u{25bc}").clicked() && index + 1 < len {
+                            if ui.small_button(crate::gui::symbols::SORT_DOWN).clicked()
+                                && index + 1 < len
+                            {
                                 move_down = Some(index);
                             }
                             ui.add(
@@ -683,7 +688,7 @@ fn badge_cell(ui: &mut Ui, person: &PersonRow, events: &mut Vec<WatchEvent>) {
                 .color
                 .map(crate::gui::labels::color32)
                 .unwrap_or(egui::Color32::GRAY);
-            ui.label(RichText::new("●").color(color).small());
+            crate::gui::symbols::color_dot(ui, color);
             ui.label(RichText::new(&badge.name).small());
         }
         if person.badges.len() > 2 {

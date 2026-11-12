@@ -456,6 +456,8 @@ back = "Zurück"
 forward = "Vorwärts"
 
 [bookmarks]
+mark = "Merken"
+marked = "Gemerkt"
 menu = "Lesezeichen"
 empty = "Noch keine Lesezeichen."
 remove = "Lesezeichen entfernen"

@@ -37,6 +37,7 @@ pub mod search_replace;
 pub mod settings;
 pub mod soundex;
 pub mod sources;
+pub mod symbols;
 pub mod tabs;
 pub mod tasks;
 pub mod theme;

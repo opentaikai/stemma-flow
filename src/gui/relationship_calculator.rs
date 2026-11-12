@@ -198,7 +198,7 @@ fn path_text(
             person_name(tree, &step.to_person_id, surname_first)
         ));
     }
-    parts.join(" → ")
+    parts.join(crate::gui::symbols::ARROW_RIGHT)
 }
 
 fn path_kind(kind: PathKind) -> String {

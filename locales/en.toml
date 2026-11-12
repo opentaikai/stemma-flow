@@ -456,6 +456,8 @@ back = "Back"
 forward = "Forward"
 
 [bookmarks]
+mark = "Bookmark"
+marked = "Bookmarked"
 menu = "Bookmarks"
 empty = "No bookmarks yet."
 remove = "Remove bookmark"

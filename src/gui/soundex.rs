@@ -146,7 +146,7 @@ fn row(
     if let Some(second) = second {
         ui.label(if second.is_empty() { "—" } else { second });
         let (text, color) = match matched {
-            Some(true) => ("✓", Color32::from_rgb(22, 163, 74)),
+            Some(true) => ("OK", Color32::from_rgb(22, 163, 74)),
             Some(false) => ("—", ui.visuals().weak_text_color()),
             None => ("", ui.visuals().weak_text_color()),
         };

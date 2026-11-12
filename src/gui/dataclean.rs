@@ -190,7 +190,7 @@ fn name_row(ui: &mut egui::Ui, name: &NameCleanup, selected: &mut HashSet<String
             }
         }
         ui.label(RichText::new(before_name(&name.before)).weak());
-        ui.label("→");
+        ui.label(crate::gui::symbols::ARROW_RIGHT);
         ui.label(RichText::new(before_name(&name.after)).strong());
         if name.alternate_id.is_some() {
             ui.label(RichText::new(tr("dataclean.alternate")).weak().small());
@@ -209,7 +209,7 @@ fn place_row(ui: &mut egui::Ui, place: &PlaceCleanup, selected: &mut HashSet<Str
             }
         }
         ui.label(RichText::new(place.before_names.join(" / ")).weak());
-        ui.label("→");
+        ui.label("->");
         ui.label(RichText::new(&place.after).strong());
         ui.label(
             RichText::new(tr_args(

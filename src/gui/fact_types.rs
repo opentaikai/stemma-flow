@@ -137,8 +137,12 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                 for column in [SortColumn::Label, SortColumn::Category] {
                     header.col(|ui| {
                         let arrow = match state.sort {
-                            Some((active, true)) if active == column => " ▲",
-                            Some((active, false)) if active == column => " ▼",
+                            Some((active, true)) if active == column => {
+                                crate::gui::symbols::SORT_ASC
+                            }
+                            Some((active, false)) if active == column => {
+                                crate::gui::symbols::SORT_DESC
+                            }
                             _ => "",
                         };
                         let strong = state.sort.map(|(active, _)| active) == Some(column);
@@ -161,8 +165,8 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                 }
                 header.col(|ui| {
                     let arrow = match state.sort {
-                        Some((SortColumn::Events, true)) => " ▲",
-                        Some((SortColumn::Events, false)) => " ▼",
+                        Some((SortColumn::Events, true)) => crate::gui::symbols::SORT_ASC,
+                        Some((SortColumn::Events, false)) => crate::gui::symbols::SORT_DESC,
                         _ => "",
                     };
                     let strong = state.sort.map(|(active, _)| active) == Some(SortColumn::Events);
