@@ -16,6 +16,7 @@ pub mod pedigree;
 pub mod people_columns;
 pub mod person_badge;
 pub mod person_search;
+pub mod phonetics;
 pub mod problems;
 pub mod quality;
 pub mod relationship;
