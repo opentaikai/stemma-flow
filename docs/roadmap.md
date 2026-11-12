@@ -150,7 +150,7 @@ Goal: connect people to locations and sources of evidence beyond text.
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
 | Place list with reverse order and usage counts | done | P1 | Uses the M1 place authority |
-| Edit people and events directly from the place list | partial | P1 | Person selection done; direct event editing pending |
+| Edit people and events directly from the place list | done | P1 | Person selection and direct event editing |
 | PlaceClean and place-name standardisation | planned | P2 | Batch workflow |
 | Geocoding of places (latitude and longitude) | planned | P2 | Local cache, opt-in service |
 | Map view of places and groups | planned | P2 | Requires geocoding |
