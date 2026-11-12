@@ -123,6 +123,15 @@ impl TreeWindow {
         self.person_facts = facts;
         self.tree_settings = settings;
         self.refresh_person_badges();
+        self.reload_bookmarks();
+        let ids: std::collections::HashSet<String> = self
+            .tree
+            .people
+            .iter()
+            .map(|person| person.id.clone())
+            .collect();
+        self.history
+            .retain_existing(|person_id| ids.contains(person_id));
         self.watch.mark_dirty();
         self.research.problems.loaded = false;
         if self.research.groups.loaded {
@@ -153,6 +162,9 @@ impl TreeWindow {
             self.advanced_search = crate::gui::advanced_search::AdvancedSearchState::default();
             self.find = crate::gui::find_everywhere::FindState::default();
             self.search_replace = crate::gui::search_replace::SearchReplaceState::default();
+            self.history.clear();
+            self.pending_history_nav = None;
+            self.bookmarks.clear();
             self.watch.advanced = None;
             self.person_privacy = None;
             self.notes = crate::gui::notes::NotesState::default();

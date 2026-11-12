@@ -46,6 +46,8 @@ pub enum InspectorAction {
     OpenGroups,
     /// Switch to the Labels pane in the Research tab.
     OpenLabels,
+    /// Add or remove the current person's bookmark.
+    ToggleBookmark,
     /// Switch the pinned editor to another person.
     SwitchEditor(String),
     /// Select `person_id` and re-centre the graph on it.
@@ -330,6 +332,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
+                false,
                 &mut CitationsState::default(),
                 &facts,
                 None,
@@ -391,6 +394,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
+                false,
                 &mut CitationsState::default(),
                 &[],
                 Some(&privacy),

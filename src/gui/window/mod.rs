@@ -47,12 +47,14 @@ use crate::config::AppConfig;
 use crate::db::FamilyTree;
 use crate::db::MarriageInfo;
 use crate::db::associations::AssociationRecord;
+use crate::db::bookmarks::BookmarkPerson;
 use crate::db::facts::PersonFact;
 use crate::db::people::VitalDates;
 use crate::db::privacy::PersonPrivacy;
 use crate::db::settings::TreeSettings;
 use crate::gedcom::ImportReport;
 use crate::i18n;
+use crate::model::navigation::NavigationHistory;
 use crate::model::person_badge::PersonBadge;
 use eframe::{App, Frame};
 use egui::Color32;
@@ -113,6 +115,9 @@ pub struct TreeWindow {
     pub(super) person_privacy: Option<PersonPrivacy>,
     pub(super) rows: Vec<PersonRow>,
     pub(super) person_badges: HashMap<String, Vec<PersonBadge>>,
+    pub(super) bookmarks: Vec<BookmarkPerson>,
+    pub(super) history: NavigationHistory,
+    pub(super) pending_history_nav: Option<String>,
     pub(super) inspector: InspectorForm,
     pub(super) inspected: Option<String>,
     pub(super) pending_relation: Option<RelationForm>,
@@ -183,6 +188,9 @@ impl TreeWindow {
             person_privacy: None,
             rows: Vec::new(),
             person_badges: HashMap::new(),
+            bookmarks: Vec::new(),
+            history: NavigationHistory::default(),
+            pending_history_nav: None,
             inspector: InspectorForm::default(),
             inspected: None,
             pending_relation: None,
@@ -240,6 +248,23 @@ impl App for TreeWindow {
             self.find.open = true;
         }
         self.sync_scene();
+        if self.app.active_db().is_some() && !self.app.is_busy() {
+            if ui.input_mut(|input| input.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft)) {
+                self.navigate_back();
+            }
+            if ui.input_mut(|input| input.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight))
+            {
+                self.navigate_forward();
+            }
+            if ui.input_mut(|input| {
+                input.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                    egui::Key::D,
+                )
+            }) {
+                self.toggle_selected_bookmark();
+            }
+        }
         if let Some(path) = self.app.take_restored_path() {
             self.note_recent(path, frame);
         }
@@ -308,6 +333,7 @@ impl App for TreeWindow {
         {
             import_report::show(ui.ctx(), report, &mut self.show_import_report);
         }
+        self.track_history();
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -1787,6 +1813,42 @@ mod tests {
         window.load_group_draft(&group_id);
         assert_eq!(window.research.groups.members.len(), 1);
         assert_eq!(window.research.groups.members[0].name, "Ada King");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn history_and_bookmarks_follow_person_selection() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 @I2@ INDI\n1 NAME Charles /Babbage/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let first = window.rows[0].id.clone();
+        let second = window.rows[1].id.clone();
+
+        window.app.set_selected_person(Some(first.clone()));
+        window.track_history();
+        window.app.set_selected_person(Some(second.clone()));
+        window.track_history();
+        assert_eq!(window.history.entries(), [first.as_str(), second.as_str()]);
+
+        window.navigate_back();
+        assert_eq!(window.app.selected_person_id(), Some(first.as_str()));
+        window.track_history();
+        assert_eq!(window.history.current(), Some(first.as_str()));
+        window.navigate_forward();
+        assert_eq!(window.app.selected_person_id(), Some(second.as_str()));
+
+        window.toggle_selected_bookmark();
+        assert_eq!(window.bookmarks.len(), 1);
+        assert_eq!(window.bookmarks[0].person_id, second);
+        window.remove_bookmark(&second);
+        assert!(window.bookmarks.is_empty());
 
         let _ = std::fs::remove_file(&db_file);
     }

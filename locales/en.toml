@@ -448,6 +448,18 @@ column_death = "Death"
 column_birth_place = "Birth place"
 column_death_place = "Death place"
 
+
+[nav]
+back = "Back"
+forward = "Forward"
+
+[bookmarks]
+menu = "Bookmarks"
+empty = "No bookmarks yet."
+remove = "Remove bookmark"
+add_current = "Bookmark this person"
+remove_current = "Remove bookmark"
+
 [calculator]
 title = "Relationship Calculator"
 first = "First person"

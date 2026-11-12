@@ -141,6 +141,7 @@ pub fn show(
     associations: &[AssociationRecord],
     groups: &[GroupSummary],
     labels: &[LabelSummary],
+    bookmarked: bool,
     citations: &mut CitationsState,
     facts: &[PersonFact],
     privacy: Option<&PersonPrivacy>,
@@ -179,11 +180,22 @@ pub fn show(
         .max_height(body_height)
         .show(ui, |ui| {
             card(ui, &person_label(person, surname_first), |ui| {
-                ui.label(
-                    RichText::new(gender_word(person.gender.as_str()))
-                        .weak()
-                        .size(12.0),
-                );
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(gender_word(person.gender.as_str()))
+                            .weak()
+                            .size(12.0),
+                    );
+                    let star = if bookmarked { "★" } else { "☆" };
+                    let tooltip = if bookmarked {
+                        tr("bookmarks.remove_current")
+                    } else {
+                        tr("bookmarks.add_current")
+                    };
+                    if ui.small_button(star).on_hover_text(tooltip).clicked() {
+                        action = Some(InspectorAction::ToggleBookmark);
+                    }
+                });
                 if is_root {
                     ui.label(RichText::new(tr("root.badge")).strong().small());
                 } else if let Some(relationship) = root_relationship {

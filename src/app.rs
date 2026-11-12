@@ -11,6 +11,7 @@ use std::thread;
 use crate::backup::{self, BackupReport, RestoreReport};
 use crate::db;
 use crate::db::associations::{self, AssociationDraft, AssociationRecord, AssociationViewRow};
+use crate::db::bookmarks::{self as bookmark_store, BookmarkPerson};
 use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
@@ -631,6 +632,27 @@ impl StemmaApp {
         group_store::delete_group(&conn, id)?;
         self.set_status(UiStatus::Success("Group deleted".to_string()));
         Ok(())
+    }
+
+    /// Lists bookmarked people in insertion order.
+    pub fn list_bookmarks(&self, surname_first: bool) -> Result<Vec<BookmarkPerson>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        bookmark_store::list_bookmarks(&conn, surname_first)
+    }
+
+    /// Adds or removes a person bookmark.
+    pub fn toggle_bookmark(&mut self, person_id: &str) -> Result<bool, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        bookmark_store::toggle_bookmark(&conn, person_id)
+    }
+
+    /// Removes a person bookmark when present.
+    pub fn remove_bookmark(&mut self, person_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        bookmark_store::remove_bookmark(&conn, person_id)
     }
 
     /// Lists every coloured person label with member counts.

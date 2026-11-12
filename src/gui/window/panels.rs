@@ -95,6 +95,62 @@ impl TreeWindow {
                 if let Some(value) = changed {
                     self.set_surname_first(value);
                 }
+                let back = ui
+                    .add_enabled(self.history.can_back(), egui::Button::new("←"))
+                    .on_hover_text(tr("nav.back"));
+                if back.clicked() {
+                    self.navigate_back();
+                }
+                let forward = ui
+                    .add_enabled(self.history.can_forward(), egui::Button::new("→"))
+                    .on_hover_text(tr("nav.forward"));
+                if forward.clicked() {
+                    self.navigate_forward();
+                }
+                let selected = self.app.selected_person_id().is_some();
+                let bookmarked = self.selected_is_bookmarked();
+                let star = if bookmarked { "★" } else { "☆" };
+                let tooltip = if bookmarked {
+                    tr("bookmarks.remove_current")
+                } else {
+                    tr("bookmarks.add_current")
+                };
+                if ui
+                    .add_enabled(selected, egui::Button::new(star))
+                    .on_hover_text(tooltip)
+                    .clicked()
+                {
+                    self.toggle_selected_bookmark();
+                }
+                let items = self.bookmarks.clone();
+                let mut chosen = None;
+                let mut removed = None;
+                ui.menu_button(tr("bookmarks.menu"), |ui| {
+                    if items.is_empty() {
+                        ui.label(egui::RichText::new(tr("bookmarks.empty")).weak());
+                    }
+                    for bookmark in &items {
+                        ui.horizontal(|ui| {
+                            if ui.button(&bookmark.name).clicked() {
+                                chosen = Some(bookmark.person_id.clone());
+                                ui.close();
+                            }
+                            if ui
+                                .small_button("×")
+                                .on_hover_text(tr("bookmarks.remove"))
+                                .clicked()
+                            {
+                                removed = Some(bookmark.person_id.clone());
+                            }
+                        });
+                    }
+                });
+                if let Some(person_id) = chosen {
+                    self.focus_person(&person_id);
+                }
+                if let Some(person_id) = removed {
+                    self.remove_bookmark(&person_id);
+                }
             }
             ui.menu_button(tr("tools.menu"), |ui| {
                 if self.app.active_db().is_some()
