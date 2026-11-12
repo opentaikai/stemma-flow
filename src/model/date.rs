@@ -112,6 +112,15 @@ pub fn exact_parts(input: &str) -> Option<DateParts> {
     }
 }
 
+/// Formats exact or partial date parts as canonical GEDCOM text.
+pub fn format_parts(parts: DateParts) -> String {
+    match (parts.month, parts.day) {
+        (Some(month), Some(day)) => format!("{day} {} {}", month_name(month), parts.year),
+        (Some(month), None) => format!("{} {}", month_name(month), parts.year),
+        (None, _) => parts.year.to_string(),
+    }
+}
+
 /// Checks `input` without returning its canonical form.
 pub fn validate(input: &str) -> Result<(), DateError> {
     canonicalize(input).map(|_| ())
