@@ -229,7 +229,12 @@ pub fn show(ctx: &Context, state: &mut SearchReplaceState) -> Option<SearchRepla
                                     .strong(),
                                 );
                             });
-                            let text = format!("{} → {}", change.before, change.after);
+                            let text = format!(
+                                "{}{}{}",
+                                change.before,
+                                crate::gui::symbols::ARROW_RIGHT,
+                                change.after
+                            );
                             ui.horizontal(|ui| {
                                 ui.add_space(24.0);
                                 ui.add(

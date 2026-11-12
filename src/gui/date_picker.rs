@@ -49,7 +49,7 @@ fn current_parts(text: &str) -> Option<DateParts> {
 fn calendar_popup(ui: &mut Ui, text: &mut String, calendar: &mut (i32, u32), changed: &mut bool) {
     let (mut year, mut month) = *calendar;
     ui.horizontal(|ui| {
-        if ui.small_button("◀").clicked() {
+        if ui.small_button("<").clicked() {
             (year, month) = previous_month(year, month);
         }
         let title = DateParts {
@@ -58,7 +58,7 @@ fn calendar_popup(ui: &mut Ui, text: &mut String, calendar: &mut (i32, u32), cha
             day: None,
         };
         ui.label(RichText::new(date::format_parts(title)).strong());
-        if ui.small_button("▶").clicked() {
+        if ui.small_button(">").clicked() {
             (year, month) = next_month(year, month);
         }
     });
@@ -85,51 +85,60 @@ fn calendar_popup(ui: &mut Ui, text: &mut String, calendar: &mut (i32, u32), cha
     let selected = current_parts(text)
         .filter(|parts| parts.year == year && parts.month == Some(month) && parts.day.is_some());
 
-    ui.horizontal(|ui| {
-        for key in [
-            "date_picker.monday",
-            "date_picker.tuesday",
-            "date_picker.wednesday",
-            "date_picker.thursday",
-            "date_picker.friday",
-            "date_picker.saturday",
-            "date_picker.sunday",
-        ] {
-            ui.add_sized(
-                [24.0, 16.0],
-                egui::Label::new(RichText::new(tr(key)).small()),
-            );
-        }
-    });
-    let mut day = 1;
-    for week in 0..6 {
-        ui.horizontal(|ui| {
-            for slot in 0..7 {
-                let index = week * 7 + slot;
-                if index < offset || day > days {
-                    ui.add_space(24.0);
-                    continue;
+    const CELL_WIDTH: f32 = 30.0;
+    const CELL_HEIGHT: f32 = 22.0;
+    egui::Grid::new("date_picker_calendar")
+        .num_columns(7)
+        .spacing([2.0, 2.0])
+        .show(ui, |ui| {
+            for key in [
+                "date_picker.monday",
+                "date_picker.tuesday",
+                "date_picker.wednesday",
+                "date_picker.thursday",
+                "date_picker.friday",
+                "date_picker.saturday",
+                "date_picker.sunday",
+            ] {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(CELL_WIDTH, CELL_HEIGHT),
+                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                    |ui| {
+                        ui.label(RichText::new(tr(key)).small());
+                    },
+                );
+            }
+            ui.end_row();
+
+            let mut day = 1;
+            for week in 0..6 {
+                for slot in 0..7 {
+                    let index = week * 7 + slot;
+                    if index < offset || day > days {
+                        ui.add_sized([CELL_WIDTH, CELL_HEIGHT], egui::Label::new(""));
+                        continue;
+                    }
+                    let is_selected = selected.is_some_and(|parts| parts.day == Some(day));
+                    if ui
+                        .add_sized(
+                            [CELL_WIDTH, CELL_HEIGHT],
+                            egui::Button::new(day.to_string()).selected(is_selected),
+                        )
+                        .clicked()
+                    {
+                        *text = date::format_parts(DateParts {
+                            year,
+                            month: Some(month),
+                            day: Some(day),
+                        });
+                        *changed = true;
+                        Popup::close_all(ui.ctx());
+                    }
+                    day += 1;
                 }
-                let is_selected = selected.is_some_and(|parts| parts.day == Some(day));
-                if ui
-                    .add_sized(
-                        [24.0, 20.0],
-                        egui::Button::new(day.to_string()).selected(is_selected),
-                    )
-                    .clicked()
-                {
-                    *text = date::format_parts(DateParts {
-                        year,
-                        month: Some(month),
-                        day: Some(day),
-                    });
-                    *changed = true;
-                    Popup::close_all(ui.ctx());
-                }
-                day += 1;
+                ui.end_row();
             }
         });
-    }
 
     ui.separator();
     ui.horizontal(|ui| {
@@ -198,6 +207,20 @@ mod tests {
         assert_eq!(initial_month("JAN 1850"), (1850, 1));
         assert_eq!(initial_month("1850"), (1850, 1));
         assert_eq!(initial_month("1850-07-03"), (1850, 7));
+    }
+
+    #[test]
+    fn calendar_grid_renders_a_non_monday_month() {
+        let ctx = Context::default();
+        let mut text = "1 FEB 2023".to_string();
+        let mut calendar = (2023, 2);
+        let mut changed = false;
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            calendar_popup(ui, &mut text, &mut calendar, &mut changed);
+        });
+        output.textures_delta.clear();
+        assert!(!output.shapes.is_empty());
+        assert!(!changed, "rendering a month does not change the text");
     }
 
     #[test]

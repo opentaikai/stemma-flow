@@ -369,6 +369,7 @@ clear = "Wurzel löschen"
 [tools]
 find = "Überall suchen…"
 dataclean = "Datenbereinigung…"
+soundex = "Soundex-Rechner…"
 date_calculator = "Datumsrechner…"
 replace = "Suchen und Ersetzen…"
 database = "Datenbankwerkzeuge…"
@@ -455,6 +456,8 @@ back = "Zurück"
 forward = "Vorwärts"
 
 [bookmarks]
+mark = "Merken"
+marked = "Gemerkt"
 menu = "Lesezeichen"
 empty = "Noch keine Lesezeichen."
 remove = "Lesezeichen entfernen"
@@ -483,6 +486,20 @@ reversed = "Das zweite Datum liegt vor dem ersten Datum."
 shifted = "Ergebnis: {date}"
 weekday = "Wochentag: {weekday}"
 prompt = "Vollständige Daten eingeben oder die Kalenderschaltflächen verwenden."
+
+
+[phonetics]
+title = "Soundex-Rechner"
+hint = "Akzentuierte lateinische Buchstaben werden auf ASCII reduziert; Satzzeichen und nicht-lateinische Zeichen werden ignoriert."
+name = "Name"
+compare = "Vergleichen mit"
+clear = "Löschen"
+prompt = "Namen eingeben, um phonetische Codes zu berechnen."
+method = "Methode"
+match = "Treffer"
+soundex = "Amerikanisches Soundex"
+daitch_mokotoff = "Daitch–Mokotoff"
+cologne = "Kölner Phonetik"
 
 [date_picker]
 button = "Kal"

@@ -109,7 +109,7 @@ pub fn show(
                         let selected = state.selected.as_deref() == Some(label.id.as_str());
                         let text = format!("{} ({} people)", label.name, label.member_count);
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("■").color(color32(label.color)).small());
+                            crate::gui::symbols::color_swatch(ui, color32(label.color));
                             if ui.selectable_label(selected, text).clicked() {
                                 event = Some(LabelEvent::Select(label.id.clone()));
                             }

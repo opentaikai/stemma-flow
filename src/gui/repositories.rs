@@ -134,8 +134,12 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
                 for column in [SortColumn::Name, SortColumn::Address, SortColumn::Sources] {
                     header.col(|ui| {
                         let arrow = match state.sort {
-                            Some((active, true)) if active == column => " ▲",
-                            Some((active, false)) if active == column => " ▼",
+                            Some((active, true)) if active == column => {
+                                crate::gui::symbols::SORT_ASC
+                            }
+                            Some((active, false)) if active == column => {
+                                crate::gui::symbols::SORT_DESC
+                            }
                             _ => "",
                         };
                         let strong = state.sort.map(|(active, _)| active) == Some(column);

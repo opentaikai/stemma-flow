@@ -187,13 +187,17 @@ pub fn show(
                             .weak()
                             .size(12.0),
                     );
-                    let star = if bookmarked { "★" } else { "☆" };
+                    let mark = if bookmarked {
+                        tr("bookmarks.marked")
+                    } else {
+                        tr("bookmarks.mark")
+                    };
                     let tooltip = if bookmarked {
                         tr("bookmarks.remove_current")
                     } else {
                         tr("bookmarks.add_current")
                     };
-                    if ui.small_button(star).on_hover_text(tooltip).clicked() {
+                    if ui.small_button(mark).on_hover_text(tooltip).clicked() {
                         action = Some(InspectorAction::ToggleBookmark);
                     }
                 });
@@ -291,10 +295,9 @@ pub fn show(
                     for group in groups {
                         ui.horizontal(|ui| {
                             if let Some(color) = group.color {
-                                ui.label(
-                                    RichText::new("■")
-                                        .color(crate::gui::labels::color32(color))
-                                        .small(),
+                                crate::gui::symbols::color_swatch(
+                                    ui,
+                                    crate::gui::labels::color32(color),
                                 );
                             }
                             ui.label(RichText::new(&group.name).strong());
@@ -309,10 +312,9 @@ pub fn show(
                 card(ui, &tr("editor.labels"), |ui| {
                     for label in labels {
                         ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new("■")
-                                    .color(crate::gui::labels::color32(label.color))
-                                    .small(),
+                            crate::gui::symbols::color_swatch(
+                                ui,
+                                crate::gui::labels::color32(label.color),
                             );
                             ui.label(RichText::new(&label.name).strong());
                         });

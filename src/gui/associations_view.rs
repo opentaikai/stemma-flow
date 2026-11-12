@@ -162,8 +162,8 @@ pub fn show(
             ] {
                 header.col(|ui| {
                     let arrow = match state.sort {
-                        Some((active, true)) if active == column => " \u{25b2}",
-                        Some((active, false)) if active == column => " \u{25bc}",
+                        Some((active, true)) if active == column => crate::gui::symbols::SORT_ASC,
+                        Some((active, false)) if active == column => crate::gui::symbols::SORT_DESC,
                         _ => "",
                     };
                     let text = format!("{}{}", tr(column.label()), arrow);

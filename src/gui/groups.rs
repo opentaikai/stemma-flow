@@ -138,7 +138,7 @@ pub fn show(
                         let label = format!("{} ({} people)", group.name, group.member_count);
                         ui.horizontal(|ui| {
                             if let Some(color) = group.color {
-                                ui.label(RichText::new("■").color(color32(color)).small());
+                                crate::gui::symbols::color_swatch(ui, color32(color));
                             }
                             if ui.selectable_label(selected, label).clicked() {
                                 event = Some(GroupEvent::Select(group.id.clone()));

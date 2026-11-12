@@ -96,27 +96,34 @@ impl TreeWindow {
                     self.set_surname_first(value);
                 }
                 let back = ui
-                    .add_enabled(self.history.can_back(), egui::Button::new("←"))
+                    .add_enabled(self.history.can_back(), egui::Button::new(tr("nav.back")))
                     .on_hover_text(tr("nav.back"));
                 if back.clicked() {
                     self.navigate_back();
                 }
                 let forward = ui
-                    .add_enabled(self.history.can_forward(), egui::Button::new("→"))
+                    .add_enabled(
+                        self.history.can_forward(),
+                        egui::Button::new(tr("nav.forward")),
+                    )
                     .on_hover_text(tr("nav.forward"));
                 if forward.clicked() {
                     self.navigate_forward();
                 }
                 let selected = self.app.selected_person_id().is_some();
                 let bookmarked = self.selected_is_bookmarked();
-                let star = if bookmarked { "★" } else { "☆" };
+                let mark = if bookmarked {
+                    tr("bookmarks.marked")
+                } else {
+                    tr("bookmarks.mark")
+                };
                 let tooltip = if bookmarked {
                     tr("bookmarks.remove_current")
                 } else {
                     tr("bookmarks.add_current")
                 };
                 if ui
-                    .add_enabled(selected, egui::Button::new(star))
+                    .add_enabled(selected, egui::Button::new(mark))
                     .on_hover_text(tooltip)
                     .clicked()
                 {
@@ -167,6 +174,10 @@ impl TreeWindow {
                 if ui.button(tr("tools.date_calculator")).clicked() {
                     ui.close();
                     self.date_calculator.open = true;
+                }
+                if ui.button(tr("tools.soundex")).clicked() {
+                    ui.close();
+                    self.soundex.open = true;
                 }
                 if self.app.active_db().is_some() && ui.button(tr("tools.merge_people")).clicked() {
                     ui.close();
