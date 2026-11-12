@@ -20,13 +20,14 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (28 tables, 46
-  indexes) and records its version in `PRAGMA user_version` (currently 17):
+- `db::init_db(&conn)` creates or upgrades the schema (30 tables, 47
+  indexes) and records its version in `PRAGMA user_version` (currently 19):
   `people`, `alternate_names`, `tree_settings`, `notes`, `associations`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
   `events`, `event_participants`, `citations`, `citation_links`, `media`,
-  `media_links`, `tasks`, `task_links`, `groups`, `group_members` and `problem_dismissals`. A v1 database is migrated in place: citation titles
+  `media_links`, `tasks`, `task_links`, `groups`, `group_members`, `labels`,
+  `person_labels` and `problem_dismissals`. A v1 database is migrated in place: citation titles
   become `sources`, event places become `places`, and the new links are
   backfilled. v2 databases gain the v3 source/citation metadata, v4 the
   source template catalogue, v5 the free-form citation outputs, v6 the
@@ -35,8 +36,9 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   event participants, v10 person/event privacy with living overrides,
   v11 primary name pieces plus alternate names, v12 per-tree display
   settings, v13 first-class notes migrated out of the person, place and
-  citation columns, v14 directed person associations, and v15 event
-  associations.
+  citation columns, v14 directed person associations, v15 event
+  associations, v16 parentage types, v17 problem dismissals, v18 group
+  rules, and v19 group colours and person labels.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -419,12 +421,15 @@ views (the app always launches on Graph View):
   vertical gap so node boxes, union drops, family trunks and child drops
   remain visually separate. Multi-generation parent links are routed
   through clear side lanes so they cannot cut through unrelated nodes.
+  Coloured groups and person labels add an edge accent and up to two small
+  label chips to matching nodes; the full badge list appears in the People
+  **Labels** column and the person editor.
 - **People** — a virtualized `egui_extras::TableBuilder` grid. The
   **Columns…** dialog shows/hides, reorders and resizes columns; visibility,
   order and widths persist globally in `config.toml`. Available columns
   cover name pieces, nickname, gender, birth/death dates and places, age at
-  death, notes preview, event/citation/media/task/group/association counts
-  and last-updated time; Actions always stays last. Defaults preserve the
+  death, notes preview, event/citation/media/task/group/association counts,
+  coloured Labels, and last-updated time; Actions always stays last. Defaults preserve the
   former Watch List layout. Filtering matches all name pieces plus notes;
   header clicks sort any visible column. Clicking selects, double-clicking
   or **Edit** opens the pinned editor, and **Delete** confirms before
@@ -505,9 +510,13 @@ views (the app always launches on Graph View):
   or PDF creation. Groups have an editor for name, description and either
   manual membership or a dynamic rule built from the same criteria as
   Advanced Search. Rule membership updates automatically as people change;
-  switching back to manual restores the preserved stored members.
-  **Print group…** exports a printable HTML roster with names, dates and
-  places. **Tasks…** dialogs on people, families, facts, citations, sources,
+  switching back to manual restores the preserved stored members. Groups can
+  optionally carry a colour for graph and table labels. The **Labels**
+  sub-tab manages independent coloured person labels with their own manual
+  membership; labels and group names appear as graph chips, in the People
+  Labels column and in the person editor. **Print group…** exports a printable
+  HTML roster with names, dates and places. **Tasks…** dialogs on people,
+  families, facts, citations, sources,
   places and media attach existing tasks and detach links. Tasks and groups
   remain app-only.
 - **Fact Types** — a filterable, sortable grid of the built-in and custom
