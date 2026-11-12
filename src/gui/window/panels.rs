@@ -199,6 +199,13 @@ impl TreeWindow {
                 }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
+                    && ui.button(tr("tools.placeclean")).clicked()
+                {
+                    ui.close();
+                    self.open_place_clean();
+                }
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
                     && ui.button(tr("tools.replace")).clicked()
                 {
                     ui.close();

@@ -32,6 +32,7 @@ use super::names;
 use super::notes as notes_dialog;
 use super::pedigree;
 use super::person_editor;
+use super::place_clean;
 use super::places;
 use super::relationship_calculator;
 use super::repositories;
@@ -93,6 +94,7 @@ pub struct TreeWindow {
     pub(super) merge: merge_dialog::MergeState,
     pub(super) db_tools: database_tools::DatabaseToolsState,
     pub(super) data_clean: dataclean_ui::DataCleanState,
+    pub(super) place_clean: place_clean::PlaceCleanState,
     pub(super) date_calculator: date_calculator::DateCalculatorState,
     pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
@@ -169,6 +171,7 @@ impl TreeWindow {
             merge: merge_dialog::MergeState::default(),
             db_tools: database_tools::DatabaseToolsState::default(),
             data_clean: dataclean_ui::DataCleanState::default(),
+            place_clean: place_clean::PlaceCleanState::default(),
             date_calculator: date_calculator::DateCalculatorState::default(),
             association_rows: Vec::new(),
             places: places::PlacesState::default(),
@@ -326,6 +329,7 @@ impl App for TreeWindow {
             self.show_merge_window(ui.ctx());
             self.show_database_tools(ui.ctx());
             self.show_data_clean_window(ui.ctx());
+            self.show_place_clean_window(ui.ctx());
             self.show_advanced_search_window(ui.ctx());
             self.show_find_window(ui.ctx());
             self.show_search_replace_window(ui.ctx());
@@ -361,6 +365,7 @@ mod tests {
     use crate::db;
     use crate::db::merge::MergeDraft;
     use crate::db::people::{ParentRole, PersonDetails};
+    use crate::db::places::PlaceDraft;
     use crate::db::sources::SourceDraft;
     use crate::gui::event_editor::EventEditorOutcome;
     use crate::gui::fact_types::FactTypesEvent;
@@ -2297,6 +2302,58 @@ mod tests {
         let editor = window.event_editor.take().expect("editor reopens");
         window.apply_event_editor_outcome(editor, EventEditorOutcome::Cancel);
         assert!(window.event_editor.is_none(), "cancel closes the editor");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn place_clean_renames_and_merges_from_the_places_tab() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let save = |window: &mut TreeWindow, name: &str| {
+            window
+                .app
+                .save_place(&PlaceDraft {
+                    name: name.to_string(),
+                    ..PlaceDraft::default()
+                })
+                .expect("place saves")
+        };
+        save(&mut window, "PARIS");
+        let selected = save(&mut window, "paris");
+        window.reload_places();
+        window.apply_places_event(PlacesEvent::Select(selected.clone()));
+
+        window.open_place_clean();
+        let key = window
+            .place_clean
+            .components
+            .iter()
+            .find(|component| component.key == "paris")
+            .expect("paris component")
+            .key
+            .clone();
+        window.place_clean.selected.insert(key);
+        window.place_clean.refresh_preview();
+        assert_eq!(window.place_clean.preview.places.len(), 1);
+        let preview = window.place_clean.preview.clone();
+        window.apply_place_clean_plan(&preview);
+
+        assert_eq!(window.places.places.len(), 1);
+        assert_eq!(window.places.places[0].name, "Paris");
+        let keeper = window.places.places[0].id.clone();
+        assert_eq!(
+            window.places.selected.as_deref(),
+            Some(keeper.as_str()),
+            "a merged place remaps the selection to the keeper"
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }

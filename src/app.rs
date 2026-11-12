@@ -819,6 +819,23 @@ impl StemmaApp {
         Ok(report)
     }
 
+    /// Applies a PlaceClean plan and bumps the scene generation.
+    pub fn apply_place_clean(
+        &mut self,
+        plan: &DataCleanPlan,
+        selection: &DataCleanSelection,
+    ) -> Result<DataCleanReport, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let report = dataclean_store::apply_plan(&mut conn, plan, selection)?;
+        self.import_generation += 1;
+        self.set_status(UiStatus::Success(format!(
+            "PlaceClean applied: {} places, {} merges",
+            report.places_renamed, report.places_merged
+        )));
+        Ok(report)
+    }
+
     /// Builds a literal search-and-replace preview from the active tree.
     pub fn preview_search_replace(
         &self,

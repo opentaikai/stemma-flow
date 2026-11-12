@@ -16,6 +16,7 @@ pub enum PlacesEvent {
     Delete(String),
     SelectPerson(String),
     EditEvent(String),
+    PlaceClean,
     Notes { place_id: String, title: String },
     Media { place_id: String, title: String },
     Tasks { place_id: String, title: String },
@@ -124,6 +125,9 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<Place
                 .clicked()
             {
                 event = Some(PlacesEvent::New);
+            }
+            if ui.button("PlaceClean…").clicked() {
+                event = Some(PlacesEvent::PlaceClean);
             }
         });
     });
