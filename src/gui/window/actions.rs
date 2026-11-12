@@ -4,6 +4,7 @@ use crate::app;
 use crate::app::UiStatus;
 use crate::db::dataclean::DataCleanSelection;
 use crate::db::find::{FindResults, FindTarget};
+use crate::db::groups::GroupSummary;
 use crate::db::media::{MediaDraft, MediaOwner};
 use crate::db::merge::MergeDraft;
 use crate::db::notes::NoteOwner;
@@ -30,6 +31,7 @@ use crate::gui::inspector::NewPersonState;
 use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
+use crate::gui::labels::{self as label_ui, LabelEvent};
 use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, MediaEvent};
 use crate::gui::merge as merge_dialog;
 use crate::gui::merge::MergeEvent;
@@ -578,6 +580,9 @@ impl TreeWindow {
         if !self.research.groups.loaded {
             self.reload_groups();
         }
+        if !self.research.labels.loaded {
+            self.reload_labels();
+        }
         if !self.research.problems.loaded {
             self.reload_problems();
         }
@@ -754,6 +759,7 @@ impl TreeWindow {
         match event {
             ResearchEvent::Task(event) => self.apply_task_event(event),
             ResearchEvent::Group(event) => self.apply_group_event(event),
+            ResearchEvent::Label(event) => self.apply_label_event(event),
             ResearchEvent::Problem(event) => self.apply_problem_event(event),
         }
     }
@@ -892,6 +898,198 @@ impl TreeWindow {
         }
     }
 
+    pub(super) fn reload_labels(&mut self) {
+        match self.app.list_labels() {
+            Ok(labels) => {
+                self.research.labels.labels = labels;
+                self.research.labels.loaded = true;
+                self.research.labels.error = None;
+                if let Some(id) = self.research.labels.selected.clone() {
+                    self.load_label_draft(&id);
+                }
+            }
+            Err(message) => {
+                self.research.labels.error = Some(message);
+                self.research.labels.loaded = true;
+            }
+        }
+    }
+
+    pub(super) fn load_label_draft(&mut self, id: &str) {
+        match self.app.load_label(id) {
+            Ok(Some(record)) => {
+                let members = self
+                    .app
+                    .list_label_members(id, self.tree_settings.surname_first)
+                    .unwrap_or_default();
+                self.research.labels.selected = Some(id.to_string());
+                self.research.labels.draft = label_ui::LabelEdit::from_record(&record);
+                self.research.labels.members = members;
+                self.research.labels.editing = true;
+                self.research.labels.error = None;
+            }
+            Ok(None) => {
+                self.research.labels.selected = None;
+                self.research.labels.draft = label_ui::LabelEdit::default();
+                self.research.labels.members.clear();
+                self.research.labels.editing = false;
+            }
+            Err(message) => self.research.labels.error = Some(message),
+        }
+    }
+
+    pub(super) fn refresh_person_badges(&mut self) {
+        use crate::model::person_badge::BadgeKind;
+        let mut map: std::collections::HashMap<
+            String,
+            Vec<crate::model::person_badge::PersonBadge>,
+        > = std::collections::HashMap::new();
+        if let Ok(groups) = self.app.list_groups() {
+            for group in &groups {
+                let members = match &group.rule {
+                    Some(rule) => crate::gui::groups::rule_members(&self.rows, rule),
+                    None => self
+                        .app
+                        .list_group_members(&group.id, self.tree_settings.surname_first)
+                        .unwrap_or_default(),
+                };
+                for member in members {
+                    map.entry(member.person_id).or_default().push(
+                        crate::model::person_badge::PersonBadge {
+                            name: group.name.clone(),
+                            color: group.color,
+                            kind: BadgeKind::Group,
+                        },
+                    );
+                }
+            }
+        }
+        if let Ok(labels) = self.app.list_all_person_labels() {
+            for entry in labels {
+                map.entry(entry.person_id).or_default().push(
+                    crate::model::person_badge::PersonBadge {
+                        name: entry.label.name,
+                        color: Some(entry.label.color),
+                        kind: BadgeKind::Label,
+                    },
+                );
+            }
+        }
+        for badges in map.values_mut() {
+            badges.sort_by_key(crate::model::person_badge::PersonBadge::sort_key);
+            let mut seen = std::collections::HashSet::new();
+            badges.retain(|badge| seen.insert(badge.name.to_lowercase()));
+        }
+        for row in &mut self.rows {
+            row.badges = map.get(&row.id).cloned().unwrap_or_default();
+        }
+        self.person_badges = map;
+    }
+
+    fn person_group_summaries(&self, person_id: &str) -> Vec<GroupSummary> {
+        let mut groups = self
+            .app
+            .list_groups_for_person(person_id)
+            .unwrap_or_default();
+        if let Some(row) = self.rows.iter().find(|row| row.id == person_id)
+            && let Ok(all_groups) = self.app.list_groups()
+        {
+            let document = row.search_document();
+            for group in all_groups {
+                if let Some(rule) = &group.rule
+                    && document.matches(rule)
+                    && !groups.iter().any(|existing| existing.id == group.id)
+                {
+                    groups.push(group);
+                }
+            }
+        }
+        groups
+    }
+
+    fn refresh_editor_memberships(&mut self) {
+        let Some(person_id) = self
+            .person_editor
+            .as_ref()
+            .map(|editor| editor.person_id.clone())
+        else {
+            return;
+        };
+        let groups = self.person_group_summaries(&person_id);
+        let labels = self
+            .app
+            .list_labels_for_person(&person_id)
+            .unwrap_or_default();
+        if let Some(editor) = &mut self.person_editor {
+            editor.groups = groups;
+            editor.labels = labels;
+        }
+    }
+
+    fn apply_label_event(&mut self, event: LabelEvent) {
+        match event {
+            LabelEvent::New => {
+                self.research.labels.selected = None;
+                self.research.labels.draft = label_ui::LabelEdit::default();
+                self.research.labels.members.clear();
+                self.research.labels.editing = true;
+                self.research.labels.error = None;
+            }
+            LabelEvent::Select(id) => self.load_label_draft(&id),
+            LabelEvent::Save(draft) => match self.app.save_label(&draft) {
+                Ok(id) => {
+                    self.research.labels.selected = Some(id);
+                    self.research.labels.loaded = false;
+                    self.reload_labels();
+                    self.refresh_person_badges();
+                    self.refresh_editor_memberships();
+                }
+                Err(message) => self.research.labels.error = Some(message),
+            },
+            LabelEvent::Delete(id) => match self.app.delete_label(&id) {
+                Ok(()) => {
+                    self.research.labels.selected = None;
+                    self.research.labels.draft = label_ui::LabelEdit::default();
+                    self.research.labels.members.clear();
+                    self.research.labels.editing = false;
+                    self.research.labels.loaded = false;
+                    self.reload_labels();
+                    self.refresh_person_badges();
+                    self.refresh_editor_memberships();
+                }
+                Err(message) => self.research.labels.error = Some(message),
+            },
+            LabelEvent::AddMember(person_id) => {
+                let Some(label_id) = self.research.labels.selected.clone() else {
+                    return;
+                };
+                match self.app.add_label_member(&label_id, &person_id) {
+                    Ok(()) => {
+                        self.research.labels.loaded = false;
+                        self.load_label_draft(&label_id);
+                        self.refresh_person_badges();
+                        self.refresh_editor_memberships();
+                    }
+                    Err(message) => self.research.labels.error = Some(message),
+                }
+            }
+            LabelEvent::RemoveMember(person_id) => {
+                let Some(label_id) = self.research.labels.selected.clone() else {
+                    return;
+                };
+                match self.app.remove_label_member(&label_id, &person_id) {
+                    Ok(()) => {
+                        self.research.labels.loaded = false;
+                        self.load_label_draft(&label_id);
+                        self.refresh_person_badges();
+                        self.refresh_editor_memberships();
+                    }
+                    Err(message) => self.research.labels.error = Some(message),
+                }
+            }
+        }
+    }
+
     fn apply_group_event(&mut self, event: crate::gui::groups::GroupEvent) {
         use crate::gui::groups::GroupEvent;
         match event {
@@ -910,6 +1108,8 @@ impl TreeWindow {
                     self.research.groups.selected = Some(id);
                     self.research.groups.loaded = false;
                     self.reload_groups();
+                    self.refresh_person_badges();
+                    self.refresh_editor_memberships();
                 }
                 Err(message) => self.research.groups.error = Some(message),
             },
@@ -923,6 +1123,8 @@ impl TreeWindow {
                     self.research.groups.editing = false;
                     self.research.groups.loaded = false;
                     self.reload_groups();
+                    self.refresh_person_badges();
+                    self.refresh_editor_memberships();
                 }
                 Err(message) => self.research.groups.error = Some(message),
             },
@@ -935,6 +1137,8 @@ impl TreeWindow {
                     Ok(()) => {
                         self.research.groups.loaded = false;
                         self.load_group_draft(&group_id);
+                        self.refresh_person_badges();
+                        self.refresh_editor_memberships();
                     }
                     Err(message) => self.research.groups.error = Some(message),
                 }
@@ -947,6 +1151,8 @@ impl TreeWindow {
                     Ok(()) => {
                         self.research.groups.loaded = false;
                         self.load_group_draft(&group_id);
+                        self.refresh_person_badges();
+                        self.refresh_editor_memberships();
                     }
                     Err(message) => self.research.groups.error = Some(message),
                 }
@@ -1174,23 +1380,11 @@ impl TreeWindow {
             .list_associations(person_id, self.tree_settings.surname_first)
             .unwrap_or_default();
         let privacy = self.app.person_privacy(person_id).ok().flatten();
-        let mut groups = self
+        let groups = self.person_group_summaries(person_id);
+        let labels = self
             .app
-            .list_groups_for_person(person_id)
+            .list_labels_for_person(person_id)
             .unwrap_or_default();
-        if let Some(row) = self.rows.iter().find(|row| row.id == person_id)
-            && let Ok(all_groups) = self.app.list_groups()
-        {
-            let document = row.search_document();
-            for group in all_groups {
-                if let Some(rule) = &group.rule
-                    && document.matches(rule)
-                    && !groups.iter().any(|existing| existing.id == group.id)
-                {
-                    groups.push(group);
-                }
-            }
-        }
         Some(PersonEditor {
             person_id: person_id.to_string(),
             saved_form: form.clone(),
@@ -1201,6 +1395,7 @@ impl TreeWindow {
             associations_owner: Some(person_id.to_string()),
             privacy,
             groups,
+            labels,
             prompt: None,
             prompt_error: None,
         })
@@ -1334,6 +1529,10 @@ impl TreeWindow {
             InspectorAction::OpenGroups => {
                 self.tab = crate::gui::tabs::AppTab::Research;
                 self.research.tab = crate::gui::research::ResearchTab::Groups;
+            }
+            InspectorAction::OpenLabels => {
+                self.tab = crate::gui::tabs::AppTab::Research;
+                self.research.tab = crate::gui::research::ResearchTab::Labels;
             }
             InspectorAction::Focus(target) => self.focus_person(&target),
             InspectorAction::AddParentAs(role) => {
@@ -1508,6 +1707,7 @@ impl TreeWindow {
                 connections,
                 &associations,
                 &groups,
+                &editor.labels,
                 &mut editor.citations,
                 &facts,
                 editor.privacy.as_ref(),
@@ -2180,6 +2380,7 @@ impl TreeWindow {
             connections,
             &associations,
             &[],
+            &[],
             &mut self.citations,
             &facts,
             self.person_privacy.as_ref(),
@@ -2209,6 +2410,10 @@ impl TreeWindow {
             InspectorAction::OpenGroups => {
                 self.tab = tabs::AppTab::Research;
                 self.research.tab = crate::gui::research::ResearchTab::Groups;
+            }
+            InspectorAction::OpenLabels => {
+                self.tab = tabs::AppTab::Research;
+                self.research.tab = crate::gui::research::ResearchTab::Labels;
             }
             InspectorAction::Focus(target) => self.focus_person(&target),
             InspectorAction::Close => self.app.set_selected_person(None),

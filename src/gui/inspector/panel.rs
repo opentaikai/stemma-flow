@@ -9,6 +9,7 @@ use crate::db::Person;
 use crate::db::associations::AssociationRecord;
 use crate::db::facts::PersonFact;
 use crate::db::groups::GroupSummary;
+use crate::db::labels::LabelSummary;
 use crate::db::media::MediaOwner;
 use crate::db::notes::NoteOwner;
 use crate::db::people::{ParentRole, VitalDates};
@@ -139,6 +140,7 @@ pub fn show(
     connections: Connections,
     associations: &[AssociationRecord],
     groups: &[GroupSummary],
+    labels: &[LabelSummary],
     citations: &mut CitationsState,
     facts: &[PersonFact],
     privacy: Option<&PersonPrivacy>,
@@ -274,10 +276,36 @@ pub fn show(
             if !groups.is_empty() {
                 card(ui, &tr("editor.groups"), |ui| {
                     for group in groups {
-                        ui.label(RichText::new(&group.name).strong());
+                        ui.horizontal(|ui| {
+                            if let Some(color) = group.color {
+                                ui.label(
+                                    RichText::new("■")
+                                        .color(crate::gui::labels::color32(color))
+                                        .small(),
+                                );
+                            }
+                            ui.label(RichText::new(&group.name).strong());
+                        });
                     }
                     if ui.button(tr("editor.manage_groups")).clicked() {
                         action = Some(InspectorAction::OpenGroups);
+                    }
+                });
+            }
+            if !labels.is_empty() {
+                card(ui, &tr("editor.labels"), |ui| {
+                    for label in labels {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("■")
+                                    .color(crate::gui::labels::color32(label.color))
+                                    .small(),
+                            );
+                            ui.label(RichText::new(&label.name).strong());
+                        });
+                    }
+                    if ui.button(tr("editor.manage_labels")).clicked() {
+                        action = Some(InspectorAction::OpenLabels);
                     }
                 });
             }

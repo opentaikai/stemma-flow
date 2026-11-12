@@ -53,6 +53,7 @@ use crate::db::privacy::PersonPrivacy;
 use crate::db::settings::TreeSettings;
 use crate::gedcom::ImportReport;
 use crate::i18n;
+use crate::model::person_badge::PersonBadge;
 use eframe::{App, Frame};
 use egui::Color32;
 use egui::Ui;
@@ -111,6 +112,7 @@ pub struct TreeWindow {
     pub(super) tree_settings: TreeSettings,
     pub(super) person_privacy: Option<PersonPrivacy>,
     pub(super) rows: Vec<PersonRow>,
+    pub(super) person_badges: HashMap<String, Vec<PersonBadge>>,
     pub(super) inspector: InspectorForm,
     pub(super) inspected: Option<String>,
     pub(super) pending_relation: Option<RelationForm>,
@@ -180,6 +182,7 @@ impl TreeWindow {
             tree_settings: TreeSettings::default(),
             person_privacy: None,
             rows: Vec::new(),
+            person_badges: HashMap::new(),
             inspector: InspectorForm::default(),
             inspected: None,
             pending_relation: None,
@@ -1784,6 +1787,63 @@ mod tests {
         window.load_group_draft(&group_id);
         assert_eq!(window.research.groups.members.len(), 1);
         assert_eq!(window.research.groups.members[0].name, "Ada King");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn coloured_groups_and_labels_build_person_badges() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+
+        let group_id = window
+            .app
+            .save_group(&crate::db::groups::GroupDraft {
+                name: "Maternal".to_string(),
+                color: Some(0xff3366),
+                ..crate::db::groups::GroupDraft::default()
+            })
+            .expect("group");
+        window
+            .app
+            .add_group_member(&group_id, &person_id)
+            .expect("group member");
+        let label_id = window
+            .app
+            .save_label(&crate::db::labels::LabelDraft {
+                name: "Brick wall".to_string(),
+                color: 0x33aa66,
+                ..crate::db::labels::LabelDraft::default()
+            })
+            .expect("label");
+        window
+            .app
+            .add_label_member(&label_id, &person_id)
+            .expect("label member");
+        window.refresh_person_badges();
+
+        let badges = window.person_badges.get(&person_id).expect("person badges");
+        assert_eq!(badges.len(), 2);
+        assert_eq!(badges[0].name, "Maternal");
+        assert_eq!(badges[0].color, Some(0xff3366));
+        assert_eq!(badges[1].name, "Brick wall");
+        assert_eq!(badges[1].color, Some(0x33aa66));
+        assert_eq!(
+            window
+                .rows
+                .first()
+                .expect("row")
+                .badges
+                .iter()
+                .map(|badge| badge.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Maternal", "Brick wall"]
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }

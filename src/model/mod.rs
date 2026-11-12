@@ -12,6 +12,7 @@ pub mod graph;
 pub mod name;
 pub mod pedigree;
 pub mod people_columns;
+pub mod person_badge;
 pub mod person_search;
 pub mod problems;
 pub mod quality;

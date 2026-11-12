@@ -16,6 +16,7 @@ pub mod find_everywhere;
 pub mod groups;
 pub mod import_report;
 pub mod inspector;
+pub mod labels;
 pub mod layout;
 pub mod media;
 pub mod merge;

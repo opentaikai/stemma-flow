@@ -122,6 +122,7 @@ impl TreeWindow {
         self.marriages = marriages;
         self.person_facts = facts;
         self.tree_settings = settings;
+        self.refresh_person_badges();
         self.watch.mark_dirty();
         self.research.problems.loaded = false;
         if self.research.groups.loaded {
@@ -370,6 +371,7 @@ impl TreeWindow {
             &self.viewport,
             viewport_rect,
             self.app.selected_person_id(),
+            &self.person_badges,
         );
 
         if self.scene.nodes.is_empty() {
