@@ -15,6 +15,7 @@ use crate::db::notes::NoteOwner;
 use crate::db::people::{ParentRole, VitalDates};
 use crate::db::privacy::PersonPrivacy;
 use crate::db::tasks::TaskOwner;
+use crate::gui::date_picker::date_edit;
 use crate::i18n::{fact_label, tr};
 use crate::model::age;
 
@@ -88,7 +89,7 @@ pub fn vital_editors(ui: &mut Ui, form: &mut InspectorForm) {
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
             ui.label("Birth date:");
-            ui.add(egui::TextEdit::singleline(&mut form.birth).hint_text("e.g. 12 JAN 1850"));
+            date_edit(ui, &mut form.birth, "birth_date");
             ui.end_row();
             if let Some(error) = &errors.birth {
                 ui.label("");
@@ -105,7 +106,7 @@ pub fn vital_editors(ui: &mut Ui, form: &mut InspectorForm) {
             ui.end_row();
 
             ui.label("Death date:");
-            ui.add(egui::TextEdit::singleline(&mut form.death).hint_text("e.g. 12 JAN 1850"));
+            date_edit(ui, &mut form.death, "death_date");
             ui.end_row();
             if let Some(error) = &errors.death {
                 ui.label("");

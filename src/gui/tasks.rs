@@ -3,6 +3,7 @@
 use egui::{Context, RichText, Ui, Window};
 
 use crate::db::tasks::{TaskDraft, TaskOwner, TaskStatus, TaskSummary};
+use crate::gui::date_picker::date_edit;
 
 const PRIORITIES: [(Option<i64>, &str); 5] = [
     (None, "None"),
@@ -303,7 +304,7 @@ fn task_editor(ui: &mut Ui, state: &mut TasksState, event: &mut Option<TaskEvent
             ui.end_row();
 
             ui.label("Due date:");
-            ui.text_edit_singleline(&mut state.draft.due_date);
+            date_edit(ui, &mut state.draft.due_date, "task_due_date");
             ui.end_row();
         });
     if let Some(completed) = &state.draft.completed_at {
