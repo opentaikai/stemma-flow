@@ -10,6 +10,7 @@ pub mod fact;
 pub mod family_view;
 pub mod graph;
 pub mod name;
+pub mod navigation;
 pub mod pedigree;
 pub mod people_columns;
 pub mod person_badge;

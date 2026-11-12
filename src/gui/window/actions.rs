@@ -898,6 +898,86 @@ impl TreeWindow {
         }
     }
 
+    pub(super) fn reload_bookmarks(&mut self) {
+        match self.app.list_bookmarks(self.tree_settings.surname_first) {
+            Ok(bookmarks) => self.bookmarks = bookmarks,
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn selected_is_bookmarked(&self) -> bool {
+        self.app.selected_person_id().is_some_and(|id| {
+            self.bookmarks
+                .iter()
+                .any(|bookmark| bookmark.person_id == id)
+        })
+    }
+
+    pub(super) fn toggle_selected_bookmark(&mut self) {
+        let Some(person_id) = self.app.selected_person_id().map(str::to_string) else {
+            return;
+        };
+        self.toggle_bookmark(&person_id);
+    }
+
+    fn toggle_bookmark(&mut self, person_id: &str) {
+        match self.app.toggle_bookmark(person_id) {
+            Ok(_) => {
+                self.reload_bookmarks();
+                self.refresh_editor_bookmark(person_id);
+            }
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    fn refresh_editor_bookmark(&mut self, person_id: &str) {
+        let bookmarked = self
+            .bookmarks
+            .iter()
+            .any(|bookmark| bookmark.person_id == person_id);
+        if let Some(editor) = &mut self.person_editor
+            && editor.person_id == person_id
+        {
+            editor.bookmarked = bookmarked;
+        }
+    }
+
+    pub(super) fn remove_bookmark(&mut self, person_id: &str) {
+        match self.app.remove_bookmark(person_id) {
+            Ok(()) => {
+                self.reload_bookmarks();
+                self.refresh_editor_bookmark(person_id);
+            }
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn navigate_back(&mut self) {
+        if let Some(person_id) = self.history.back().map(str::to_string) {
+            self.pending_history_nav = Some(person_id.clone());
+            self.focus_person(&person_id);
+        }
+    }
+
+    pub(super) fn navigate_forward(&mut self) {
+        if let Some(person_id) = self.history.forward().map(str::to_string) {
+            self.pending_history_nav = Some(person_id.clone());
+            self.focus_person(&person_id);
+        }
+    }
+
+    pub(super) fn track_history(&mut self) {
+        let current = self.app.selected_person_id().map(str::to_string);
+        if let Some(pending) = self.pending_history_nav.take()
+            && current.as_deref() == Some(pending.as_str())
+        {
+            return;
+        }
+        if let Some(person_id) = current {
+            self.history.record(person_id);
+        }
+    }
+
     pub(super) fn reload_labels(&mut self) {
         match self.app.list_labels() {
             Ok(labels) => {
@@ -1396,6 +1476,10 @@ impl TreeWindow {
             privacy,
             groups,
             labels,
+            bookmarked: self
+                .bookmarks
+                .iter()
+                .any(|bookmark| bookmark.person_id == person_id),
             prompt: None,
             prompt_error: None,
         })
@@ -1534,6 +1618,7 @@ impl TreeWindow {
                 self.tab = crate::gui::tabs::AppTab::Research;
                 self.research.tab = crate::gui::research::ResearchTab::Labels;
             }
+            InspectorAction::ToggleBookmark => self.toggle_bookmark(&person_id),
             InspectorAction::Focus(target) => self.focus_person(&target),
             InspectorAction::AddParentAs(role) => {
                 self.open_relation_with_role(&person_id, RelationKind::Parent, role)
@@ -1708,6 +1793,7 @@ impl TreeWindow {
                 &associations,
                 &groups,
                 &editor.labels,
+                editor.bookmarked,
                 &mut editor.citations,
                 &facts,
                 editor.privacy.as_ref(),
@@ -2372,6 +2458,7 @@ impl TreeWindow {
             .get(&person_id)
             .cloned()
             .unwrap_or_default();
+        let bookmarked = self.selected_is_bookmarked();
         if let Some(action) = inspector::show(
             ui,
             person,
@@ -2381,6 +2468,7 @@ impl TreeWindow {
             &associations,
             &[],
             &[],
+            bookmarked,
             &mut self.citations,
             &facts,
             self.person_privacy.as_ref(),
@@ -2415,6 +2503,7 @@ impl TreeWindow {
                 self.tab = tabs::AppTab::Research;
                 self.research.tab = crate::gui::research::ResearchTab::Labels;
             }
+            InspectorAction::ToggleBookmark => self.toggle_bookmark(person_id),
             InspectorAction::Focus(target) => self.focus_person(&target),
             InspectorAction::Close => self.app.set_selected_person(None),
             InspectorAction::SaveCitations(edits) => {

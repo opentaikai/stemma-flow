@@ -448,6 +448,18 @@ column_death = "Tod"
 column_birth_place = "Geburtsort"
 column_death_place = "Sterbeort"
 
+
+[nav]
+back = "Zurück"
+forward = "Vorwärts"
+
+[bookmarks]
+menu = "Lesezeichen"
+empty = "Noch keine Lesezeichen."
+remove = "Lesezeichen entfernen"
+add_current = "Diese Person als Lesezeichen speichern"
+remove_current = "Lesezeichen entfernen"
+
 [calculator]
 title = "Beziehungsrechner"
 first = "Erste Person"

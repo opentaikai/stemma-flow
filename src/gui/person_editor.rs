@@ -27,6 +27,7 @@ pub struct PersonEditor {
     pub privacy: Option<PersonPrivacy>,
     pub groups: Vec<GroupSummary>,
     pub labels: Vec<LabelSummary>,
+    pub bookmarked: bool,
     pub prompt: Option<EditorPrompt>,
     pub prompt_error: Option<String>,
 }
