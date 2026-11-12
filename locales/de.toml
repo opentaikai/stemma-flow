@@ -518,6 +518,15 @@ this_month = "Dieser Monat"
 this_year = "Dieses Jahr"
 clear = "Löschen"
 
+[event_editor]
+title = "Ereignis bearbeiten"
+place = "Ort: {place}"
+date = "Datum"
+description = "Beschreibung"
+private = "Privates Ereignis"
+save = "Speichern"
+cancel = "Abbrechen"
+
 [calculator]
 title = "Beziehungsrechner"
 first = "Erste Person"

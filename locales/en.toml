@@ -518,6 +518,15 @@ this_month = "This month"
 this_year = "This year"
 clear = "Clear"
 
+[event_editor]
+title = "Edit event"
+place = "Place: {place}"
+date = "Date"
+description = "Description"
+private = "Private event"
+save = "Save"
+cancel = "Cancel"
+
 [calculator]
 title = "Relationship Calculator"
 first = "First person"

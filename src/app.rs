@@ -16,6 +16,7 @@ use crate::db::citations::{
     self as citation_store, CitationEdit, CitationRecord, CitationTarget, SourceCitation,
 };
 use crate::db::dataclean::{self as dataclean_store, DataCleanReport, DataCleanSelection};
+use crate::db::events::{self as event_store, PlaceEventDraft, PlaceEventRecord};
 use crate::db::facts::{
     self as fact_store, FactRoleDraft, FactTypeDraft, FactTypeRecord, FactTypeSummary,
 };
@@ -1233,6 +1234,22 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         place_store::list_place_usage(&conn, id, surname_first)
+    }
+
+    /// Loads one event for editing from the place list.
+    pub fn load_event(&self, id: &str) -> Result<Option<PlaceEventRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        event_store::load_event(&conn, id)
+    }
+
+    /// Updates an event's date, description and privacy.
+    pub fn save_event(&mut self, draft: &PlaceEventDraft) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        event_store::save_event(&conn, draft)?;
+        self.set_status(UiStatus::Success("Event saved".to_string()));
+        Ok(())
     }
 
     /// Inserts or updates a place.

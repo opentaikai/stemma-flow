@@ -18,6 +18,7 @@ use super::couples;
 use super::database_tools;
 use super::dataclean as dataclean_ui;
 use super::date_calculator;
+use super::event_editor;
 use super::fact_types;
 use super::find_everywhere;
 use super::import_report;
@@ -102,6 +103,7 @@ pub struct TreeWindow {
     pub(super) names: names::NamesState,
     pub(super) notes: notes_dialog::NotesState,
     pub(super) person_editor: Option<person_editor::PersonEditor>,
+    pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
     pub(super) sources: sources::SourcesState,
@@ -177,6 +179,7 @@ impl TreeWindow {
             names: names::NamesState::default(),
             notes: notes_dialog::NotesState::default(),
             person_editor: None,
+            event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
             sources: sources::SourcesState::default(),
@@ -318,6 +321,7 @@ impl App for TreeWindow {
             self.show_association_window(ui.ctx());
             self.show_media_attach(ui.ctx());
             self.show_person_editor(ui.ctx());
+            self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
             self.show_database_tools(ui.ctx());
@@ -358,6 +362,7 @@ mod tests {
     use crate::db::merge::MergeDraft;
     use crate::db::people::{ParentRole, PersonDetails};
     use crate::db::sources::SourceDraft;
+    use crate::gui::event_editor::EventEditorOutcome;
     use crate::gui::fact_types::FactTypesEvent;
     use crate::gui::inspector;
     use crate::gui::inspector::InspectorAction;
@@ -2234,6 +2239,64 @@ mod tests {
             window.inspector.birth_place.is_empty(),
             "deleting the place clears the event place"
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn place_events_can_be_edited_from_the_usage_row() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n1 BIRT\n2 DATE 12 JAN 1850\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("one person").id.clone();
+        window.app.set_selected_person(Some(person_id.clone()));
+        window.sync_inspector_form();
+        window.inspector.birth_place = "Uppsala".to_string();
+        let details = window.inspector.to_details();
+        window.edit_person(&details);
+        window.reload_places();
+
+        let place_id = window.places.places[0].id.clone();
+        window.apply_places_event(PlacesEvent::Select(place_id.clone()));
+        let event_id = window.places.usage[0].event_id.clone();
+        window.apply_places_event(PlacesEvent::EditEvent(event_id.clone()));
+
+        let mut editor = window.event_editor.take().expect("event editor opens");
+        assert_eq!(editor.draft.date, "12 JAN 1850");
+        assert_eq!(editor.event_label, "Birth");
+        assert_eq!(editor.place_name.as_deref(), Some("Uppsala"));
+        assert_eq!(editor.person_id.as_deref(), Some(person_id.as_str()));
+        assert!(!editor.is_dirty());
+
+        editor.draft.date = "3 mar 1851".to_string();
+        editor.draft.description = "Moved into the parish".to_string();
+        editor.draft.private = true;
+        let draft = editor.draft.clone();
+        window.apply_event_editor_outcome(editor, EventEditorOutcome::Save(draft));
+
+        assert!(window.event_editor.is_none());
+        assert_eq!(window.places.selected.as_deref(), Some(place_id.as_str()));
+        assert_eq!(window.places.usage[0].date.as_deref(), Some("3 MAR 1851"));
+        let record = window
+            .app
+            .load_event(&event_id)
+            .expect("event loads")
+            .expect("event exists");
+        assert_eq!(record.description.as_deref(), Some("Moved into the parish"));
+        assert!(record.private);
+        window.sync_inspector_form();
+        assert_eq!(window.inspector.birth, "3 MAR 1851");
+
+        window.apply_places_event(PlacesEvent::EditEvent(event_id));
+        let editor = window.event_editor.take().expect("editor reopens");
+        window.apply_event_editor_outcome(editor, EventEditorOutcome::Cancel);
+        assert!(window.event_editor.is_none(), "cancel closes the editor");
 
         let _ = std::fs::remove_file(&db_file);
     }

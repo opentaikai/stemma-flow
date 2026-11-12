@@ -21,6 +21,7 @@ use crate::gui::database_tools::{self as database_tools_ui, DatabaseToolsEvent};
 use crate::gui::dataclean::{self as dataclean_ui, DataCleanEvent};
 use crate::gui::date_calculator;
 use crate::gui::dialogs;
+use crate::gui::event_editor::{self, EventEditorOutcome};
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
 use crate::gui::find_everywhere::{self as find_ui, FindEvent};
@@ -532,6 +533,7 @@ impl TreeWindow {
             PlacesEvent::SelectPerson(id) => {
                 self.app.set_selected_person(Some(id));
             }
+            PlacesEvent::EditEvent(id) => self.open_event_editor(&id),
             PlacesEvent::Notes { place_id, title } => {
                 self.open_notes(NoteOwner::Place(place_id), title);
             }
@@ -580,6 +582,66 @@ impl TreeWindow {
                 self.places.editing = false;
             }
             (Err(message), _) | (_, Err(message)) => self.places.error = Some(message),
+        }
+    }
+
+    fn open_event_editor(&mut self, event_id: &str) {
+        match self.app.load_event(event_id) {
+            Ok(Some(record)) => {
+                self.event_editor = Some(event_editor::EventEditor::from_record(record));
+                self.places.error = None;
+            }
+            Ok(None) => {
+                self.places.error = Some(format!("Event {event_id} no longer exists"));
+            }
+            Err(message) => self.places.error = Some(message),
+        }
+    }
+
+    pub(super) fn show_event_editor(&mut self, ctx: &egui::Context) {
+        let Some(mut editor) = self.event_editor.take() else {
+            return;
+        };
+        match event_editor::show(ctx, &mut editor) {
+            None => self.event_editor = Some(editor),
+            Some(outcome) => self.apply_event_editor_outcome(editor, outcome),
+        }
+    }
+
+    pub(super) fn apply_event_editor_outcome(
+        &mut self,
+        mut editor: event_editor::EventEditor,
+        outcome: EventEditorOutcome,
+    ) {
+        let EventEditorOutcome::Save(draft) = outcome else {
+            return;
+        };
+        match self.app.save_event(&draft) {
+            Ok(()) => {
+                let person_id = editor.person_id.clone();
+                self.reload_places();
+                self.reload_scene_quiet();
+                self.inspected = None;
+                self.refresh_person_editor_after_event(person_id.as_deref());
+            }
+            Err(message) => {
+                editor.error = Some(message);
+                self.event_editor = Some(editor);
+            }
+        }
+    }
+
+    /// Rebuilds a clean person editor when its vital dates changed elsewhere.
+    fn refresh_person_editor_after_event(&mut self, person_id: Option<&str>) {
+        let Some(person_id) = person_id else {
+            return;
+        };
+        let should_refresh = self
+            .person_editor
+            .as_ref()
+            .is_some_and(|editor| editor.person_id == person_id && !editor.is_dirty());
+        if should_refresh {
+            self.person_editor = self.build_person_editor(person_id);
         }
     }
 

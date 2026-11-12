@@ -4,6 +4,7 @@ pub mod associations;
 pub mod bookmarks;
 pub mod citations;
 pub mod dataclean;
+pub mod events;
 pub mod facts;
 pub mod find;
 pub mod groups;
