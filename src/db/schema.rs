@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 17;
+pub const SCHEMA_VERSION: i64 = 18;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -495,7 +495,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v13_to_v14(conn)?;
         super::migrations::migrate_v14_to_v15(conn)?;
         super::migrations::migrate_v15_to_v16(conn)?;
-        return super::migrations::migrate_v16_to_v17(conn);
+        super::migrations::migrate_v16_to_v17(conn)?;
+        return super::migrations::migrate_v17_to_v18(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -545,7 +546,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             super::migrations::migrate_v14_to_v15(conn)?;
         }
         super::migrations::migrate_v15_to_v16(conn)?;
-        return super::migrations::migrate_v16_to_v17(conn);
+        super::migrations::migrate_v16_to_v17(conn)?;
+        return super::migrations::migrate_v17_to_v18(conn);
     }
     ensure_v16(conn)
 }
@@ -562,6 +564,7 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 fn ensure_v16(conn: &Connection) -> rusqlite::Result<()> {
+    ensure_column(conn, "groups", "rule", "TEXT")?;
     ensure_column(conn, "people", "middle_name", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "people", "nickname", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute_batch(CORE_TABLES_SQL)?;

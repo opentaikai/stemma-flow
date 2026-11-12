@@ -586,6 +586,7 @@ impl TreeWindow {
             &mut self.research,
             &self.tree.people,
             self.tree_settings.surname_first,
+            &self.rows,
         ) {
             self.apply_research_event(event);
         }
@@ -636,7 +637,13 @@ impl TreeWindow {
 
     pub(super) fn reload_groups(&mut self) {
         match self.app.list_groups() {
-            Ok(groups) => {
+            Ok(mut groups) => {
+                for group in &mut groups {
+                    if let Some(rule) = &group.rule {
+                        group.member_count =
+                            crate::gui::groups::rule_members(&self.rows, rule).len() as i64;
+                    }
+                }
                 self.research.groups.groups = groups;
                 self.research.groups.loaded = true;
                 self.research.groups.error = None;
@@ -652,28 +659,95 @@ impl TreeWindow {
     }
 
     pub(super) fn load_group_draft(&mut self, id: &str) {
-        match (
-            self.app.load_group(id),
-            self.app
-                .list_group_members(id, self.tree_settings.surname_first),
-        ) {
-            (Ok(Some(record)), Ok(members)) => {
+        match self.app.load_group(id) {
+            Ok(Some(record)) => {
+                let members = self
+                    .app
+                    .list_group_members(id, self.tree_settings.surname_first)
+                    .unwrap_or_default();
+                let rule_members = record
+                    .rule
+                    .as_ref()
+                    .map(|rule| crate::gui::groups::rule_members(&self.rows, rule))
+                    .unwrap_or_default();
                 self.research.groups.selected = Some(id.to_string());
                 self.research.groups.draft = task_ui_group_edit(&record);
+                self.research.groups.rule_signature = record.rule.clone();
+                self.research.groups.rule_members = rule_members;
                 self.research.groups.members = members;
                 self.research.groups.editing = true;
                 self.research.groups.error = None;
             }
-            (Ok(None), _) => {
+            Ok(None) => {
                 self.research.groups.selected = None;
                 self.research.groups.draft = Default::default();
+                self.research.groups.rule_signature = None;
+                self.research.groups.rule_members.clear();
                 self.research.groups.members.clear();
                 self.research.groups.editing = false;
             }
-            (Err(message), _) | (_, Err(message)) => {
+            Err(message) => {
                 self.research.groups.error = Some(message);
             }
         }
+    }
+
+    fn print_group_roster(&mut self) {
+        let Some(path) = self.app.active_db() else {
+            self.app
+                .set_status(UiStatus::Error("No tree is open".to_string()));
+            return;
+        };
+        if self.research.groups.selected.is_none() {
+            return;
+        }
+        let rule = if self.research.groups.draft.rule_mode {
+            match self.research.groups.draft.rule.criteria() {
+                Some(criteria) if !criteria.is_empty() => Some(criteria),
+                _ => {
+                    self.app.set_status(UiStatus::Error(
+                        "Fix the group rule before printing".to_string(),
+                    ));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let members = match &rule {
+            Some(criteria) => crate::gui::groups::rule_members(&self.rows, criteria),
+            None => self.research.groups.members.clone(),
+        };
+        let members = members
+            .into_iter()
+            .map(|member| {
+                let row = self.rows.iter().find(|row| row.id == member.person_id);
+                crate::report::group_roster::GroupRosterMember {
+                    name: member.name,
+                    birth: row.and_then(|row| row.birth.clone()).unwrap_or_default(),
+                    death: row.and_then(|row| row.death.clone()).unwrap_or_default(),
+                    birth_place: row
+                        .and_then(|row| row.birth_place.clone())
+                        .unwrap_or_default(),
+                    death_place: row
+                        .and_then(|row| row.death_place.clone())
+                        .unwrap_or_default(),
+                }
+            })
+            .collect();
+        let report = crate::report::group_roster::GroupRosterReport {
+            tree_name: Path::new(path)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("family_tree")
+                .to_string(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            group_name: self.research.groups.draft.name.clone(),
+            description: self.research.groups.draft.description.clone(),
+            rule,
+            members,
+        };
+        self.app.begin_group_roster_export(report);
     }
 
     pub(super) fn apply_research_event(&mut self, event: ResearchEvent) {
@@ -825,6 +899,8 @@ impl TreeWindow {
                 self.research.groups.selected = None;
                 self.research.groups.draft = Default::default();
                 self.research.groups.members.clear();
+                self.research.groups.rule_members.clear();
+                self.research.groups.rule_signature = None;
                 self.research.groups.editing = true;
                 self.research.groups.error = None;
             }
@@ -842,12 +918,15 @@ impl TreeWindow {
                     self.research.groups.selected = None;
                     self.research.groups.draft = Default::default();
                     self.research.groups.members.clear();
+                    self.research.groups.rule_members.clear();
+                    self.research.groups.rule_signature = None;
                     self.research.groups.editing = false;
                     self.research.groups.loaded = false;
                     self.reload_groups();
                 }
                 Err(message) => self.research.groups.error = Some(message),
             },
+            GroupEvent::Print => self.print_group_roster(),
             GroupEvent::AddMember(person_id) => {
                 let Some(group_id) = self.research.groups.selected.clone() else {
                     return;
@@ -1095,10 +1174,23 @@ impl TreeWindow {
             .list_associations(person_id, self.tree_settings.surname_first)
             .unwrap_or_default();
         let privacy = self.app.person_privacy(person_id).ok().flatten();
-        let groups = self
+        let mut groups = self
             .app
             .list_groups_for_person(person_id)
             .unwrap_or_default();
+        if let Some(row) = self.rows.iter().find(|row| row.id == person_id)
+            && let Ok(all_groups) = self.app.list_groups()
+        {
+            let document = row.search_document();
+            for group in all_groups {
+                if let Some(rule) = &group.rule
+                    && document.matches(rule)
+                    && !groups.iter().any(|existing| existing.id == group.id)
+                {
+                    groups.push(group);
+                }
+            }
+        }
         Some(PersonEditor {
             person_id: person_id.to_string(),
             saved_form: form.clone(),

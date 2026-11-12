@@ -48,6 +48,7 @@ use crate::gui::dialogs;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
+use crate::report::group_roster::{self, GroupRosterReport};
 use crate::report::research_log::{self, ResearchLogReport};
 
 /// Outcome of a background import/export job.
@@ -82,6 +83,11 @@ pub enum JobEvent {
         bytes: usize,
         tasks: usize,
     },
+    GroupRosterExported {
+        path: PathBuf,
+        bytes: usize,
+        members: usize,
+    },
     Failed(String),
 }
 
@@ -115,6 +121,7 @@ enum Job {
         backup_first: bool,
     },
     ResearchLog(Box<ResearchLogReport>),
+    GroupRoster(Box<GroupRosterReport>),
 }
 
 /// Application state shared between the UI shell and job workers.
@@ -251,6 +258,11 @@ impl StemmaApp {
     /// Writes a print-ready HTML research log on a worker thread.
     pub fn begin_research_log_export(&mut self, report: ResearchLogReport) {
         self.begin(Job::ResearchLog(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready HTML group roster on a worker thread.
+    pub fn begin_group_roster_export(&mut self, report: GroupRosterReport) {
+        self.begin(Job::GroupRoster(Box::new(report)), self.active_db.clone());
     }
 
     /// Writes a timestamped backup archive of the active tree and its media.
@@ -1187,6 +1199,7 @@ impl StemmaApp {
             Job::Restore => "Choosing backup to restore\u{2026}",
             Job::Maintenance { .. } => "Running database maintenance\u{2026}",
             Job::ResearchLog(_) => "Choosing research log destination\u{2026}",
+            Job::GroupRoster(_) => "Choosing group report destination\u{2026}",
         });
         let (tx, rx) = channel();
         self.rx = Some(rx);
@@ -1289,6 +1302,14 @@ impl StemmaApp {
             }
             JobEvent::ResearchLogExported { path, bytes, tasks } => UiStatus::Success(format!(
                 "Exported {tasks} tasks ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::GroupRosterExported {
+                path,
+                bytes,
+                members,
+            } => UiStatus::Success(format!(
+                "Exported {members} group members ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::Cancelled => UiStatus::Cancelled,
@@ -1421,7 +1442,7 @@ impl Job {
                 };
                 let default_name = research_log::file_name(&report.tree_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_research_log_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match research_log::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -1430,6 +1451,28 @@ impl Job {
                                 path: dest,
                                 bytes,
                                 tasks: report.tasks.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::GroupRoster(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name = group_roster::file_name(&report.group_name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match group_roster::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::GroupRosterExported {
+                                path: dest,
+                                bytes,
+                                members: report.members.len(),
                             }
                         }
                         Err(message) => JobEvent::Failed(message),
@@ -1865,6 +1908,21 @@ mod tests {
         assert!(!app.is_busy());
         assert!(
             matches!(app.status(), UiStatus::Success(message) if message.contains("4 tasks") && message.contains("research-log.html"))
+        );
+    }
+
+    #[test]
+    fn group_roster_export_event_reports_success() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        app.apply_event(JobEvent::GroupRosterExported {
+            path: PathBuf::from("/tmp/group-roster.html"),
+            bytes: 2048,
+            members: 3,
+        });
+        assert!(!app.is_busy());
+        assert!(
+            matches!(app.status(), UiStatus::Success(message) if message.contains("3 group members") && message.contains("group-roster.html"))
         );
     }
 

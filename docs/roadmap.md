@@ -137,7 +137,7 @@ Goal: keep research organised beside the people it concerns.
 | Saved search criteria | done | P1 | Named rules stored in global config and reloaded from the People search dialog |
 | Find Everywhere across all record types | done | P2 | Grouped modeless search with nested text folded into owning records |
 | Search and replace for names, places, notes and filenames | done | P2 | Previewed literal replacement with explicit confirmation |
-| Named groups (static and rule-based) | partial | P1 | Static membership done; rules and report integration deferred |
+| Named groups (static and rule-based) | done | P1 | Manual membership plus dynamic person-search rules and printable HTML rosters |
 | Colour-code sets and labels | planned | P2 | Visual grouping |
 | Bookmarks, history and back/forward navigation | planned | P2 | Last N people visited |
 | Date calculator and pop-up calendar | planned | P2 | For date entry |

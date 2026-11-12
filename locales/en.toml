@@ -428,6 +428,23 @@ field_place_name = "Place name"
 field_note = "Note"
 field_media_path = "File path"
 
+
+[group_report]
+title = "Group Roster"
+title_named = "Group Roster — {name}"
+print = "Print"
+print_hint = "Use the browser print dialog or save as PDF."
+tree = "Tree: {name}"
+generated = "Generated: {timestamp}"
+member_count = "{count} members"
+rule = "Matching rule"
+empty = "This group has no members."
+column_name = "Name"
+column_birth = "Birth"
+column_death = "Death"
+column_birth_place = "Birth place"
+column_death_place = "Death place"
+
 [calculator]
 title = "Relationship Calculator"
 first = "First person"

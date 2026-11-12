@@ -6,6 +6,7 @@ use crate::db::Person;
 use crate::gui::groups::{GroupEvent, GroupsState, show as show_groups};
 use crate::gui::problems::{self as problems_ui, ProblemsEvent, ProblemsState};
 use crate::gui::tasks::{TaskEvent, TasksState, show as show_tasks};
+use crate::gui::watchlist::PersonRow;
 
 /// The two research panes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -39,6 +40,7 @@ pub fn show(
     state: &mut ResearchState,
     people: &[Person],
     surname_first: bool,
+    rows: &[PersonRow],
 ) -> Option<ResearchEvent> {
     ui.horizontal(|ui| {
         ui.selectable_value(&mut state.tab, ResearchTab::Tasks, "Tasks");
@@ -52,9 +54,8 @@ pub fn show(
     ui.separator();
     match state.tab {
         ResearchTab::Tasks => show_tasks(ui, &mut state.tasks).map(ResearchEvent::Task),
-        ResearchTab::Groups => {
-            show_groups(ui, &mut state.groups, people, surname_first).map(ResearchEvent::Group)
-        }
+        ResearchTab::Groups => show_groups(ui, &mut state.groups, people, surname_first, rows)
+            .map(ResearchEvent::Group),
         ResearchTab::Problems => problems_ui::show(ui, &mut state.problems, people, surname_first)
             .map(ResearchEvent::Problem),
     }
@@ -77,7 +78,7 @@ mod tests {
         ] {
             state.tab = tab;
             let mut output = ctx.run_ui(RawInput::default(), |ui| {
-                show(ui, &mut state, &people, false);
+                show(ui, &mut state, &people, false, &[]);
             });
             output.textures_delta.clear();
             assert!(!output.shapes.is_empty(), "{tab:?} paints");
