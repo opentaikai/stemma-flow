@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v19: sources, repositories, places, media, fact catalogue, tasks, groups, labels | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes, v14 associations, v15 event associations, v16 parentage, v17 dismissals, v18 group rules, v19 group colours and labels |
+| Schema v2-v20: sources, repositories, places, media, fact catalogue, tasks, groups, labels, bookmarks | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes, v14 associations, v15 event associations, v16 parentage, v17 dismissals, v18 group rules, v19 group colours and labels, v20 bookmarks |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
@@ -139,7 +139,7 @@ Goal: keep research organised beside the people it concerns.
 | Search and replace for names, places, notes and filenames | done | P2 | Previewed literal replacement with explicit confirmation |
 | Named groups (static and rule-based) | done | P1 | Manual membership plus dynamic person-search rules and printable HTML rosters |
 | Colour-code sets and labels | done | P2 | Coloured groups, independent person labels and graph/table badges |
-| Bookmarks, history and back/forward navigation | planned | P2 | Last N people visited |
+| Bookmarks, history and back/forward navigation | done | P2 | 50-person session history plus persistent per-tree bookmarks |
 | Date calculator and pop-up calendar | planned | P2 | For date entry |
 | Soundex calculator | planned | P2 | Several methods |
 

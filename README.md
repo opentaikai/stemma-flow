@@ -20,14 +20,14 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (30 tables, 47
-  indexes) and records its version in `PRAGMA user_version` (currently 19):
+- `db::init_db(&conn)` creates or upgrades the schema (31 tables, 47
+  indexes) and records its version in `PRAGMA user_version` (currently 20):
   `people`, `alternate_names`, `tree_settings`, `notes`, `associations`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
   `events`, `event_participants`, `citations`, `citation_links`, `media`,
   `media_links`, `tasks`, `task_links`, `groups`, `group_members`, `labels`,
-  `person_labels` and `problem_dismissals`. A v1 database is migrated in place: citation titles
+  `person_labels`, `bookmarks` and `problem_dismissals`. A v1 database is migrated in place: citation titles
   become `sources`, event places become `places`, and the new links are
   backfilled. v2 databases gain the v3 source/citation metadata, v4 the
   source template catalogue, v5 the free-form citation outputs, v6 the
@@ -38,7 +38,7 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   settings, v13 first-class notes migrated out of the person, place and
   citation columns, v14 directed person associations, v15 event
   associations, v16 parentage types, v17 problem dismissals, v18 group
-  rules, and v19 group colours and person labels.
+  rules, v19 group colours and person labels, and v20 persistent bookmarks.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -324,6 +324,23 @@ when the extension changes; files on disk are not renamed. After applying,
 the People, Places, Notes, Media and inspector views reload.
 
 No schema change is required.
+
+## Bookmarks and navigation
+
+The top bar provides **←**/*Back*, **→**/*Forward*, a bookmark star and a
+**Bookmarks** menu. The same star is available in the person inspector and
+pinned editor.
+
+- **History** keeps the last 50 selected people for the current session.
+  Back/Forward selects and centres the person on the graph; tabs and graph
+  modes stay where the user left them. New selections after going Back drop
+  the forward entries, and deleted or merged people are pruned automatically.
+  Shortcuts are **Alt+Left** and **Alt+Right**.
+- **Bookmarks** are persistent per tree and are removed automatically when
+  the person is deleted. The star toggles the current person, the Bookmarks
+  menu lists saved people in insertion order and offers per-person removal.
+  **Ctrl+Shift+D** toggles the selected person's bookmark.
+- Both controls use the current surname-first display setting.
 
 ## Native file dialogs & background jobs
 
