@@ -15,6 +15,7 @@ pub enum PlacesEvent {
     Save(Box<PlaceDraft>),
     Delete(String),
     SelectPerson(String),
+    EditEvent(String),
     Notes { place_id: String, title: String },
     Media { place_id: String, title: String },
     Tasks { place_id: String, title: String },
@@ -437,32 +438,37 @@ fn usage_row(ui: &mut Ui, usage: &PlaceUsage, event: &mut Option<PlacesEvent>) {
             if ui.button(name).on_hover_text("Edit this person").clicked() {
                 *event = Some(PlacesEvent::SelectPerson(person_id.clone()));
             }
-            return;
-        }
-        if usage.family_id.is_none() {
+        } else if usage.family_id.is_some() {
+            let mut shown = false;
+            if let Some(husband_id) = &usage.husband_id {
+                let name = usage.husband_name.as_deref().unwrap_or("(unnamed)");
+                if ui.button(name).on_hover_text("Edit this person").clicked() {
+                    *event = Some(PlacesEvent::SelectPerson(husband_id.clone()));
+                }
+                shown = true;
+            }
+            if usage.husband_id.is_some() && usage.wife_id.is_some() {
+                ui.label("&");
+            }
+            if let Some(wife_id) = &usage.wife_id {
+                let name = usage.wife_name.as_deref().unwrap_or("(unnamed)");
+                if ui.button(name).on_hover_text("Edit this person").clicked() {
+                    *event = Some(PlacesEvent::SelectPerson(wife_id.clone()));
+                }
+                shown = true;
+            }
+            if !shown {
+                ui.label(RichText::new("Unnamed couple").weak().small());
+            }
+        } else {
             ui.label(RichText::new("Unlinked event").weak().small());
-            return;
         }
-        let mut shown = false;
-        if let Some(husband_id) = &usage.husband_id {
-            let name = usage.husband_name.as_deref().unwrap_or("(unnamed)");
-            if ui.button(name).on_hover_text("Edit this person").clicked() {
-                *event = Some(PlacesEvent::SelectPerson(husband_id.clone()));
-            }
-            shown = true;
-        }
-        if usage.husband_id.is_some() && usage.wife_id.is_some() {
-            ui.label("&");
-        }
-        if let Some(wife_id) = &usage.wife_id {
-            let name = usage.wife_name.as_deref().unwrap_or("(unnamed)");
-            if ui.button(name).on_hover_text("Edit this person").clicked() {
-                *event = Some(PlacesEvent::SelectPerson(wife_id.clone()));
-            }
-            shown = true;
-        }
-        if !shown {
-            ui.label(RichText::new("Unnamed couple").weak().small());
+        if ui
+            .button("Edit event")
+            .on_hover_text("Edit this event's date, description and privacy")
+            .clicked()
+        {
+            *event = Some(PlacesEvent::EditEvent(usage.event_id.clone()));
         }
     });
 }

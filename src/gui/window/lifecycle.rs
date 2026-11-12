@@ -156,6 +156,7 @@ impl TreeWindow {
             self.repositories = crate::gui::repositories::RepositoriesState::default();
             self.pending_participants = None;
             self.pending_new_person = None;
+            self.event_editor = None;
             self.merge = crate::gui::merge::MergeState::default();
             self.db_tools = crate::gui::database_tools::DatabaseToolsState::default();
             self.data_clean = crate::gui::dataclean::DataCleanState::default();
