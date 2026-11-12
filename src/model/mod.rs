@@ -17,6 +17,7 @@ pub mod people_columns;
 pub mod person_badge;
 pub mod person_search;
 pub mod phonetics;
+pub mod place_clean;
 pub mod problems;
 pub mod quality;
 pub mod relationship;

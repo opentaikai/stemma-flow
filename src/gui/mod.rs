@@ -29,6 +29,7 @@ pub mod notes;
 pub mod pedigree;
 pub mod person_criteria;
 pub mod person_editor;
+pub mod place_clean;
 pub mod places;
 pub mod problems;
 pub mod relationship_calculator;

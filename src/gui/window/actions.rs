@@ -40,6 +40,7 @@ use crate::gui::merge::MergeEvent;
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
 use crate::gui::pedigree;
 use crate::gui::person_editor::{EditorPrompt, PersonEditor};
+use crate::gui::place_clean as place_clean_ui;
 use crate::gui::places::{self, PlacesEvent};
 use crate::gui::problems::ProblemsEvent;
 use crate::gui::repositories::{self, RepositoriesEvent};
@@ -52,6 +53,7 @@ use crate::gui::tasks::{self as task_ui, TaskAttachOutcome, TaskAttachState, Tas
 use crate::gui::watchlist;
 use crate::gui::watchlist::WatchEvent;
 use crate::gui::welcome;
+use crate::model::dataclean::DataCleanPlan;
 use crate::report::research_log::ResearchLogReport;
 use eframe::Frame;
 use egui::Ui;
@@ -534,6 +536,7 @@ impl TreeWindow {
                 self.app.set_selected_person(Some(id));
             }
             PlacesEvent::EditEvent(id) => self.open_event_editor(&id),
+            PlacesEvent::PlaceClean => self.open_place_clean(),
             PlacesEvent::Notes { place_id, title } => {
                 self.open_notes(NoteOwner::Place(place_id), title);
             }
@@ -2357,6 +2360,63 @@ impl TreeWindow {
                 Err(message) => self.data_clean.error = Some(message),
             }
         }
+    }
+
+    pub(super) fn open_place_clean(&mut self) {
+        match self.app.list_places() {
+            Ok(places) => self.place_clean.set_places(places),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn show_place_clean_window(&mut self, ctx: &egui::Context) {
+        if !self.place_clean.open {
+            return;
+        }
+        if let Some(plan) = place_clean_ui::show(ctx, &mut self.place_clean) {
+            self.apply_place_clean_plan(&plan);
+        }
+        if !self.place_clean.open {
+            self.place_clean = place_clean_ui::PlaceCleanState::default();
+        }
+    }
+
+    pub(super) fn apply_place_clean_plan(&mut self, plan: &DataCleanPlan) {
+        let selection = DataCleanSelection::select_all(plan);
+        match self.app.apply_place_clean(plan, &selection) {
+            Ok(_) => {
+                let selected = self.places.selected.clone().map(|id| {
+                    plan.places
+                        .iter()
+                        .find(|cleanup| cleanup.keep_id == id || cleanup.merged_ids.contains(&id))
+                        .map(|cleanup| cleanup.keep_id.clone())
+                        .unwrap_or(id)
+                });
+                self.place_clean = place_clean_ui::PlaceCleanState::default();
+                self.places.selected = selected;
+                self.places.loaded = false;
+                self.inspected = None;
+                self.reload_places();
+                self.reload_scene_quiet();
+                self.refresh_clean_person_editor();
+            }
+            Err(message) => {
+                self.place_clean.error = Some(message);
+                self.place_clean.open = true;
+            }
+        }
+    }
+
+    /// Rebuilds a clean person editor after place names changed.
+    fn refresh_clean_person_editor(&mut self) {
+        let Some(editor) = self.person_editor.as_ref() else {
+            return;
+        };
+        if editor.is_dirty() {
+            return;
+        }
+        let person_id = editor.person_id.clone();
+        self.person_editor = self.build_person_editor(&person_id);
     }
 
     pub(super) fn open_merge_dialog(&mut self, keep: Option<String>) {

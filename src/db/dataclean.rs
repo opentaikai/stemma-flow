@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, params};
+use uuid::Uuid;
 
 use crate::model::dataclean::{DataCleanPlan, NameCleanup, PlaceCleanup};
 
@@ -50,6 +51,22 @@ pub fn apply_plan(
             } else {
                 report.names_changed += 1;
             }
+        }
+    }
+
+    for cleanup in &plan.places {
+        if !selection.places.contains(&cleanup.key) {
+            continue;
+        }
+        let temporary = format!("__place_clean__{}", Uuid::new_v4());
+        let changed = tx
+            .execute(
+                "UPDATE places SET name = ?1 WHERE id = ?2",
+                params![temporary, cleanup.keep_id],
+            )
+            .map_err(|error| error.to_string())?;
+        if changed == 0 {
+            return Err(format!("no place with id {}", cleanup.keep_id));
         }
     }
 
@@ -209,7 +226,7 @@ mod tests {
     use crate::db;
     use crate::db::init_db;
     use crate::db::names::{AlternateNameDraft, list_all_alternate_names, save_alternate_name};
-    use crate::db::places::{PlaceDraft, list_places, save_place};
+    use crate::db::places::{PlaceDraft, list_places, load_place, save_place};
     use crate::model::dataclean::{build_plan, normalize_name_text};
 
     fn connection() -> Connection {
@@ -390,6 +407,66 @@ mod tests {
             )
             .expect("coords");
         assert_eq!((lat, lon), (Some(48.8), Some(2.3)));
+    }
+
+    #[test]
+    fn renames_cross_groups_without_collisions() {
+        let mut conn = connection();
+        let alpha = save_place(
+            &mut conn,
+            &PlaceDraft {
+                name: "Alpha".to_string(),
+                ..PlaceDraft::default()
+            },
+        )
+        .expect("alpha saves");
+        let beta = save_place(
+            &mut conn,
+            &PlaceDraft {
+                name: "Beta".to_string(),
+                ..PlaceDraft::default()
+            },
+        )
+        .expect("beta saves");
+
+        let plan = DataCleanPlan {
+            names: Vec::new(),
+            places: vec![
+                PlaceCleanup {
+                    key: "alpha-to-beta".to_string(),
+                    keep_id: alpha.clone(),
+                    merged_ids: Vec::new(),
+                    before_names: vec!["Alpha".to_string()],
+                    after: "Beta".to_string(),
+                    event_count: 0,
+                },
+                PlaceCleanup {
+                    key: "beta-to-gamma".to_string(),
+                    keep_id: beta.clone(),
+                    merged_ids: Vec::new(),
+                    before_names: vec!["Beta".to_string()],
+                    after: "Gamma".to_string(),
+                    event_count: 0,
+                },
+            ],
+        };
+        let report = apply_plan(&mut conn, &plan, &DataCleanSelection::select_all(&plan))
+            .expect("cross-group renames apply");
+        assert_eq!(report.places_renamed, 2);
+        assert_eq!(
+            load_place(&conn, &alpha)
+                .expect("load")
+                .expect("alpha exists")
+                .name,
+            "Beta"
+        );
+        assert_eq!(
+            load_place(&conn, &beta)
+                .expect("load")
+                .expect("beta exists")
+                .name,
+            "Gamma"
+        );
     }
 
     #[test]
