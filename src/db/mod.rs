@@ -6,6 +6,7 @@ pub mod dataclean;
 pub mod facts;
 pub mod find;
 pub mod groups;
+pub mod labels;
 pub mod maintenance;
 pub mod media;
 pub mod merge;

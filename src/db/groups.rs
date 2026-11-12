@@ -13,6 +13,7 @@ pub struct GroupRecord {
     pub name: String,
     pub description: Option<String>,
     pub rule: Option<PersonSearchCriteria>,
+    pub color: Option<u32>,
     pub created_at: String,
 }
 
@@ -23,6 +24,7 @@ pub struct GroupSummary {
     pub name: String,
     pub description: Option<String>,
     pub rule: Option<PersonSearchCriteria>,
+    pub color: Option<u32>,
     pub member_count: i64,
 }
 
@@ -33,6 +35,7 @@ pub struct GroupDraft {
     pub name: String,
     pub description: String,
     pub rule: Option<PersonSearchCriteria>,
+    pub color: Option<u32>,
 }
 
 impl GroupDraft {
@@ -42,6 +45,7 @@ impl GroupDraft {
             name: record.name.clone(),
             description: record.description.clone().unwrap_or_default(),
             rule: record.rule.clone(),
+            color: record.color,
         }
     }
 }
@@ -66,7 +70,7 @@ fn clean(value: &str) -> Option<String> {
 pub fn list_groups(conn: &Connection) -> Result<Vec<GroupSummary>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT g.id, g.name, g.description, g.rule,
+            "SELECT g.id, g.name, g.description, g.rule, g.color,
                     (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id)
              FROM groups g ORDER BY g.name COLLATE NOCASE, g.rowid",
         )
@@ -78,7 +82,8 @@ pub fn list_groups(conn: &Connection) -> Result<Vec<GroupSummary>, String> {
                 name: row.get(1)?,
                 description: row.get(2)?,
                 rule: parse_rule(row.get(3)?),
-                member_count: row.get(4)?,
+                color: row.get::<_, Option<i64>>(4)?.map(|value| value as u32),
+                member_count: row.get(5)?,
             })
         })
         .map_err(|error| error.to_string())?
@@ -90,7 +95,7 @@ pub fn list_groups(conn: &Connection) -> Result<Vec<GroupSummary>, String> {
 /// Loads one group for editing.
 pub fn load_group(conn: &Connection, id: &str) -> Result<Option<GroupRecord>, String> {
     conn.query_row(
-        "SELECT id, name, description, rule, created_at FROM groups WHERE id = ?1",
+        "SELECT id, name, description, rule, color, created_at FROM groups WHERE id = ?1",
         params![id],
         |row| {
             Ok(GroupRecord {
@@ -98,7 +103,8 @@ pub fn load_group(conn: &Connection, id: &str) -> Result<Option<GroupRecord>, St
                 name: row.get(1)?,
                 description: row.get(2)?,
                 rule: parse_rule(row.get(3)?),
-                created_at: row.get(4)?,
+                color: row.get::<_, Option<i64>>(4)?.map(|value| value as u32),
+                created_at: row.get(5)?,
             })
         },
     )
@@ -111,18 +117,21 @@ pub fn save_group(conn: &Connection, draft: &GroupDraft) -> Result<String, Strin
     let name = clean(&draft.name).ok_or_else(|| "group name is required".to_string())?;
     let description = clean(&draft.description);
     let rule = encode_rule(&draft.rule)?;
+    let color = draft.color.map(|value| value as i64);
     let id = draft
         .id
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     let result = match &draft.id {
         Some(existing) => conn.execute(
-            "UPDATE groups SET name = ?1, description = ?2, rule = ?3 WHERE id = ?4",
-            params![name, description, rule, existing],
+            "UPDATE groups SET name = ?1, description = ?2, rule = ?3, color = ?4
+             WHERE id = ?5",
+            params![name, description, rule, color, existing],
         ),
         None => conn.execute(
-            "INSERT INTO groups (id, name, description, rule) VALUES (?1, ?2, ?3, ?4)",
-            params![id, name, description, rule],
+            "INSERT INTO groups (id, name, description, rule, color)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, name, description, rule, color],
         ),
     };
     match result {
@@ -199,7 +208,7 @@ pub fn list_groups_for_person(
 ) -> Result<Vec<GroupSummary>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT g.id, g.name, g.description, g.rule,
+            "SELECT g.id, g.name, g.description, g.rule, g.color,
                     (SELECT COUNT(*) FROM group_members c WHERE c.group_id = g.id)
              FROM groups g JOIN group_members m ON m.group_id = g.id
              WHERE m.person_id = ?1
@@ -213,7 +222,8 @@ pub fn list_groups_for_person(
                 name: row.get(1)?,
                 description: row.get(2)?,
                 rule: parse_rule(row.get(3)?),
-                member_count: row.get(4)?,
+                color: row.get::<_, Option<i64>>(4)?.map(|value| value as u32),
+                member_count: row.get(5)?,
             })
         })
         .map_err(|error| error.to_string())?
@@ -396,16 +406,19 @@ mod tests {
                 id: Some(id.clone()),
                 name: "Researchers".to_string(),
                 rule: Some(rule.clone()),
+                color: Some(0x3366cc),
                 ..GroupDraft::default()
             },
         )
         .expect("rule save");
         let loaded = load_group(&conn, &id).expect("load").expect("group");
         assert_eq!(loaded.rule, Some(rule.clone()));
+        assert_eq!(loaded.color, Some(0x3366cc));
         assert_eq!(
             list_groups(&conn).expect("list")[0].rule,
             Some(rule.clone())
         );
+        assert_eq!(list_groups(&conn).expect("list")[0].color, Some(0x3366cc));
         assert_eq!(
             list_members(&conn, &id, false).expect("members").len(),
             1,

@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 18;
+pub const SCHEMA_VERSION: i64 = 19;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -323,6 +323,25 @@ CREATE INDEX IF NOT EXISTS idx_notes_citation ON notes(citation_id);
 CREATE INDEX IF NOT EXISTS idx_notes_place ON notes(place_id);
 "#;
 
+/// Coloured person labels for visual grouping.
+pub(super) const LABELS_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS labels (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    color INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
+
+pub(super) const PERSON_LABELS_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS person_labels (
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    label_id TEXT NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+    PRIMARY KEY (person_id, label_id)
+);
+CREATE INDEX IF NOT EXISTS idx_person_labels_label ON person_labels(label_id);
+"#;
+
 /// Per-tree display preferences.
 pub(super) const TREE_SETTINGS_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS tree_settings (
@@ -496,7 +515,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v14_to_v15(conn)?;
         super::migrations::migrate_v15_to_v16(conn)?;
         super::migrations::migrate_v16_to_v17(conn)?;
-        return super::migrations::migrate_v17_to_v18(conn);
+        super::migrations::migrate_v17_to_v18(conn)?;
+        return super::migrations::migrate_v18_to_v19(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -547,7 +567,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         }
         super::migrations::migrate_v15_to_v16(conn)?;
         super::migrations::migrate_v16_to_v17(conn)?;
-        return super::migrations::migrate_v17_to_v18(conn);
+        super::migrations::migrate_v17_to_v18(conn)?;
+        return super::migrations::migrate_v18_to_v19(conn);
     }
     ensure_v16(conn)
 }
@@ -565,6 +586,9 @@ fn create_v2(conn: &Connection) -> rusqlite::Result<()> {
 
 fn ensure_v16(conn: &Connection) -> rusqlite::Result<()> {
     ensure_column(conn, "groups", "rule", "TEXT")?;
+    ensure_column(conn, "groups", "color", "INTEGER")?;
+    conn.execute_batch(LABELS_TABLE_SQL)?;
+    conn.execute_batch(PERSON_LABELS_TABLE_SQL)?;
     ensure_column(conn, "people", "middle_name", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "people", "nickname", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute_batch(CORE_TABLES_SQL)?;
