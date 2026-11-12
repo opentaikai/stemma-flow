@@ -140,7 +140,7 @@ Goal: keep research organised beside the people it concerns.
 | Named groups (static and rule-based) | done | P1 | Manual membership plus dynamic person-search rules and printable HTML rosters |
 | Colour-code sets and labels | done | P2 | Coloured groups, independent person labels and graph/table badges |
 | Bookmarks, history and back/forward navigation | done | P2 | 50-person session history plus persistent per-tree bookmarks |
-| Date calculator and pop-up calendar | planned | P2 | For date entry |
+| Date calculator and pop-up calendar | done | P2 | Difference/arithmetic calculator and reusable calendar for vital and task dates |
 | Soundex calculator | planned | P2 | Several methods |
 
 ## M4 - Places and media (P1)
