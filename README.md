@@ -357,6 +357,22 @@ opens an anchored calendar. It supports exact days, **This month**
 (`JAN 1850`) and **This year** (`1850`), plus Today and Clear. The calendar
 uses the local system date for Today.
 
+## Soundex calculator
+
+**Tools > Soundex Calculator…** computes phonetic codes for a name using:
+
+- **American Soundex** — the standard four-character NARA code
+- **Daitch–Mokotoff Soundex** — six-digit codes with all possible variants
+- **Cologne Phonetic** — the German Kölner Phonetik code
+
+Enter a second name in **Compare with** to show each method's codes side by
+side and mark whether they match. Matching is exact for Soundex and Cologne,
+and any shared code for Daitch–Mokotoff.
+
+Common accented Latin letters are folded to ASCII before encoding;
+punctuation and non-Latin letters are ignored. The calculator is read-only
+and does not currently change duplicate scoring.
+
 ## Native file dialogs & background jobs
 
 - `gui::dialogs::{pick_gedcom_import_path, prompt_gedcom_export_path,
