@@ -274,6 +274,25 @@ names before anything changes:
 No schema change is required; DataClean only changes name text and merges
 existing place records.
 
+## PlaceClean
+
+**Tools > PlaceClean…** or **PlaceClean…** in the Places tab standardises
+repeated comma-separated place components across the tree:
+
+- Every distinct component is listed with its observed spellings, usage
+  counts and an editable standard spelling.
+- Components are grouped case-insensitively and whitespace-insensitively,
+  so `PARIS` and `paris ` share one row.
+- Checking a row applies the standard spelling to every place that uses that
+  component; unselected components stay untouched.
+- The live preview lists every place rename and detects places that will
+  become duplicates.
+- Conflicting duplicates merge into the busiest place, moving events, notes,
+  media links and task links and retaining coordinates.
+- **Apply selected** asks for confirmation and runs in one transaction.
+
+No schema change is required.
+
 ## Find Everywhere
 
 **Tools > Find Everywhere…** or **Ctrl+Shift+F** opens a modeless global
