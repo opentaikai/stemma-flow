@@ -2,6 +2,7 @@
 
 use crate::db::associations::AssociationRecord;
 use crate::db::groups::GroupSummary;
+use crate::db::labels::LabelSummary;
 use crate::db::privacy::PersonPrivacy;
 use crate::gui::citations::CitationsState;
 use crate::gui::inspector::InspectorForm;
@@ -25,6 +26,7 @@ pub struct PersonEditor {
     pub associations_owner: Option<String>,
     pub privacy: Option<PersonPrivacy>,
     pub groups: Vec<GroupSummary>,
+    pub labels: Vec<LabelSummary>,
     pub prompt: Option<EditorPrompt>,
     pub prompt_error: Option<String>,
 }

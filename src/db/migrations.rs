@@ -253,6 +253,16 @@ pub(super) fn migrate_v17_to_v18(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// Adds group colours and independent person labels.
+pub(super) fn migrate_v18_to_v19(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    ensure_column(&tx, "groups", "color", "INTEGER")?;
+    tx.execute_batch(super::schema::LABELS_TABLE_SQL)?;
+    tx.execute_batch(super::schema::PERSON_LABELS_TABLE_SQL)?;
+    tx.pragma_update(None, "user_version", 19)?;
+    tx.commit()
+}
+
 /// Copies distinct event places into `places` and links the events.
 fn migrate_places(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut stmt = tx.prepare(

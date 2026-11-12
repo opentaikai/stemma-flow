@@ -16,6 +16,7 @@ pub struct GroupEdit {
     pub description: String,
     pub rule_mode: bool,
     pub rule: PersonCriteriaFields,
+    pub color: Option<u32>,
 }
 
 impl GroupEdit {
@@ -30,6 +31,7 @@ impl GroupEdit {
             description: record.description.clone().unwrap_or_default(),
             rule_mode: record.rule.is_some(),
             rule,
+            color: record.color,
         }
     }
 
@@ -39,6 +41,7 @@ impl GroupEdit {
             name: self.name.clone(),
             description: self.description.clone(),
             rule,
+            color: self.color,
         }
     }
 }
@@ -133,9 +136,14 @@ pub fn show(
                         }
                         let selected = state.selected.as_deref() == Some(group.id.as_str());
                         let label = format!("{} ({} people)", group.name, group.member_count);
-                        if ui.selectable_label(selected, label).clicked() {
-                            event = Some(GroupEvent::Select(group.id.clone()));
-                        }
+                        ui.horizontal(|ui| {
+                            if let Some(color) = group.color {
+                                ui.label(RichText::new("■").color(color32(color)).small());
+                            }
+                            if ui.selectable_label(selected, label).clicked() {
+                                event = Some(GroupEvent::Select(group.id.clone()));
+                            }
+                        });
                     }
                 });
         });
@@ -150,6 +158,18 @@ pub fn show(
         });
     });
     event
+}
+
+fn color32(value: u32) -> egui::Color32 {
+    egui::Color32::from_rgb(
+        ((value >> 16) & 0xff) as u8,
+        ((value >> 8) & 0xff) as u8,
+        (value & 0xff) as u8,
+    )
+}
+
+fn color_value(color: egui::Color32) -> u32 {
+    ((color.r() as u32) << 16) | ((color.g() as u32) << 8) | color.b() as u32
 }
 
 fn group_editor(
@@ -188,6 +208,21 @@ fn group_editor(
     ui.horizontal(|ui| {
         ui.radio_value(&mut state.draft.rule_mode, false, "Manual members");
         ui.radio_value(&mut state.draft.rule_mode, true, "Rule-based members");
+    });
+    ui.horizontal(|ui| {
+        let mut colored = state.draft.color.is_some();
+        if ui
+            .checkbox(&mut colored, "Colour-code this group")
+            .changed()
+        {
+            state.draft.color = colored.then_some(0x3B82F6);
+        }
+        if let Some(value) = state.draft.color {
+            let mut color = color32(value);
+            if ui.color_edit_button_srgba(&mut color).changed() {
+                state.draft.color = Some(color_value(color));
+            }
+        }
     });
 
     let mut rule = None;
@@ -339,6 +374,7 @@ mod tests {
                 name: "Friends".to_string(),
                 description: None,
                 rule: None,
+                color: None,
                 member_count: 1,
             }],
             selected: Some("g1".to_string()),
@@ -348,6 +384,7 @@ mod tests {
                 description: String::new(),
                 rule_mode: false,
                 rule: PersonCriteriaFields::default(),
+                color: None,
             },
             members: vec![GroupMember {
                 person_id: "p1".to_string(),

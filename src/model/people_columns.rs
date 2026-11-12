@@ -26,6 +26,7 @@ pub enum PeopleColumn {
     Media,
     Tasks,
     Groups,
+    Labels,
     Associations,
     UpdatedAt,
 }
@@ -52,6 +53,7 @@ impl PeopleColumn {
             Self::Media => "people.column_media",
             Self::Tasks => "people.column_tasks",
             Self::Groups => "people.column_groups",
+            Self::Labels => "people.column_labels",
             Self::Associations => "people.column_associations",
             Self::UpdatedAt => "people.column_updated",
         }
@@ -78,6 +80,7 @@ impl PeopleColumn {
             | Self::DeathPlace => 130.0,
             Self::MiddleName | Self::Nickname | Self::Prefix | Self::Suffix => 100.0,
             Self::Notes => 220.0,
+            Self::Labels => 160.0,
             Self::UpdatedAt => 150.0,
             _ => 90.0,
         }
@@ -126,6 +129,7 @@ pub fn all_columns() -> Vec<PeopleColumn> {
         PeopleColumn::Media,
         PeopleColumn::Tasks,
         PeopleColumn::Groups,
+        PeopleColumn::Labels,
         PeopleColumn::Associations,
         PeopleColumn::UpdatedAt,
     ]

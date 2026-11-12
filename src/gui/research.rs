@@ -4,6 +4,7 @@ use egui::Ui;
 
 use crate::db::Person;
 use crate::gui::groups::{GroupEvent, GroupsState, show as show_groups};
+use crate::gui::labels::{LabelEvent, LabelsState, show as show_labels};
 use crate::gui::problems::{self as problems_ui, ProblemsEvent, ProblemsState};
 use crate::gui::tasks::{TaskEvent, TasksState, show as show_tasks};
 use crate::gui::watchlist::PersonRow;
@@ -14,6 +15,7 @@ pub enum ResearchTab {
     #[default]
     Tasks,
     Groups,
+    Labels,
     Problems,
 }
 
@@ -23,6 +25,7 @@ pub struct ResearchState {
     pub tab: ResearchTab,
     pub tasks: TasksState,
     pub groups: GroupsState,
+    pub labels: LabelsState,
     pub problems: ProblemsState,
 }
 
@@ -31,6 +34,7 @@ pub struct ResearchState {
 pub enum ResearchEvent {
     Task(TaskEvent),
     Group(GroupEvent),
+    Label(LabelEvent),
     Problem(ProblemsEvent),
 }
 
@@ -45,6 +49,7 @@ pub fn show(
     ui.horizontal(|ui| {
         ui.selectable_value(&mut state.tab, ResearchTab::Tasks, "Tasks");
         ui.selectable_value(&mut state.tab, ResearchTab::Groups, "Groups");
+        ui.selectable_value(&mut state.tab, ResearchTab::Labels, "Labels");
         ui.selectable_value(
             &mut state.tab,
             ResearchTab::Problems,
@@ -56,6 +61,9 @@ pub fn show(
         ResearchTab::Tasks => show_tasks(ui, &mut state.tasks).map(ResearchEvent::Task),
         ResearchTab::Groups => show_groups(ui, &mut state.groups, people, surname_first, rows)
             .map(ResearchEvent::Group),
+        ResearchTab::Labels => {
+            show_labels(ui, &mut state.labels, people, surname_first).map(ResearchEvent::Label)
+        }
         ResearchTab::Problems => problems_ui::show(ui, &mut state.problems, people, surname_first)
             .map(ResearchEvent::Problem),
     }
@@ -74,6 +82,7 @@ mod tests {
         for tab in [
             ResearchTab::Tasks,
             ResearchTab::Groups,
+            ResearchTab::Labels,
             ResearchTab::Problems,
         ] {
             state.tab = tab;

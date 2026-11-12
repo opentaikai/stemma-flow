@@ -13,6 +13,7 @@ use crate::i18n::tr;
 use crate::model::people_columns::{
     PeopleColumn, PeopleColumnConfig, default_columns, sanitize_columns,
 };
+use crate::model::person_badge::PersonBadge;
 use crate::model::person_search::{PersonSearchCriteria, PersonSearchDocument, year_of};
 
 const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
@@ -47,6 +48,7 @@ pub struct PersonRow {
     pub media_count: i64,
     pub task_count: i64,
     pub group_count: i64,
+    pub badges: Vec<PersonBadge>,
     pub association_count: i64,
     pub updated_at: String,
     pub relationship_to_root: String,
@@ -196,6 +198,7 @@ pub fn rows(
             media_count: extra.map_or(0, |extra| extra.media_count),
             task_count: extra.map_or(0, |extra| extra.task_count),
             group_count: extra.map_or(0, |extra| extra.group_count),
+            badges: Vec::new(),
             association_count: extra.map_or(0, |extra| extra.association_count),
             updated_at: person.updated_at.clone(),
             relationship_to_root: root_id
@@ -392,6 +395,12 @@ fn text_value(row: &PersonRow, column: PeopleColumn) -> Option<String> {
         PeopleColumn::DeathPlace => row.death_place.clone().unwrap_or_default(),
         PeopleColumn::AgeAtDeath => row.age_at_death.clone().unwrap_or_default(),
         PeopleColumn::Notes => row.notes_preview.clone(),
+        PeopleColumn::Labels => row
+            .badges
+            .iter()
+            .map(|badge| badge.name.clone())
+            .collect::<Vec<_>>()
+            .join(", "),
         PeopleColumn::UpdatedAt => row.updated_at.clone(),
         _ => return None,
     };
@@ -546,7 +555,16 @@ pub fn show(
                 row.set_selected(selected == Some(person.id.as_str()));
                 for column in &visible {
                     row.col(|ui| {
-                        clickable_cell(ui, &cell_value(person, *column), &person.id, &mut events);
+                        if *column == PeopleColumn::Labels {
+                            badge_cell(ui, person, &mut events);
+                        } else {
+                            clickable_cell(
+                                ui,
+                                &cell_value(person, *column),
+                                &person.id,
+                                &mut events,
+                            );
+                        }
                     });
                 }
                 row.col(|ui| {
@@ -655,6 +673,39 @@ fn columns_dialog(ui: &mut Ui, state: &mut WatchState, events: &mut Vec<WatchEve
         state.show_columns = false;
     } else if !open || cancel {
         state.show_columns = false;
+    }
+}
+
+fn badge_cell(ui: &mut Ui, person: &PersonRow, events: &mut Vec<WatchEvent>) {
+    let inner = ui.horizontal(|ui| {
+        for badge in person.badges.iter().take(2) {
+            let color = badge
+                .color
+                .map(crate::gui::labels::color32)
+                .unwrap_or(egui::Color32::GRAY);
+            ui.label(RichText::new("●").color(color).small());
+            ui.label(RichText::new(&badge.name).small());
+        }
+        if person.badges.len() > 2 {
+            ui.label(
+                RichText::new(format!("+{}", person.badges.len() - 2))
+                    .weak()
+                    .small(),
+            );
+        }
+    });
+    let response = inner.response.interact(Sense::click());
+    if let Some(event) = watch_click(&person.id, response.double_clicked(), response.clicked()) {
+        events.push(event);
+    }
+    let all = person
+        .badges
+        .iter()
+        .map(|badge| badge.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if !all.is_empty() {
+        response.on_hover_text(all);
     }
 }
 
@@ -846,6 +897,42 @@ mod tests {
             .map(|column| cell_value(&rows[0], column.column))
             .collect();
         assert_eq!(visible, vec!["King".to_string(), "London".to_string()]);
+    }
+
+    #[test]
+    fn labels_column_renders_badges_and_sorts() {
+        use crate::model::person_badge::{BadgeKind, PersonBadge};
+
+        let mut rows = rows_for(&[("Ada", "King"), ("Bo", "Tester")]);
+        rows[0].badges = vec![PersonBadge {
+            name: "Maternal".to_string(),
+            color: Some(0xff3366),
+            kind: BadgeKind::Label,
+        }];
+        rows[1].badges = vec![PersonBadge {
+            name: "Brick wall".to_string(),
+            color: Some(0x33aa66),
+            kind: BadgeKind::Label,
+        }];
+        assert_eq!(cell_value(&rows[0], PeopleColumn::Labels), "Maternal");
+
+        let mut state = WatchState::default();
+        state.toggle_sort(PeopleColumn::Labels);
+        state.rebuild(&rows);
+        assert_eq!(state.view, vec![1, 0], "labels sort alphabetically");
+
+        let columns = [PeopleColumnConfig {
+            column: PeopleColumn::Labels,
+            visible: true,
+            width: 160.0,
+        }];
+        let ctx = Context::default();
+        let mut state = WatchState::default();
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            show(ui, &mut state, &rows, None, &columns, None);
+        });
+        output.textures_delta.clear();
+        assert!(!output.shapes.is_empty());
     }
 
     #[test]

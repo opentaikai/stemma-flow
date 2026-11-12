@@ -20,6 +20,9 @@ use crate::db::facts::{
 };
 use crate::db::find::{self as find_store, FindResults};
 use crate::db::groups::{self as group_store, GroupDraft, GroupMember, GroupRecord, GroupSummary};
+use crate::db::labels::{
+    self as label_store, LabelDraft, LabelMember, LabelRecord, LabelSummary, PersonLabel,
+};
 use crate::db::maintenance::{self as maintenance_store, MaintenanceKind, MaintenanceReport};
 use crate::db::media::{
     self as media_store, MediaDraft, MediaLinkSummary, MediaOwner, MediaRecord, MediaSummary,
@@ -627,6 +630,79 @@ impl StemmaApp {
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         group_store::delete_group(&conn, id)?;
         self.set_status(UiStatus::Success("Group deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists every coloured person label with member counts.
+    pub fn list_labels(&self) -> Result<Vec<LabelSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        label_store::list_labels(&conn)
+    }
+
+    /// Loads one label for editing.
+    pub fn load_label(&self, id: &str) -> Result<Option<LabelRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        label_store::load_label(&conn, id)
+    }
+
+    /// Inserts or updates a label.
+    pub fn save_label(&mut self, draft: &LabelDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = label_store::save_label(&conn, draft)?;
+        self.set_status(UiStatus::Success("Label saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes one label and its assignments.
+    pub fn delete_label(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        label_store::delete_label(&conn, id)?;
+        self.set_status(UiStatus::Success("Label deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists a label's members.
+    pub fn list_label_members(
+        &self,
+        label_id: &str,
+        surname_first: bool,
+    ) -> Result<Vec<LabelMember>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        label_store::list_members(&conn, label_id, surname_first)
+    }
+
+    /// Lists labels carried by one person.
+    pub fn list_labels_for_person(&self, person_id: &str) -> Result<Vec<LabelSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        label_store::list_labels_for_person(&conn, person_id)
+    }
+
+    /// Loads every person-label assignment for badge building.
+    pub fn list_all_person_labels(&self) -> Result<Vec<PersonLabel>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        label_store::list_all_person_labels(&conn)
+    }
+
+    /// Adds a person to a label.
+    pub fn add_label_member(&mut self, label_id: &str, person_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        label_store::add_member(&conn, label_id, person_id)?;
+        Ok(())
+    }
+
+    /// Removes a person from a label.
+    pub fn remove_label_member(&mut self, label_id: &str, person_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        label_store::remove_member(&conn, label_id, person_id)?;
         Ok(())
     }
 
