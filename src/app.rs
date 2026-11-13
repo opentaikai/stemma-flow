@@ -1336,6 +1336,16 @@ impl StemmaApp {
         place_store::list_place_usage(&conn, id, surname_first)
     }
 
+    /// Returns the places linked to any of `person_ids`.
+    pub fn place_ids_for_people(
+        &self,
+        person_ids: &[String],
+    ) -> Result<std::collections::HashSet<String>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        place_store::place_ids_for_people(&conn, person_ids)
+    }
+
     /// Loads one event for editing from the place list.
     pub fn load_event(&self, id: &str) -> Result<Option<PlaceEventRecord>, String> {
         let path = self.require_active_db()?;
