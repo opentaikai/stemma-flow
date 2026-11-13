@@ -161,6 +161,7 @@ impl TreeWindow {
             self.db_tools = crate::gui::database_tools::DatabaseToolsState::default();
             self.data_clean = crate::gui::dataclean::DataCleanState::default();
             self.place_clean = crate::gui::place_clean::PlaceCleanState::default();
+            self.geocode = crate::gui::geocode::GeocodeState::default();
             self.advanced_search = crate::gui::advanced_search::AdvancedSearchState::default();
             self.find = crate::gui::find_everywhere::FindState::default();
             self.search_replace = crate::gui::search_replace::SearchReplaceState::default();

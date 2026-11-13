@@ -25,6 +25,7 @@ use crate::gui::event_editor::{self, EventEditorOutcome};
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
 use crate::gui::find_everywhere::{self as find_ui, FindEvent};
+use crate::gui::geocode::{self as geocode_ui, GeocodeEvent};
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
 use crate::gui::inspector::InspectorForm;
@@ -54,6 +55,7 @@ use crate::gui::watchlist;
 use crate::gui::watchlist::WatchEvent;
 use crate::gui::welcome;
 use crate::model::dataclean::DataCleanPlan;
+use crate::model::geocode::GeocodeResult;
 use crate::report::research_log::ResearchLogReport;
 use eframe::Frame;
 use egui::Ui;
@@ -537,6 +539,7 @@ impl TreeWindow {
             }
             PlacesEvent::EditEvent(id) => self.open_event_editor(&id),
             PlacesEvent::PlaceClean => self.open_place_clean(),
+            PlacesEvent::Geocode => self.open_geocode(),
             PlacesEvent::Notes { place_id, title } => {
                 self.open_notes(NoteOwner::Place(place_id), title);
             }
@@ -2417,6 +2420,63 @@ impl TreeWindow {
         }
         let person_id = editor.person_id.clone();
         self.person_editor = self.build_person_editor(&person_id);
+    }
+
+    pub(super) fn open_geocode(&mut self) {
+        if self.geocode.running {
+            self.geocode.open = true;
+            return;
+        }
+        match self.app.list_places() {
+            Ok(places) => self.geocode.set_places(places),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn show_geocode_window(&mut self, ctx: &egui::Context) {
+        if let Some((done, total)) = self.app.geocode_progress() {
+            self.geocode.progress = Some((done, total));
+        }
+        if let Some(report) = self.app.take_geocode_report() {
+            self.geocode.finish(report);
+        }
+        if !self.geocode.open {
+            return;
+        }
+        if let Some(event) =
+            geocode_ui::show(ctx, &mut self.geocode, self.config.allow_online_geocoding)
+        {
+            match event {
+                GeocodeEvent::Start(requests) => {
+                    if let Err(message) = self.app.begin_geocode(requests) {
+                        self.geocode.running = false;
+                        self.geocode.error = Some(message);
+                    }
+                }
+                GeocodeEvent::Cancel => self.app.cancel_geocode(),
+                GeocodeEvent::Apply(results) => self.apply_geocode(results),
+                GeocodeEvent::ClearCache => {
+                    if let Err(message) = self.app.clear_geocode_cache() {
+                        self.geocode.error = Some(message);
+                    }
+                }
+                GeocodeEvent::OpenSettings => self.show_settings = true,
+            }
+        }
+        if !self.geocode.open && self.geocode.running {
+            self.app.cancel_geocode();
+        }
+    }
+
+    pub(super) fn apply_geocode(&mut self, results: Vec<GeocodeResult>) {
+        match self.app.apply_geocode_results(&results) {
+            Ok(_) => {
+                self.geocode = geocode_ui::GeocodeState::default();
+                self.places.loaded = false;
+                self.reload_places();
+            }
+            Err(message) => self.geocode.error = Some(message),
+        }
     }
 
     pub(super) fn open_merge_dialog(&mut self, keep: Option<String>) {

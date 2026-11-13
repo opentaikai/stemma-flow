@@ -29,6 +29,8 @@ pub struct AppConfig {
     /// Show comma-separated place names from largest to smallest in
     /// read-only displays. Stored places and GEDCOM keep the original order.
     pub reverse_place_names: bool,
+    /// Allow place-name lookups against OpenStreetMap Nominatim.
+    pub allow_online_geocoding: bool,
     /// BCP 47-style locale code for the interface language.
     pub language: String,
     /// Visible columns, order and widths for the People view.
@@ -45,6 +47,7 @@ impl Default for AppConfig {
             theme: ThemeMode::Light,
             font_size: 14.0,
             reverse_place_names: false,
+            allow_online_geocoding: false,
             language: "en".to_string(),
             people_columns: default_columns(),
             saved_searches: Vec::new(),
@@ -183,6 +186,7 @@ mod tests {
             theme: ThemeMode::Dark,
             font_size: 18.5,
             reverse_place_names: true,
+            allow_online_geocoding: true,
             language: "de".to_string(),
             saved_searches: vec![SavedPersonSearch::new(
                 "London born",
@@ -279,6 +283,7 @@ mod tests {
         let loaded = AppConfig::load_from(&path);
 
         assert!(!loaded.reverse_place_names);
+        assert!(!loaded.allow_online_geocoding);
         assert_eq!(loaded.theme, ThemeMode::Dark);
         assert!(loaded.saved_searches.is_empty());
 
