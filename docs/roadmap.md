@@ -153,7 +153,7 @@ Goal: connect people to locations and sources of evidence beyond text.
 | Edit people and events directly from the place list | done | P1 | Person selection and direct event editing |
 | PlaceClean and place-name standardisation | done | P2 | Component rules, rename/merge preview and batch apply |
 | Geocoding of places (latitude and longitude) | done | P2 | Opt-in Nominatim lookups, tree-local cache and review before apply |
-| Map view of places and groups | planned | P2 | Requires geocoding |
+| Map view of places and groups | done | P2 | Offline coordinate map with named group filters and optional cached OSM tiles |
 | Gazetteer search | planned | P2 | Place lookup |
 | Media attachments with thumbnails and list modes | done | P1 | Media tab list plus record attachment dialogs |
 | Media albums and drag-and-drop organisation | planned | P2 | Per person and general albums |
