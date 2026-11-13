@@ -20,11 +20,11 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (31 tables, 47
-  indexes) and records its version in `PRAGMA user_version` (currently 20):
+- `db::init_db(&conn)` creates or upgrades the schema (32 tables, 47
+  indexes) and records its version in `PRAGMA user_version` (currently 21):
   `people`, `alternate_names`, `tree_settings`, `notes`, `associations`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
-  `source_template_fields`, `places`, `fact_types`, `fact_type_roles`,
+  `source_template_fields`, `places`, `geocode_cache`, `fact_types`, `fact_type_roles`,
   `events`, `event_participants`, `citations`, `citation_links`, `media`,
   `media_links`, `tasks`, `task_links`, `groups`, `group_members`, `labels`,
   `person_labels`, `bookmarks` and `problem_dismissals`. A v1 database is migrated in place: citation titles
@@ -38,7 +38,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   settings, v13 first-class notes migrated out of the person, place and
   citation columns, v14 directed person associations, v15 event
   associations, v16 parentage types, v17 problem dismissals, v18 group
-  rules, v19 group colours and person labels, and v20 persistent bookmarks.
+  rules, v19 group colours and person labels, v20 persistent bookmarks,
+  and v21 the tree-local geocoding cache.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -292,6 +293,26 @@ repeated comma-separated place components across the tree:
 - **Apply selected** asks for confirmation and runs in one transaction.
 
 No schema change is required.
+
+## Geocoding places
+
+**Tools > Geocode Places…** or **Geocode…** in the Places tab looks up
+coordinates for places that are missing a latitude or longitude:
+
+- Online lookups stay disabled until **Settings > Places > Allow online
+  place lookups** is enabled. Place names are sent to
+  [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/) only when
+  a lookup is started.
+- The dialog filters and selects places, shows progress and can cancel a
+  running batch. Uncached requests are throttled to one per second.
+- Results show the provider's matched name and decimal coordinates.
+  Matches are previewed and only checked results are written.
+- Positive and negative results are cached in the tree's `geocode_cache`
+  table. **Clear cache** retries previously missing places.
+- OpenStreetMap attribution: data © OpenStreetMap contributors, ODbL.
+
+The v21 cache table is the only schema addition; place names and
+coordinates keep their existing schema.
 
 ## Find Everywhere
 
@@ -783,7 +804,9 @@ editor also block merging until they are saved or discarded.
   maps to 1.0), so every tab, panel and window rescales in real time.
 - **Places** — **Reverse place-name order** shows comma-separated place
   components largest-first in read-only displays; editors and GEDCOM keep
-  the stored order.
+  the stored order. **Allow online place lookups** opts in to OpenStreetMap
+  Nominatim geocoding from the Geocode Places dialog; results are cached in
+  the tree.
 
 ## Translations
 

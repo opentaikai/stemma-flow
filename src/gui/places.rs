@@ -17,6 +17,7 @@ pub enum PlacesEvent {
     SelectPerson(String),
     EditEvent(String),
     PlaceClean,
+    Geocode,
     Notes { place_id: String, title: String },
     Media { place_id: String, title: String },
     Tasks { place_id: String, title: String },
@@ -128,6 +129,9 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<Place
             }
             if ui.button("PlaceClean…").clicked() {
                 event = Some(PlacesEvent::PlaceClean);
+            }
+            if ui.button("Geocode…").clicked() {
+                event = Some(PlacesEvent::Geocode);
             }
         });
     });

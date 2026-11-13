@@ -271,6 +271,14 @@ pub(super) fn migrate_v19_to_v20(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// Adds the tree-local geocoding cache.
+pub(super) fn migrate_v20_to_v21(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch(super::schema::GEOCODE_CACHE_TABLE_SQL)?;
+    tx.pragma_update(None, "user_version", 21)?;
+    tx.commit()
+}
+
 /// Copies distinct event places into `places` and links the events.
 fn migrate_places(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut stmt = tx.prepare(

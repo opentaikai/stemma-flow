@@ -5,8 +5,11 @@
 //! `mpsc` channel that [`StemmaApp::poll`] drains every frame.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::backup::{self, BackupReport, RestoreReport};
 use crate::db;
@@ -49,8 +52,10 @@ use crate::db::tasks::{
     self as task_store, TaskDraft, TaskLinkSummary, TaskOwner, TaskRecord, TaskSummary,
 };
 use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options};
+use crate::geocode;
 use crate::gui::dialogs;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
+use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::group_roster::{self, GroupRosterReport};
@@ -93,6 +98,11 @@ pub enum JobEvent {
         bytes: usize,
         members: usize,
     },
+    GeocodeProgress {
+        done: usize,
+        total: usize,
+    },
+    Geocoded(Box<GeocodeReport>),
     Failed(String),
 }
 
@@ -127,6 +137,10 @@ enum Job {
     },
     ResearchLog(Box<ResearchLogReport>),
     GroupRoster(Box<GroupRosterReport>),
+    Geocode {
+        requests: Vec<GeocodeRequest>,
+        cancel: Arc<AtomicBool>,
+    },
 }
 
 /// Application state shared between the UI shell and job workers.
@@ -144,6 +158,9 @@ pub struct StemmaApp {
     maintenance: bool,
     maintenance_result: Option<MaintenanceResult>,
     maintenance_error: Option<String>,
+    geocode_progress: Option<(usize, usize)>,
+    geocode_cancel: Option<Arc<AtomicBool>>,
+    geocode_report: Option<GeocodeReport>,
 }
 
 impl StemmaApp {
@@ -162,6 +179,9 @@ impl StemmaApp {
             maintenance: false,
             maintenance_result: None,
             maintenance_error: None,
+            geocode_progress: None,
+            geocode_cancel: None,
+            geocode_report: None,
         }
     }
 
@@ -268,6 +288,69 @@ impl StemmaApp {
     /// Writes a print-ready HTML group roster on a worker thread.
     pub fn begin_group_roster_export(&mut self, report: GroupRosterReport) {
         self.begin(Job::GroupRoster(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Starts a cache-first place geocoding batch.
+    pub fn begin_geocode(&mut self, requests: Vec<GeocodeRequest>) -> Result<(), String> {
+        if self.busy {
+            return Err("Another operation is running".to_string());
+        }
+        if self.active_db.is_none() {
+            return Err("No tree is open".to_string());
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.geocode_cancel = Some(cancel.clone());
+        self.geocode_progress = Some((0, requests.len()));
+        self.geocode_report = None;
+        self.begin(Job::Geocode { requests, cancel }, self.active_db.clone());
+        Ok(())
+    }
+
+    /// Requests cancellation of the running geocoding batch.
+    pub fn cancel_geocode(&mut self) {
+        if let Some(cancel) = &self.geocode_cancel {
+            cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Reports the latest geocoding progress as `(done, total)`.
+    pub fn geocode_progress(&self) -> Option<(usize, usize)> {
+        self.geocode_progress
+    }
+
+    /// Returns a completed geocoding report exactly once.
+    pub fn take_geocode_report(&mut self) -> Option<GeocodeReport> {
+        self.geocode_report.take()
+    }
+
+    /// Removes every cached geocoding result from the active tree.
+    pub fn clear_geocode_cache(&mut self) -> Result<usize, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let removed = db::geocode_cache::clear(&conn)?;
+        self.set_status(UiStatus::Success(format!(
+            "Cleared {removed} cached place lookups"
+        )));
+        Ok(removed)
+    }
+
+    /// Writes coordinates from approved geocoding results.
+    pub fn apply_geocode_results(&mut self, results: &[GeocodeResult]) -> Result<usize, String> {
+        let path = self.require_active_db()?;
+        let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let tx = conn.transaction().map_err(|error| error.to_string())?;
+        let mut changed = 0;
+        for result in results {
+            if let Some((latitude, longitude)) = result.coordinates() {
+                db::places::set_coordinates(&tx, &result.place_id, latitude, longitude)?;
+                changed += 1;
+            }
+        }
+        tx.commit().map_err(|error| error.to_string())?;
+        self.set_status(UiStatus::Success(format!(
+            "Updated coordinates for {changed} places"
+        )));
+        Ok(changed)
     }
 
     /// Writes a timestamped backup archive of the active tree and its media.
@@ -1332,6 +1415,7 @@ impl StemmaApp {
             Job::Maintenance { .. } => "Running database maintenance\u{2026}",
             Job::ResearchLog(_) => "Choosing research log destination\u{2026}",
             Job::GroupRoster(_) => "Choosing group report destination\u{2026}",
+            Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
         self.rx = Some(rx);
@@ -1357,7 +1441,12 @@ impl StemmaApp {
 
     /// Applies a single job event to the presentation state.
     pub fn apply_event(&mut self, event: JobEvent) {
+        if let JobEvent::GeocodeProgress { done, total } = event {
+            self.geocode_progress = Some((done, total));
+            return;
+        }
         let was_maintenance = self.maintenance;
+        let was_geocoding = self.geocode_cancel.is_some();
         self.busy = false;
         self.maintenance = false;
         self.status = match event {
@@ -1444,10 +1533,48 @@ impl StemmaApp {
                 "Exported {members} group members ({bytes} bytes) to {}",
                 path.display()
             )),
-            JobEvent::Cancelled => UiStatus::Cancelled,
+            JobEvent::Geocoded(report) => {
+                let found = report.found_count();
+                let error = report.error.clone();
+                let cancelled = report.cancelled;
+                self.geocode_progress = None;
+                self.geocode_cancel = None;
+                self.geocode_report = Some(*report);
+                if let Some(error) = error {
+                    UiStatus::Error(error)
+                } else if cancelled {
+                    UiStatus::Cancelled
+                } else {
+                    UiStatus::Success(format!("Geocoded {found} places"))
+                }
+            }
+            JobEvent::GeocodeProgress { .. } => {
+                unreachable!("geocode progress is handled before the status update")
+            }
+            JobEvent::Cancelled => {
+                if was_geocoding {
+                    self.geocode_progress = None;
+                    self.geocode_cancel = None;
+                    self.geocode_report = Some(GeocodeReport {
+                        results: Vec::new(),
+                        cancelled: true,
+                        error: None,
+                    });
+                }
+                UiStatus::Cancelled
+            }
             JobEvent::Failed(message) => {
                 if was_maintenance {
                     self.maintenance_error = Some(message.clone());
+                }
+                if was_geocoding {
+                    self.geocode_progress = None;
+                    self.geocode_cancel = None;
+                    self.geocode_report = Some(GeocodeReport {
+                        results: Vec::new(),
+                        cancelled: false,
+                        error: Some(message.clone()),
+                    });
                 }
                 UiStatus::Error(message)
             }
@@ -1488,11 +1615,11 @@ impl Default for StemmaApp {
 
 impl Job {
     fn run(self, db_path: Option<PathBuf>, tx: &Sender<JobEvent>) {
-        let event = self.run_with(db_path);
+        let event = self.run_with(db_path, tx);
         let _ = tx.send(event);
     }
 
-    fn run_with(self, db_path: Option<PathBuf>) -> JobEvent {
+    fn run_with(self, db_path: Option<PathBuf>, tx: &Sender<JobEvent>) -> JobEvent {
         match self {
             Job::Import => {
                 let Some(db_path) = db_path else {
@@ -1610,6 +1737,37 @@ impl Job {
                         Err(message) => JobEvent::Failed(message),
                     },
                 }
+            }
+            Job::Geocode { requests, cancel } => {
+                let Some(db_path) = db_path else {
+                    return JobEvent::Failed("No tree is open".to_string());
+                };
+                let conn = match db::open_connection(&db_path) {
+                    Ok(conn) => conn,
+                    Err(error) => return JobEvent::Failed(error.to_string()),
+                };
+                let agent = geocode::agent();
+                let mut last_request: Option<Instant> = None;
+                let report = geocode::run_batch(
+                    &conn,
+                    &requests,
+                    &cancel,
+                    |query| {
+                        if let Some(last) = last_request {
+                            let elapsed = last.elapsed();
+                            if elapsed < Duration::from_secs(1) {
+                                thread::sleep(Duration::from_secs(1) - elapsed);
+                            }
+                        }
+                        let result = geocode::lookup(&agent, query);
+                        last_request = Some(Instant::now());
+                        result
+                    },
+                    |done, total| {
+                        let _ = tx.send(JobEvent::GeocodeProgress { done, total });
+                    },
+                );
+                JobEvent::Geocoded(Box::new(report))
             }
             Job::Maintenance { kind, backup_first } => {
                 let Some(db_path) = db_path else {
@@ -1912,6 +2070,27 @@ mod tests {
         app.busy = true;
         app.apply_event(JobEvent::Failed("disk full".to_string()));
         assert_eq!(app.status(), &UiStatus::Error("disk full".to_string()));
+    }
+
+    #[test]
+    fn geocode_progress_keeps_the_job_running_until_the_report_arrives() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        app.geocode_cancel = Some(Arc::new(AtomicBool::new(false)));
+        app.geocode_progress = Some((0, 2));
+
+        app.apply_event(JobEvent::GeocodeProgress { done: 1, total: 2 });
+        assert!(app.is_busy(), "progress events do not finish the job");
+        assert_eq!(app.geocode_progress(), Some((1, 2)));
+
+        app.apply_event(JobEvent::Geocoded(Box::default()));
+        assert!(!app.is_busy());
+        assert_eq!(app.geocode_progress(), None);
+        assert!(app.take_geocode_report().is_some());
+        assert!(
+            app.take_geocode_report().is_none(),
+            "the report is consumed once"
+        );
     }
 
     #[test]

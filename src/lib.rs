@@ -3,6 +3,7 @@ pub mod backup;
 pub mod config;
 pub mod db;
 pub mod gedcom;
+pub mod geocode;
 pub mod gui;
 pub mod i18n;
 pub mod model;

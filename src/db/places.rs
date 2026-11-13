@@ -247,6 +247,33 @@ pub fn save_place(conn: &mut Connection, draft: &PlaceDraft) -> Result<String, S
     Ok(id)
 }
 
+/// Updates a place's decimal-degree coordinates.
+pub fn set_coordinates(
+    conn: &Connection,
+    place_id: &str,
+    latitude: f64,
+    longitude: f64,
+) -> Result<(), String> {
+    if !latitude.is_finite() || !(-90.0..=90.0).contains(&latitude) {
+        return Err("Latitude must be between -90 and 90".to_string());
+    }
+    if !longitude.is_finite() || !(-180.0..=180.0).contains(&longitude) {
+        return Err("Longitude must be between -180 and 180".to_string());
+    }
+    let changed = conn
+        .execute(
+            "UPDATE places
+             SET latitude = ?1, longitude = ?2, updated_at = datetime('now')
+             WHERE id = ?3",
+            params![latitude, longitude, place_id],
+        )
+        .map_err(|error| error.to_string())?;
+    if changed == 0 {
+        return Err(format!("no place with id {place_id}"));
+    }
+    Ok(())
+}
+
 /// Deletes a place; events lose their place and place links cascade.
 pub fn delete_place(conn: &mut Connection, id: &str) -> Result<(), String> {
     let changed = conn
@@ -361,6 +388,29 @@ mod tests {
             )
             .expect("event place");
         assert_eq!(name, "Uppsala, Sweden");
+    }
+
+    #[test]
+    fn updates_coordinates_and_rejects_invalid_values() {
+        let mut conn = connection();
+        let id = save_place(
+            &mut conn,
+            &PlaceDraft {
+                name: "Uppsala".to_string(),
+                ..PlaceDraft::default()
+            },
+        )
+        .expect("place saves");
+
+        set_coordinates(&conn, &id, 59.8586, 17.6389).expect("coordinates update");
+        let loaded = load_place(&conn, &id).expect("load").expect("place exists");
+        assert_eq!(loaded.latitude, Some(59.8586));
+        assert_eq!(loaded.longitude, Some(17.6389));
+
+        assert!(set_coordinates(&conn, &id, 91.0, 17.0).is_err());
+        assert!(set_coordinates(&conn, &id, 59.0, 181.0).is_err());
+        assert!(set_coordinates(&conn, &id, f64::NAN, 17.0).is_err());
+        assert!(set_coordinates(&conn, "missing", 59.0, 17.0).is_err());
     }
 
     #[test]

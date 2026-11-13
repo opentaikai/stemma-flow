@@ -101,6 +101,20 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
                     .weak()
                     .small(),
             );
+            if ui
+                .checkbox(
+                    &mut config.allow_online_geocoding,
+                    tr("settings.allow_geocoding"),
+                )
+                .changed()
+            {
+                places_changed = true;
+            }
+            ui.label(
+                egui::RichText::new(tr("settings.geocoding_hint"))
+                    .weak()
+                    .small(),
+            );
         });
 
     if !(theme_changed || font_apply || places_changed || language_changed) {

@@ -21,6 +21,7 @@ use super::date_calculator;
 use super::event_editor;
 use super::fact_types;
 use super::find_everywhere;
+use super::geocode;
 use super::import_report;
 use super::inspector::InspectorForm;
 use super::inspector::ParticipantForm;
@@ -95,6 +96,7 @@ pub struct TreeWindow {
     pub(super) db_tools: database_tools::DatabaseToolsState,
     pub(super) data_clean: dataclean_ui::DataCleanState,
     pub(super) place_clean: place_clean::PlaceCleanState,
+    pub(super) geocode: geocode::GeocodeState,
     pub(super) date_calculator: date_calculator::DateCalculatorState,
     pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
@@ -172,6 +174,7 @@ impl TreeWindow {
             db_tools: database_tools::DatabaseToolsState::default(),
             data_clean: dataclean_ui::DataCleanState::default(),
             place_clean: place_clean::PlaceCleanState::default(),
+            geocode: geocode::GeocodeState::default(),
             date_calculator: date_calculator::DateCalculatorState::default(),
             association_rows: Vec::new(),
             places: places::PlacesState::default(),
@@ -330,6 +333,7 @@ impl App for TreeWindow {
             self.show_database_tools(ui.ctx());
             self.show_data_clean_window(ui.ctx());
             self.show_place_clean_window(ui.ctx());
+            self.show_geocode_window(ui.ctx());
             self.show_advanced_search_window(ui.ctx());
             self.show_find_window(ui.ctx());
             self.show_search_replace_window(ui.ctx());
@@ -376,6 +380,7 @@ mod tests {
     use crate::gui::repositories::RepositoriesEvent;
     use crate::gui::sources::SourcesEvent;
     use crate::gui::welcome;
+    use crate::model::geocode::{GeocodeOutcome, GeocodeReport, GeocodeResult};
     use crate::model::quality::SourceQuality;
     use egui::{Pos2, Rect, vec2};
     use std::collections::HashMap;
@@ -2302,6 +2307,58 @@ mod tests {
         let editor = window.event_editor.take().expect("editor reopens");
         window.apply_event_editor_outcome(editor, EventEditorOutcome::Cancel);
         assert!(window.event_editor.is_none(), "cancel closes the editor");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn geocode_results_update_place_coordinates() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Johan /Ahlberg/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let id = window
+            .app
+            .save_place(&PlaceDraft {
+                name: "Uppsala".to_string(),
+                ..PlaceDraft::default()
+            })
+            .expect("place saves");
+        window.reload_places();
+        window.apply_places_event(PlacesEvent::Select(id.clone()));
+        window.open_geocode();
+        assert_eq!(window.geocode.places.len(), 1);
+        assert_eq!(window.geocode.places[0].id, id);
+
+        let result = GeocodeResult {
+            place_id: id.clone(),
+            place_name: "Uppsala".to_string(),
+            query: "uppsala".to_string(),
+            outcome: GeocodeOutcome::Found {
+                display_name: "Uppsala, Sweden".to_string(),
+                latitude: 59.8586,
+                longitude: 17.6389,
+            },
+            cached: false,
+        };
+        window.geocode.finish(GeocodeReport {
+            results: vec![result.clone()],
+            cancelled: false,
+            error: None,
+        });
+        window.apply_geocode(vec![result]);
+
+        assert!(!window.geocode.open);
+        assert_eq!(window.places.places.len(), 1);
+        assert_eq!(window.places.places[0].latitude, Some(59.8586));
+        assert_eq!(window.places.places[0].longitude, Some(17.6389));
+        assert_eq!(window.places.draft.latitude, "59.8586");
+        assert_eq!(window.places.draft.longitude, "17.6389");
 
         let _ = std::fs::remove_file(&db_file);
     }
