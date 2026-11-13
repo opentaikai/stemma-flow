@@ -122,6 +122,7 @@ impl TreeWindow {
         self.marriages = marriages;
         self.person_facts = facts;
         self.tree_settings = settings;
+        self.map.loaded = false;
         self.refresh_person_badges();
         self.reload_bookmarks();
         let ids: std::collections::HashSet<String> = self
@@ -149,6 +150,7 @@ impl TreeWindow {
         self.seen_generation = generation;
         if switched {
             self.places = crate::gui::places::PlacesState::default();
+            self.map = crate::gui::map::MapState::default();
             self.names = crate::gui::names::NamesState::default();
             self.fact_types = crate::gui::fact_types::FactTypesState::default();
             self.sources = crate::gui::sources::SourcesState::default();

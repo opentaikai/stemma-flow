@@ -27,6 +27,7 @@ use super::inspector::InspectorForm;
 use super::inspector::ParticipantForm;
 use super::inspector::RelationForm;
 use super::layout::TreeScene;
+use super::map;
 use super::media;
 use super::merge as merge_dialog;
 use super::names;
@@ -100,6 +101,7 @@ pub struct TreeWindow {
     pub(super) date_calculator: date_calculator::DateCalculatorState,
     pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
+    pub(super) map: map::MapState,
     pub(super) media: media::MediaState,
     pub(super) media_attach: Option<media::MediaAttachState>,
     pub(super) research: research::ResearchState,
@@ -178,6 +180,7 @@ impl TreeWindow {
             date_calculator: date_calculator::DateCalculatorState::default(),
             association_rows: Vec::new(),
             places: places::PlacesState::default(),
+            map: map::MapState::default(),
             media: media::MediaState::default(),
             media_attach: None,
             research: research::ResearchState::default(),
@@ -311,6 +314,7 @@ impl App for TreeWindow {
                 tabs::AppTab::Couples => self.couples_tab(ui),
                 tabs::AppTab::Associations => self.associations_tab(ui),
                 tabs::AppTab::Places => self.places_tab(ui),
+                tabs::AppTab::Map => self.map_tab(ui),
                 tabs::AppTab::Media => self.media_tab(ui),
                 tabs::AppTab::Research => self.research_tab(ui),
                 tabs::AppTab::FactTypes => self.fact_types_tab(ui),
@@ -367,6 +371,7 @@ mod tests {
     use super::*;
     use crate::app::JobEvent;
     use crate::db;
+    use crate::db::groups::GroupDraft;
     use crate::db::merge::MergeDraft;
     use crate::db::people::{ParentRole, PersonDetails};
     use crate::db::places::PlaceDraft;
@@ -2307,6 +2312,95 @@ mod tests {
         let editor = window.event_editor.take().expect("editor reopens");
         window.apply_event_editor_outcome(editor, EventEditorOutcome::Cancel);
         assert!(window.event_editor.is_none(), "cancel closes the editor");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn map_tab_filters_places_by_group_and_opens_the_place() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 @I2@ INDI\n1 NAME Bo /King/\n0 TRLR\n",
+        );
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let ada = window
+            .rows
+            .iter()
+            .find(|row| row.given_name == "Ada")
+            .expect("Ada")
+            .id
+            .clone();
+        let bo = window
+            .rows
+            .iter()
+            .find(|row| row.given_name == "Bo")
+            .expect("Bo")
+            .id
+            .clone();
+        for (person_id, place) in [(&ada, "Uppsala"), (&bo, "Lund")] {
+            window.app.set_selected_person(Some(person_id.clone()));
+            window.sync_inspector_form();
+            window.inspector.birth_place = place.to_string();
+            let details = window.inspector.to_details();
+            window.edit_person(&details);
+        }
+        window.reload_places();
+        assert_eq!(window.places.places.len(), 2);
+        let uppsala = window
+            .places
+            .places
+            .iter()
+            .find(|place| place.name == "Uppsala")
+            .expect("Uppsala")
+            .id
+            .clone();
+        let lund = window
+            .places
+            .places
+            .iter()
+            .find(|place| place.name == "Lund")
+            .expect("Lund")
+            .id
+            .clone();
+        for (place_id, latitude, longitude) in [
+            (&uppsala, "59.8586", "17.6389"),
+            (&lund, "55.7047", "13.1910"),
+        ] {
+            window.apply_places_event(PlacesEvent::Select(place_id.clone()));
+            window.places.draft.latitude = latitude.to_string();
+            window.places.draft.longitude = longitude.to_string();
+            let draft = window.places.draft.to_draft().expect("coordinate draft");
+            window.apply_places_event(PlacesEvent::Save(Box::new(draft)));
+        }
+
+        let group_id = window
+            .app
+            .save_group(&GroupDraft {
+                name: "One".to_string(),
+                ..GroupDraft::default()
+            })
+            .expect("group saves");
+        window
+            .app
+            .add_group_member(&group_id, &ada)
+            .expect("member added");
+
+        window.reload_map();
+        assert_eq!(window.map.places.len(), 2);
+        assert_eq!(window.map.groups.len(), 1);
+        window.select_map_group(Some(group_id));
+        let visible = window.map.visible_ids.as_ref().expect("group filter set");
+        assert_eq!(visible.len(), 1);
+        assert!(visible.contains(&uppsala));
+
+        window.open_place_from_map(uppsala.clone());
+        assert_eq!(window.tab, tabs::AppTab::Places);
+        assert_eq!(window.places.selected.as_deref(), Some(uppsala.as_str()));
+        assert_eq!(window.places.usage.len(), 1);
 
         let _ = std::fs::remove_file(&db_file);
     }

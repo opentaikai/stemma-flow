@@ -31,6 +31,8 @@ pub struct AppConfig {
     pub reverse_place_names: bool,
     /// Allow place-name lookups against OpenStreetMap Nominatim.
     pub allow_online_geocoding: bool,
+    /// Allow OpenStreetMap raster tiles for the map tab.
+    pub allow_online_map_tiles: bool,
     /// BCP 47-style locale code for the interface language.
     pub language: String,
     /// Visible columns, order and widths for the People view.
@@ -48,6 +50,7 @@ impl Default for AppConfig {
             font_size: 14.0,
             reverse_place_names: false,
             allow_online_geocoding: false,
+            allow_online_map_tiles: false,
             language: "en".to_string(),
             people_columns: default_columns(),
             saved_searches: Vec::new(),
@@ -187,6 +190,7 @@ mod tests {
             font_size: 18.5,
             reverse_place_names: true,
             allow_online_geocoding: true,
+            allow_online_map_tiles: true,
             language: "de".to_string(),
             saved_searches: vec![SavedPersonSearch::new(
                 "London born",
@@ -284,6 +288,7 @@ mod tests {
 
         assert!(!loaded.reverse_place_names);
         assert!(!loaded.allow_online_geocoding);
+        assert!(!loaded.allow_online_map_tiles);
         assert_eq!(loaded.theme, ThemeMode::Dark);
         assert!(loaded.saved_searches.is_empty());
 

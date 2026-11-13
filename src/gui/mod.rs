@@ -22,6 +22,7 @@ pub mod import_report;
 pub mod inspector;
 pub mod labels;
 pub mod layout;
+pub mod map;
 pub mod media;
 pub mod merge;
 pub mod names;
