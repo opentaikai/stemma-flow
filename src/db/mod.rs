@@ -7,6 +7,7 @@ pub mod dataclean;
 pub mod events;
 pub mod facts;
 pub mod find;
+pub mod geocode_cache;
 pub mod groups;
 pub mod labels;
 pub mod maintenance;

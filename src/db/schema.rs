@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 20;
+pub const SCHEMA_VERSION: i64 = 21;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -450,6 +450,18 @@ CREATE INDEX IF NOT EXISTS idx_source_template_fields_template
     ON source_template_fields(template_key);
 "#;
 
+/// Offline geocoding results keyed by normalized place-name query.
+pub(super) const GEOCODE_CACHE_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS geocode_cache (
+    query TEXT PRIMARY KEY,
+    display_name TEXT,
+    latitude REAL,
+    longitude REAL,
+    found INTEGER NOT NULL CHECK (found IN (0, 1)),
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
+
 /// The v1 tables, used only to fill gaps in partially created databases
 /// before migrating them.
 const V1_SCHEMA_SQL: &str = r#"
@@ -525,7 +537,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v16_to_v17(conn)?;
         super::migrations::migrate_v17_to_v18(conn)?;
         super::migrations::migrate_v18_to_v19(conn)?;
-        return super::migrations::migrate_v19_to_v20(conn);
+        super::migrations::migrate_v19_to_v20(conn)?;
+        return super::migrations::migrate_v20_to_v21(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -578,7 +591,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v16_to_v17(conn)?;
         super::migrations::migrate_v17_to_v18(conn)?;
         super::migrations::migrate_v18_to_v19(conn)?;
-        return super::migrations::migrate_v19_to_v20(conn);
+        super::migrations::migrate_v19_to_v20(conn)?;
+        return super::migrations::migrate_v20_to_v21(conn);
     }
     ensure_v16(conn)
 }
