@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v20: sources, repositories, places, media, fact catalogue, tasks, groups, labels, bookmarks | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes, v14 associations, v15 event associations, v16 parentage, v17 dismissals, v18 group rules, v19 group colours and labels, v20 bookmarks |
+| Schema v2-v21: sources, repositories, places, media, fact catalogue, tasks, groups, labels, bookmarks, geocode cache | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes, v14 associations, v15 event associations, v16 parentage, v17 dismissals, v18 group rules, v19 group colours and labels, v20 bookmarks, v21 geocode cache |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
@@ -152,7 +152,7 @@ Goal: connect people to locations and sources of evidence beyond text.
 | Place list with reverse order and usage counts | done | P1 | Uses the M1 place authority |
 | Edit people and events directly from the place list | done | P1 | Person selection and direct event editing |
 | PlaceClean and place-name standardisation | done | P2 | Component rules, rename/merge preview and batch apply |
-| Geocoding of places (latitude and longitude) | planned | P2 | Local cache, opt-in service |
+| Geocoding of places (latitude and longitude) | done | P2 | Opt-in Nominatim lookups, tree-local cache and review before apply |
 | Map view of places and groups | planned | P2 | Requires geocoding |
 | Gazetteer search | planned | P2 | Place lookup |
 | Media attachments with thumbnails and list modes | done | P1 | Media tab list plus record attachment dialogs |
