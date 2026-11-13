@@ -35,6 +35,7 @@ use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
 use crate::gui::labels::{self as label_ui, LabelEvent};
+use crate::gui::map as map_ui;
 use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, MediaEvent};
 use crate::gui::merge as merge_dialog;
 use crate::gui::merge::MergeEvent;
@@ -499,6 +500,106 @@ impl TreeWindow {
         }
     }
 
+    pub(super) fn map_tab(&mut self, ui: &mut Ui) {
+        if !self.map.loaded {
+            self.reload_map();
+        }
+        if let Some(event) = map_ui::show(ui, &mut self.map, self.config.allow_online_map_tiles) {
+            match event {
+                map_ui::MapEvent::SelectPlace(id) => self.open_place_from_map(id),
+                map_ui::MapEvent::SelectGroup(id) => self.select_map_group(id),
+                map_ui::MapEvent::OpenSettings => self.show_settings = true,
+                map_ui::MapEvent::OpenGeocode => self.open_geocode(),
+            }
+        }
+    }
+
+    pub(super) fn reload_map(&mut self) {
+        self.map.error = None;
+        let places = match self.app.list_places() {
+            Ok(places) => places,
+            Err(message) => {
+                self.map.error = Some(message);
+                self.map.loaded = true;
+                return;
+            }
+        };
+        let groups = match self.app.list_groups() {
+            Ok(mut groups) => {
+                for group in &mut groups {
+                    if let Some(rule) = &group.rule {
+                        group.member_count =
+                            crate::gui::groups::rule_members(&self.rows, rule).len() as i64;
+                    }
+                }
+                groups
+            }
+            Err(message) => {
+                self.map.error = Some(message);
+                Vec::new()
+            }
+        };
+        let active = self.map.active_group.clone();
+        self.map.set_data(places, groups);
+        if let Some(id) = active {
+            self.select_map_group(Some(id));
+        }
+    }
+
+    pub(super) fn select_map_group(&mut self, id: Option<String>) {
+        self.map.active_group = id.clone();
+        let Some(id) = id else {
+            self.map.visible_ids = None;
+            self.map.needs_fit = true;
+            return;
+        };
+        let Some(group) = self.map.groups.iter().find(|group| group.id == id).cloned() else {
+            self.map.active_group = None;
+            self.map.visible_ids = None;
+            self.map.needs_fit = true;
+            return;
+        };
+        let person_ids: Vec<String> = match &group.rule {
+            Some(rule) => crate::gui::groups::rule_members(&self.rows, rule)
+                .into_iter()
+                .map(|member| member.person_id)
+                .collect(),
+            None => match self
+                .app
+                .list_group_members(&group.id, self.tree_settings.surname_first)
+            {
+                Ok(members) => members.into_iter().map(|member| member.person_id).collect(),
+                Err(message) => {
+                    self.map.active_group = None;
+                    self.map.visible_ids = None;
+                    self.map.needs_fit = true;
+                    self.map.error = Some(message);
+                    return;
+                }
+            },
+        };
+        match self.app.place_ids_for_people(&person_ids) {
+            Ok(ids) => {
+                self.map.visible_ids = Some(ids);
+                self.map.needs_fit = true;
+                self.map.error = None;
+            }
+            Err(message) => {
+                self.map.active_group = None;
+                self.map.visible_ids = None;
+                self.map.needs_fit = true;
+                self.map.error = Some(message);
+            }
+        }
+    }
+
+    pub(super) fn open_place_from_map(&mut self, id: String) {
+        self.places.loaded = false;
+        self.places.selected = Some(id);
+        self.tab = tabs::AppTab::Places;
+        self.reload_places();
+    }
+
     pub(super) fn apply_places_event(&mut self, event: PlacesEvent) {
         match event {
             PlacesEvent::New => {
@@ -719,6 +820,7 @@ impl TreeWindow {
     }
 
     pub(super) fn reload_groups(&mut self) {
+        self.map.loaded = false;
         match self.app.list_groups() {
             Ok(mut groups) => {
                 for group in &mut groups {
@@ -2473,6 +2575,7 @@ impl TreeWindow {
             Ok(_) => {
                 self.geocode = geocode_ui::GeocodeState::default();
                 self.places.loaded = false;
+                self.map.loaded = false;
                 self.reload_places();
             }
             Err(message) => self.geocode.error = Some(message),

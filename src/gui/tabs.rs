@@ -13,6 +13,7 @@ pub enum AppTab {
     Couples,
     Associations,
     Places,
+    Map,
     Media,
     Research,
     FactTypes,
@@ -28,6 +29,7 @@ pub fn show(ui: &mut Ui, active: &mut AppTab) {
         ui.selectable_value(active, AppTab::Couples, tr("tabs.couples"));
         ui.selectable_value(active, AppTab::Associations, tr("tabs.associations"));
         ui.selectable_value(active, AppTab::Places, tr("tabs.places"));
+        ui.selectable_value(active, AppTab::Map, tr("tabs.map"));
         ui.selectable_value(active, AppTab::Media, tr("tabs.media"));
         ui.selectable_value(active, AppTab::Research, tr("tabs.research"));
         ui.selectable_value(active, AppTab::FactTypes, tr("tabs.fact_types"));

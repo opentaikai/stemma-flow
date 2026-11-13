@@ -1,5 +1,7 @@
 //! Place authority persistence.
 
+use std::collections::HashSet;
+
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
@@ -274,6 +276,46 @@ pub fn set_coordinates(
     Ok(())
 }
 
+/// Lists the places linked to any of `person_ids` through person, witness or
+/// spouse-family events.
+pub fn place_ids_for_people(
+    conn: &Connection,
+    person_ids: &[String],
+) -> Result<HashSet<String>, String> {
+    const CHUNK: usize = 200;
+    let mut place_ids = HashSet::new();
+    for chunk in person_ids.chunks(CHUNK) {
+        let placeholders = vec!["?"; chunk.len()].join(",");
+        let sql = format!(
+            "SELECT DISTINCT place_id FROM events
+             WHERE place_id IS NOT NULL AND person_id IN ({placeholders})
+             UNION
+             SELECT DISTINCT e.place_id FROM events e
+             JOIN event_participants ep ON ep.event_id = e.id
+             WHERE e.place_id IS NOT NULL AND ep.person_id IN ({placeholders})
+             UNION
+             SELECT DISTINCT e.place_id FROM events e
+             JOIN families f ON f.id = e.family_id
+             WHERE e.place_id IS NOT NULL
+               AND (f.husband_id IN ({placeholders}) OR f.wife_id IN ({placeholders}))"
+        );
+        let mut values: Vec<String> = Vec::with_capacity(chunk.len() * 4);
+        for _ in 0..4 {
+            values.extend(chunk.iter().cloned());
+        }
+        let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(values), |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            place_ids.insert(row.map_err(|error| error.to_string())?);
+        }
+    }
+    Ok(place_ids)
+}
+
 /// Deletes a place; events lose their place and place links cascade.
 pub fn delete_place(conn: &mut Connection, id: &str) -> Result<(), String> {
     let changed = conn
@@ -411,6 +453,70 @@ mod tests {
         assert!(set_coordinates(&conn, &id, 59.0, 181.0).is_err());
         assert!(set_coordinates(&conn, &id, f64::NAN, 17.0).is_err());
         assert!(set_coordinates(&conn, "missing", 59.0, 17.0).is_err());
+    }
+
+    #[test]
+    fn collects_places_for_people_families_and_witnesses() {
+        let mut conn = connection();
+        let uppsala = save_place(
+            &mut conn,
+            &PlaceDraft {
+                name: "Uppsala".to_string(),
+                ..PlaceDraft::default()
+            },
+        )
+        .expect("first place");
+        let lund = save_place(
+            &mut conn,
+            &PlaceDraft {
+                name: "Lund".to_string(),
+                ..PlaceDraft::default()
+            },
+        )
+        .expect("second place");
+        conn.execute_batch(
+            "INSERT INTO people (id, given_name, surname, gender) VALUES
+                ('p1', 'Ada', 'King', 'F'),
+                ('p2', 'Bo', 'King', 'M'),
+                ('p3', 'Otto', 'King', 'M'),
+                ('p4', 'Eva', 'King', 'F');
+             INSERT INTO families (id, husband_id, wife_id) VALUES ('f1', 'p3', 'p4');",
+        )
+        .expect("people and family");
+        conn.execute(
+            "INSERT INTO events (id, event_type, place_id, person_id)
+             VALUES ('e1', 'BIRTH', ?1, 'p1')",
+            params![uppsala],
+        )
+        .expect("person event");
+        conn.execute(
+            "INSERT INTO events (id, event_type, place_id, person_id)
+             VALUES ('e2', 'CENSUS', ?1, 'p1')",
+            params![lund],
+        )
+        .expect("witness event");
+        conn.execute(
+            "INSERT INTO event_participants (event_id, person_id, role_key)
+             VALUES ('e2', 'p2', 'witness')",
+            [],
+        )
+        .expect("participant");
+        conn.execute(
+            "INSERT INTO events (id, event_type, place_id, family_id)
+             VALUES ('e3', 'MARRIAGE', ?1, 'f1')",
+            params![lund],
+        )
+        .expect("family event");
+
+        let ids = place_ids_for_people(
+            &conn,
+            &["p1".to_string(), "p2".to_string(), "p3".to_string()],
+        )
+        .expect("places for people");
+        assert_eq!(ids, HashSet::from([uppsala.clone(), lund.clone()]));
+
+        let ids = place_ids_for_people(&conn, &["p4".to_string()]).expect("spouse places");
+        assert_eq!(ids, HashSet::from([lund]));
     }
 
     #[test]

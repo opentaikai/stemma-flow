@@ -314,6 +314,28 @@ coordinates for places that are missing a latitude or longitude:
 The v21 cache table is the only schema addition; place names and
 coordinates keep their existing schema.
 
+## Map
+
+The **Map** tab plots every geocoded place on a Web Mercator map:
+
+- Markers are sized by event count. Hovering shows the place name,
+  coordinates and event count; clicking opens the place in the Places tab.
+- Drag to pan, scroll or use **+**/**−** to zoom, and **Fit places** to frame
+  the current selection.
+- The coordinate grid and markers work fully offline.
+- Choose **All places** or a named person group. A group filter includes
+  places from its members' person events, witness events and spouse-family
+  events, and uses the group colour for the markers.
+- Missing coordinates are summarised in the sidebar with a shortcut to
+  **Geocode Places**.
+
+Enable **Settings > Places > Allow online map tiles** to show an
+OpenStreetMap raster basemap. Tiles are requested only for the visible map,
+cached under the operating system's cache directory
+(`stemma-flow/tiles/{z}/{x}/{y}.png`), and attributed to
+[OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
+Disabling the setting leaves the offline coordinate view intact.
+
 ## Find Everywhere
 
 **Tools > Find Everywhere…** or **Ctrl+Shift+F** opens a modeless global
@@ -806,7 +828,8 @@ editor also block merging until they are saved or discarded.
   components largest-first in read-only displays; editors and GEDCOM keep
   the stored order. **Allow online place lookups** opts in to OpenStreetMap
   Nominatim geocoding from the Geocode Places dialog; results are cached in
-  the tree.
+  the tree. **Allow online map tiles** opts in to the Map tab's
+  OpenStreetMap raster basemap; tiles are cached in the OS cache directory.
 
 ## Translations
 

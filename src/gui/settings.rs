@@ -115,6 +115,20 @@ pub fn show(ctx: &Context, config: &mut AppConfig, open: &mut bool) -> Option<St
                     .weak()
                     .small(),
             );
+            if ui
+                .checkbox(
+                    &mut config.allow_online_map_tiles,
+                    tr("settings.allow_map_tiles"),
+                )
+                .changed()
+            {
+                places_changed = true;
+            }
+            ui.label(
+                egui::RichText::new(tr("settings.map_tiles_hint"))
+                    .weak()
+                    .small(),
+            );
         });
 
     if !(theme_changed || font_apply || places_changed || language_changed) {
