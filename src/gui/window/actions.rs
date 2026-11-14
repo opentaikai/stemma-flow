@@ -1643,6 +1643,27 @@ impl TreeWindow {
                 }
             }
             MediaEvent::RepairMissing => self.open_media_repair(),
+            MediaEvent::SetPortrait {
+                person_id,
+                media_id,
+            } => match self.app.set_portrait(&person_id, Some(&media_id)) {
+                Ok(()) => {
+                    if let Some(id) = self.media.selected.clone() {
+                        self.load_media_draft(&id);
+                    }
+                }
+                Err(message) => self.media.error = Some(message),
+            },
+            MediaEvent::ClearPortrait { person_id } => {
+                match self.app.set_portrait(&person_id, None) {
+                    Ok(()) => {
+                        if let Some(id) = self.media.selected.clone() {
+                            self.load_media_draft(&id);
+                        }
+                    }
+                    Err(message) => self.media.error = Some(message),
+                }
+            }
             MediaEvent::Tasks { media_id, title } => {
                 self.open_tasks(TaskOwner::Media(media_id), title);
             }

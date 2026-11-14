@@ -116,6 +116,13 @@ pub enum MediaEvent {
     Delete(String),
     Browse,
     RepairMissing,
+    SetPortrait {
+        person_id: String,
+        media_id: String,
+    },
+    ClearPortrait {
+        person_id: String,
+    },
     Detach {
         owner_type: String,
         owner_id: String,
@@ -443,6 +450,26 @@ pub fn show(
                         .small(),
                 );
                 ui.label(&link.label);
+                if link.owner_type == "person" {
+                    if link.portrait {
+                        ui.label(RichText::new("Portrait").weak().small());
+                        if ui.small_button("Clear").clicked() {
+                            event = Some(MediaEvent::ClearPortrait {
+                                person_id: link.owner_id.clone(),
+                            });
+                        }
+                    } else if crate::db::media::is_image_path(
+                        &state.draft.file_path,
+                        Some(state.draft.format.as_str()),
+                    ) && let Some(media_id) = state.draft.id.clone()
+                        && ui.small_button("Set portrait").clicked()
+                    {
+                        event = Some(MediaEvent::SetPortrait {
+                            person_id: link.owner_id.clone(),
+                            media_id,
+                        });
+                    }
+                }
                 if ui.small_button("Detach").clicked() {
                     event = Some(MediaEvent::Detach {
                         owner_type: link.owner_type.clone(),

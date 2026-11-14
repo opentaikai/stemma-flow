@@ -1063,6 +1063,22 @@ impl StemmaApp {
         Ok(())
     }
 
+    /// Sets or clears a person's primary portrait.
+    pub fn set_portrait(&mut self, person_id: &str, media_id: Option<&str>) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        media_store::set_portrait(&conn, person_id, media_id)?;
+        self.set_status(UiStatus::Success("Portrait updated".to_string()));
+        Ok(())
+    }
+
+    /// Resolves the best portrait path for each person.
+    pub fn portrait_paths(&self) -> Result<std::collections::HashMap<String, PathBuf>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        media_store::portrait_paths(&conn, path.parent())
+    }
+
     /// Deletes one media record and its links.
     pub fn delete_media(&mut self, id: &str) -> Result<(), String> {
         let path = self.require_active_db()?;

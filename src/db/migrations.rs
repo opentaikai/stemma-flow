@@ -287,6 +287,19 @@ pub(super) fn migrate_v21_to_v22(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// Adds the optional primary portrait link on people.
+pub(super) fn migrate_v22_to_v23(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    ensure_column(
+        &tx,
+        "people",
+        "portrait_media_id",
+        "TEXT REFERENCES media(id) ON DELETE SET NULL",
+    )?;
+    tx.pragma_update(None, "user_version", 23)?;
+    tx.commit()
+}
+
 /// Copies distinct event places into `places` and links the events.
 fn migrate_places(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut stmt = tx.prepare(

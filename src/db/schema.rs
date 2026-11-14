@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 22;
+pub const SCHEMA_VERSION: i64 = 23;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -562,7 +562,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v18_to_v19(conn)?;
         super::migrations::migrate_v19_to_v20(conn)?;
         super::migrations::migrate_v20_to_v21(conn)?;
-        return super::migrations::migrate_v21_to_v22(conn);
+        super::migrations::migrate_v21_to_v22(conn)?;
+        return super::migrations::migrate_v22_to_v23(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -617,7 +618,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v18_to_v19(conn)?;
         super::migrations::migrate_v19_to_v20(conn)?;
         super::migrations::migrate_v20_to_v21(conn)?;
-        return super::migrations::migrate_v21_to_v22(conn);
+        super::migrations::migrate_v21_to_v22(conn)?;
+        return super::migrations::migrate_v22_to_v23(conn);
     }
     ensure_v16(conn)
 }
