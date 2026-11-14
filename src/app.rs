@@ -60,7 +60,9 @@ use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::group_roster::{self, GroupRosterReport};
+use crate::report::photo_tree::PhotoTreeReport;
 use crate::report::research_log::{self, ResearchLogReport};
+use crate::report::scrapbook::ScrapbookReport;
 
 /// Outcome of a background import/export job.
 #[derive(Debug)]
@@ -98,6 +100,16 @@ pub enum JobEvent {
         path: PathBuf,
         bytes: usize,
         members: usize,
+    },
+    PhotoTreeExported {
+        path: PathBuf,
+        bytes: usize,
+        people: usize,
+    },
+    ScrapbookExported {
+        path: PathBuf,
+        bytes: usize,
+        albums: usize,
     },
     GeocodeProgress {
         done: usize,
@@ -138,6 +150,8 @@ enum Job {
     },
     ResearchLog(Box<ResearchLogReport>),
     GroupRoster(Box<GroupRosterReport>),
+    PhotoTree(Box<PhotoTreeReport>),
+    Scrapbook(Box<ScrapbookReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -289,6 +303,16 @@ impl StemmaApp {
     /// Writes a print-ready HTML group roster on a worker thread.
     pub fn begin_group_roster_export(&mut self, report: GroupRosterReport) {
         self.begin(Job::GroupRoster(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready photo tree on a worker thread.
+    pub fn begin_photo_tree_export(&mut self, report: PhotoTreeReport) {
+        self.begin(Job::PhotoTree(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready scrapbook on a worker thread.
+    pub fn begin_scrapbook_export(&mut self, report: ScrapbookReport) {
+        self.begin(Job::Scrapbook(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1063,6 +1087,22 @@ impl StemmaApp {
         Ok(())
     }
 
+    /// Sets or clears a person's primary portrait.
+    pub fn set_portrait(&mut self, person_id: &str, media_id: Option<&str>) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        media_store::set_portrait(&conn, person_id, media_id)?;
+        self.set_status(UiStatus::Success("Portrait updated".to_string()));
+        Ok(())
+    }
+
+    /// Resolves the best portrait path for each person.
+    pub fn portrait_paths(&self) -> Result<std::collections::HashMap<String, PathBuf>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        media_store::portrait_paths(&conn, path.parent())
+    }
+
     /// Deletes one media record and its links.
     pub fn delete_media(&mut self, id: &str) -> Result<(), String> {
         let path = self.require_active_db()?;
@@ -1533,6 +1573,8 @@ impl StemmaApp {
             Job::Maintenance { .. } => "Running database maintenance\u{2026}",
             Job::ResearchLog(_) => "Choosing research log destination\u{2026}",
             Job::GroupRoster(_) => "Choosing group report destination\u{2026}",
+            Job::PhotoTree(_) => "Choosing photo tree destination\u{2026}",
+            Job::Scrapbook(_) => "Choosing scrapbook destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1649,6 +1691,22 @@ impl StemmaApp {
                 members,
             } => UiStatus::Success(format!(
                 "Exported {members} group members ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::PhotoTreeExported {
+                path,
+                bytes,
+                people,
+            } => UiStatus::Success(format!(
+                "Exported {people} people ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::ScrapbookExported {
+                path,
+                bytes,
+                albums,
+            } => UiStatus::Success(format!(
+                "Exported {albums} albums ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::Geocoded(report) => {
@@ -1886,6 +1944,52 @@ impl Job {
                     },
                 );
                 JobEvent::Geocoded(Box::new(report))
+            }
+            Job::PhotoTree(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::photo_tree::file_name(&report.root_name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::photo_tree::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::PhotoTreeExported {
+                                path: dest,
+                                bytes,
+                                people: report.people.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::Scrapbook(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::scrapbook::file_name(&report.tree_name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::scrapbook::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::ScrapbookExported {
+                                path: dest,
+                                bytes,
+                                albums: report.albums.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
             }
             Job::Maintenance { kind, backup_first } => {
                 let Some(db_path) = db_path else {

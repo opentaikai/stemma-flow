@@ -1,5 +1,6 @@
 //! Media record persistence and record attachments.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -93,6 +94,7 @@ pub struct MediaLinkSummary {
     pub owner_type: String,
     pub owner_id: String,
     pub label: String,
+    pub portrait: bool,
 }
 
 fn clean(value: &str) -> Option<String> {
@@ -321,7 +323,8 @@ pub fn list_media_links(
     let mut links = Vec::new();
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, p.name_prefix, p.given_name, p.middle_name, p.surname, p.name_suffix
+            "SELECT p.id, p.name_prefix, p.given_name, p.middle_name, p.surname, p.name_suffix,
+                    p.portrait_media_id
              FROM media_links l JOIN people p ON p.id = l.person_id
              WHERE l.media_id = ?1 AND l.person_id IS NOT NULL ORDER BY p.rowid",
         )
@@ -344,6 +347,7 @@ pub fn list_media_links(
                 } else {
                     name
                 },
+                portrait: row.get::<_, Option<String>>(6)?.as_deref() == Some(media_id),
             })
         })
         .map_err(|error| error.to_string())?
@@ -363,6 +367,7 @@ pub fn list_media_links(
                 owner_type: "family".to_string(),
                 owner_id: row.get(0)?,
                 label: "Family".to_string(),
+                portrait: false,
             })
         })
         .map_err(|error| error.to_string())?
@@ -389,6 +394,7 @@ pub fn list_media_links(
                     Some(date) => format!("{label} ({date})"),
                     None => label,
                 },
+                portrait: false,
             })
         })
         .map_err(|error| error.to_string())?
@@ -408,6 +414,7 @@ pub fn list_media_links(
                 owner_type: "source".to_string(),
                 owner_id: row.get(0)?,
                 label: row.get(1)?,
+                portrait: false,
             })
         })
         .map_err(|error| error.to_string())?
@@ -434,6 +441,7 @@ pub fn list_media_links(
                     Some(page) => format!("{title} — {page}"),
                     None => title,
                 },
+                portrait: false,
             })
         })
         .map_err(|error| error.to_string())?
@@ -453,6 +461,7 @@ pub fn list_media_links(
                 owner_type: "place".to_string(),
                 owner_id: row.get(0)?,
                 label: row.get(1)?,
+                portrait: false,
             })
         })
         .map_err(|error| error.to_string())?
@@ -503,6 +512,106 @@ pub fn owner_label(owner: &MediaOwner) -> &'static str {
     owner.label()
 }
 
+/// Whether a media path/format points at a supported image.
+pub fn is_image_path(path: &str, format: Option<&str>) -> bool {
+    let value = format
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .or_else(|| {
+            Path::new(path)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase)
+        });
+    matches!(
+        value.as_deref(),
+        Some("jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp")
+    )
+}
+
+/// Sets or clears the primary portrait for a person.
+pub fn set_portrait(
+    conn: &Connection,
+    person_id: &str,
+    media_id: Option<&str>,
+) -> Result<(), String> {
+    ensure_exists(conn, "people", person_id)?;
+    if let Some(media_id) = media_id {
+        ensure_exists(conn, "media", media_id)?;
+        let linked: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM media_links WHERE person_id = ?1 AND media_id = ?2 LIMIT 1",
+                params![person_id, media_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if linked.is_none() {
+            return Err("media is not attached to this person".to_string());
+        }
+    }
+    conn.execute(
+        "UPDATE people SET portrait_media_id = ?1 WHERE id = ?2",
+        params![media_id, person_id],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Resolves the best portrait path for each person with a usable image.
+pub fn portrait_paths(
+    conn: &Connection,
+    base_dir: Option<&Path>,
+) -> Result<HashMap<String, PathBuf>, String> {
+    let mut paths = HashMap::new();
+    let mut stmt = conn
+        .prepare(
+            "SELECT p.id, m.file_path
+             FROM people p JOIN media m ON m.id = p.portrait_media_id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (person_id, file_path) = row.map_err(|error| error.to_string())?;
+        if !file_path.trim().is_empty() {
+            paths.insert(person_id, media_path::resolve(base_dir, &file_path));
+        }
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT l.person_id, m.file_path, m.format
+             FROM media_links l JOIN media m ON m.id = l.media_id
+             WHERE l.person_id IS NOT NULL
+             ORDER BY l.person_id, l.rowid, m.rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (person_id, file_path, format) = row.map_err(|error| error.to_string())?;
+        if paths.contains_key(&person_id) {
+            continue;
+        }
+        if is_image_path(&file_path, format.as_deref()) {
+            paths.insert(person_id, media_path::resolve(base_dir, &file_path));
+        }
+    }
+    Ok(paths)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -541,6 +650,38 @@ mod tests {
         assert_eq!(record.format.as_deref(), Some("jpg"));
         assert!(list_media(&conn).expect("list")[0].missing);
         assert!(save_media(&conn, &draft("   ")).is_err());
+    }
+
+    #[test]
+    fn portrait_links_and_fallback_paths() {
+        let conn = connection();
+        let first = save_media(&conn, &draft("/tmp/portrait.jpg")).expect("first");
+        let second = save_media(&conn, &draft("/tmp/other.png")).expect("second");
+        let owner = MediaOwner::Person("p1".to_string());
+        attach_media(&conn, &first, &owner).expect("attach first");
+        attach_media(&conn, &second, &owner).expect("attach second");
+
+        let links = list_media_links(&conn, &first, false).expect("links");
+        assert!(!links[0].portrait);
+        set_portrait(&conn, "p1", Some(&first)).expect("set portrait");
+        let links = list_media_links(&conn, &first, false).expect("links");
+        assert!(links[0].portrait);
+        let paths = portrait_paths(&conn, None).expect("portraits");
+        assert_eq!(paths.get("p1"), Some(&PathBuf::from("/tmp/portrait.jpg")));
+
+        set_portrait(&conn, "p1", None).expect("clear portrait");
+        let paths = portrait_paths(&conn, None).expect("portraits");
+        assert_eq!(
+            paths.get("p1"),
+            Some(&PathBuf::from("/tmp/portrait.jpg")),
+            "first linked image is the fallback"
+        );
+
+        let third = save_media(&conn, &draft("/tmp/third.jpg")).expect("third");
+        assert!(
+            set_portrait(&conn, "p1", Some(&third)).is_err(),
+            "portrait must be attached to the person"
+        );
     }
 
     #[test]

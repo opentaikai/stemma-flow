@@ -36,11 +36,13 @@ use super::names;
 use super::notes as notes_dialog;
 use super::pedigree;
 use super::person_editor;
+use super::photo_tree;
 use super::place_clean;
 use super::places;
 use super::relationship_calculator;
 use super::repositories;
 use super::research;
+use super::scrapbook;
 use super::search_replace;
 use super::settings;
 use super::soundex;
@@ -113,6 +115,8 @@ pub struct TreeWindow {
     pub(super) names: names::NamesState,
     pub(super) notes: notes_dialog::NotesState,
     pub(super) person_editor: Option<person_editor::PersonEditor>,
+    pub(super) photo_tree: photo_tree::PhotoTreeState,
+    pub(super) scrapbook: scrapbook::ScrapbookState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -194,6 +198,8 @@ impl TreeWindow {
             names: names::NamesState::default(),
             notes: notes_dialog::NotesState::default(),
             person_editor: None,
+            photo_tree: photo_tree::PhotoTreeState::default(),
+            scrapbook: scrapbook::ScrapbookState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -338,6 +344,8 @@ impl App for TreeWindow {
             self.show_media_attach(ui.ctx());
             self.show_media_repair_window(ui.ctx());
             self.show_person_editor(ui.ctx());
+            self.show_photo_tree_window(ui.ctx());
+            self.show_scrapbook_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2043,6 +2051,55 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(media_dir);
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_photo_tree_and_scrapbook_reports() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("person").id.clone();
+
+        let photo_tree = window
+            .build_photo_tree_report(&person_id, 3)
+            .expect("photo tree report");
+        assert_eq!(photo_tree.root_name, "Ada King");
+        assert_eq!(photo_tree.people.len(), 1);
+        assert_eq!(photo_tree.scene.nodes.len(), 1);
+
+        let media_id = window
+            .app
+            .save_media(&crate::db::media::MediaDraft {
+                file_path: "/tmp/photo.jpg".to_string(),
+                caption: "Photo".to_string(),
+                ..crate::db::media::MediaDraft::default()
+            })
+            .expect("media");
+        let album_id = window
+            .app
+            .save_album(&crate::db::albums::AlbumDraft {
+                name: "Trip".to_string(),
+                ..crate::db::albums::AlbumDraft::default()
+            })
+            .expect("album");
+        window
+            .app
+            .add_media_to_album(&album_id, &media_id)
+            .expect("album media");
+        let scrapbook = window
+            .build_scrapbook_report(&[album_id])
+            .expect("scrapbook report");
+        assert_eq!(scrapbook.albums.len(), 1);
+        assert_eq!(scrapbook.albums[0].name, "Trip");
+        assert_eq!(scrapbook.albums[0].photos.len(), 1);
+        assert_eq!(
+            scrapbook.albums[0].photos[0].caption.as_deref(),
+            Some("Photo")
+        );
+
         let _ = std::fs::remove_file(&db_file);
     }
 

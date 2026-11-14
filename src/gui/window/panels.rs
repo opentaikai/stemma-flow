@@ -227,6 +227,20 @@ impl TreeWindow {
                 }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
+                    && ui.button(tr("tools.photo_tree")).clicked()
+                {
+                    ui.close();
+                    self.open_photo_tree();
+                }
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
+                    && ui.button(tr("tools.scrapbook")).clicked()
+                {
+                    ui.close();
+                    self.open_scrapbook();
+                }
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
                     && ui.button(tr("tools.replace")).clicked()
                 {
                     ui.close();
