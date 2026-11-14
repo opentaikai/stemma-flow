@@ -8,7 +8,7 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// Current schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 21;
+pub const SCHEMA_VERSION: i64 = 22;
 
 /// Tables shared by fresh databases and migrations.
 pub(super) const CORE_TABLES_SQL: &str = r#"
@@ -462,6 +462,29 @@ CREATE TABLE IF NOT EXISTS geocode_cache (
 );
 "#;
 
+/// Per-person and general media albums with ordered membership.
+pub(super) const ALBUMS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS albums (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS album_media (
+    album_id TEXT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (album_id, media_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_albums_person ON albums(person_id);
+CREATE INDEX IF NOT EXISTS idx_album_media_media ON album_media(media_id);
+"#;
+
 /// The v1 tables, used only to fill gaps in partially created databases
 /// before migrating them.
 const V1_SCHEMA_SQL: &str = r#"
@@ -538,7 +561,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v17_to_v18(conn)?;
         super::migrations::migrate_v18_to_v19(conn)?;
         super::migrations::migrate_v19_to_v20(conn)?;
-        return super::migrations::migrate_v20_to_v21(conn);
+        super::migrations::migrate_v20_to_v21(conn)?;
+        return super::migrations::migrate_v21_to_v22(conn);
     }
     if version < SCHEMA_VERSION {
         if version < 2 {
@@ -592,7 +616,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         super::migrations::migrate_v17_to_v18(conn)?;
         super::migrations::migrate_v18_to_v19(conn)?;
         super::migrations::migrate_v19_to_v20(conn)?;
-        return super::migrations::migrate_v20_to_v21(conn);
+        super::migrations::migrate_v20_to_v21(conn)?;
+        return super::migrations::migrate_v21_to_v22(conn);
     }
     ensure_v16(conn)
 }
