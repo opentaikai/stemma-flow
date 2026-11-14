@@ -77,7 +77,7 @@ places, facts, alternate names and notes as first-class records.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Schema v2-v21: sources, repositories, places, media, fact catalogue, tasks, groups, labels, bookmarks, geocode cache | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes, v14 associations, v15 event associations, v16 parentage, v17 dismissals, v18 group rules, v19 group colours and labels, v20 bookmarks, v21 geocode cache |
+| Schema v2-v22: sources, repositories, places, media, albums, fact catalogue, tasks, groups, labels, bookmarks, geocode cache | done | P0 | v3 metadata, v4 templates, v5 outputs, v6 links, v8 roles, v9 participants, v10 privacy, v11 names, v12 display settings, v13 notes, v14 associations, v15 event associations, v16 parentage, v17 dismissals, v18 group rules, v19 group colours and labels, v20 bookmarks, v21 geocode cache, v22 media albums |
 | Citations linked to sources instead of embedded source titles | done | P0 | Full import/export fidelity; inspector editor |
 | Source templates (Evidence Explained style, start with a small set) | done | P0 | Five built-in templates, DB-backed catalogue, live preview |
 | Free-form sources with footnote, short footnote and bibliography | done | P0 | Editor, page appending and live preview |
@@ -156,7 +156,7 @@ Goal: connect people to locations and sources of evidence beyond text.
 | Map view of places and groups | done | P2 | Offline coordinate map with named group filters and optional cached OSM tiles |
 | Gazetteer search | done | P2 | Multi-result Nominatim lookup, session cache, editor fill and map focus |
 | Media attachments with thumbnails and list modes | done | P1 | Media tab list plus record attachment dialogs |
-| Media albums and drag-and-drop organisation | planned | P2 | Per person and general albums |
+| Media albums and drag-and-drop organisation | done | P2 | General and per-person albums with drag/drop add and reorder |
 | Relative media links so trees move between computers | planned | P2 | Portable paths |
 | Broken media link repair | planned | P2 | Locate or relink |
 | Photo tree and scrapbook | planned | P2 | Publishing-oriented |
