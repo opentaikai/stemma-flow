@@ -123,6 +123,7 @@ impl TreeWindow {
         self.person_facts = facts;
         self.tree_settings = settings;
         self.map.loaded = false;
+        self.media.albums_loaded = false;
         self.refresh_person_badges();
         self.reload_bookmarks();
         let ids: std::collections::HashSet<String> = self
