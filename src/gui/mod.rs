@@ -16,6 +16,7 @@ pub mod event_editor;
 pub mod export_dialog;
 pub mod fact_types;
 pub mod find_everywhere;
+pub mod gazetteer;
 pub mod geocode;
 pub mod groups;
 pub mod import_report;

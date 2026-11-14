@@ -178,6 +178,14 @@ impl MapState {
         self.center_y = self.center_y.clamp(0.0, 1.0);
     }
 
+    /// Centres the map on a coordinate without automatic fitting.
+    pub fn focus(&mut self, latitude: f64, longitude: f64, zoom: u8) {
+        self.center_x = map::lon_to_x(longitude).clamp(0.0, 1.0);
+        self.center_y = map::lat_to_y(latitude);
+        self.zoom = zoom.clamp(map::MIN_ZOOM, map::MAX_ZOOM);
+        self.needs_fit = false;
+    }
+
     fn world_to_screen(&self, x: f64, y: f64, rect: Rect) -> Pos2 {
         let world = map::world_size(self.zoom);
         let x = wrap_x(x, self.center_x);
@@ -714,6 +722,18 @@ mod tests {
         assert!(!state.needs_fit);
         assert!(state.zoom >= map::MIN_ZOOM);
         assert!((state.center_x - 0.5).abs() < 0.3);
+    }
+
+    #[test]
+    fn focus_centres_a_coordinate_without_fitting() {
+        let mut state = MapState::default();
+        state.focus(59.8586, 17.6389, 12);
+        assert!(!state.needs_fit);
+        assert!((state.center_x - map::lon_to_x(17.6389)).abs() < 1e-9);
+        assert!((state.center_y - map::lat_to_y(59.8586)).abs() < 1e-9);
+        assert_eq!(state.zoom, 12);
+        state.focus(0.0, 0.0, 99);
+        assert_eq!(state.zoom, map::MAX_ZOOM);
     }
 
     #[test]

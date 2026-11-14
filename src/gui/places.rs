@@ -18,6 +18,7 @@ pub enum PlacesEvent {
     EditEvent(String),
     PlaceClean,
     Geocode,
+    Gazetteer,
     Notes { place_id: String, title: String },
     Media { place_id: String, title: String },
     Tasks { place_id: String, title: String },
@@ -132,6 +133,9 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<Place
             }
             if ui.button("Geocode…").clicked() {
                 event = Some(PlacesEvent::Geocode);
+            }
+            if ui.button("Gazetteer…").clicked() {
+                event = Some(PlacesEvent::Gazetteer);
             }
         });
     });
