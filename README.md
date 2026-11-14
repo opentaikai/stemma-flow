@@ -336,6 +336,26 @@ cached under the operating system's cache directory
 [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
 Disabling the setting leaves the offline coordinate view intact.
 
+## Gazetteer search
+
+**Gazetteer…** in the Places tab, or **Tools > Gazetteer Search…**, looks
+up a place in the OpenStreetMap gazetteer:
+
+- It uses the same opt-in as online place lookups: **Settings > Places >
+  Allow online place lookups**.
+- Type a name and press **Search**. Results show the full display name,
+  settlement/administrative type and decimal coordinates.
+- Results are cached for the session; **Refresh** repeats the request.
+- **Use in place editor** fills the selected place draft or starts a new
+  place with the chosen name and coordinates. Saving remains an explicit
+  review step.
+- **Show on map** clears any group filter, centres the Map tab on the result
+  and switches to it.
+- Attribution: search by OpenStreetMap Nominatim, data © OpenStreetMap
+  contributors, ODbL.
+
+No schema change is required.
+
 ## Find Everywhere
 
 **Tools > Find Everywhere…** or **Ctrl+Shift+F** opens a modeless global
