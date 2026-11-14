@@ -180,6 +180,7 @@ impl TreeWindow {
             self.associations_owner = None;
             self.pending_association = None;
             self.media = crate::gui::media::MediaState::default();
+            self.media_repair = crate::gui::media_repair::MediaRepairState::default();
             self.media_attach = None;
             self.research = crate::gui::research::ResearchState::default();
             self.task_attach = None;

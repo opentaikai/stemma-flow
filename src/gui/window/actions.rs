@@ -39,6 +39,7 @@ use crate::gui::inspector::RelationOutcome;
 use crate::gui::labels::{self as label_ui, LabelEvent};
 use crate::gui::map as map_ui;
 use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, MediaEvent};
+use crate::gui::media_repair::{self as media_repair_ui, MediaRepairEvent};
 use crate::gui::merge as merge_dialog;
 use crate::gui::merge::MergeEvent;
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
@@ -59,6 +60,7 @@ use crate::gui::watchlist::WatchEvent;
 use crate::gui::welcome;
 use crate::model::dataclean::DataCleanPlan;
 use crate::model::geocode::GeocodeResult;
+use crate::model::media_repair::MediaRepairMatch;
 use crate::report::research_log::ResearchLogReport;
 use eframe::Frame;
 use egui::Ui;
@@ -1640,6 +1642,7 @@ impl TreeWindow {
                     }
                 }
             }
+            MediaEvent::RepairMissing => self.open_media_repair(),
             MediaEvent::Tasks { media_id, title } => {
                 self.open_tasks(TaskOwner::Media(media_id), title);
             }
@@ -1742,6 +1745,71 @@ impl TreeWindow {
                 Ok(()) => self.reload_album_media(),
                 Err(message) => self.media.album_error = Some(message),
             },
+        }
+    }
+
+    pub(super) fn open_media_repair(&mut self) {
+        match self.app.list_media() {
+            Ok(media) => self.media_repair.set_missing(media),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn show_media_repair_window(&mut self, ctx: &egui::Context) {
+        if !self.media_repair.open {
+            return;
+        }
+        if let Some(event) = media_repair_ui::show(ctx, &mut self.media_repair) {
+            match event {
+                MediaRepairEvent::Locate(id) => {
+                    if let Some(path) = dialogs::pick_media_path() {
+                        match self.app.relink_media(&id, &path.to_string_lossy()) {
+                            Ok(()) => self.refresh_media_repair(),
+                            Err(message) => self.media_repair.error = Some(message),
+                        }
+                    }
+                }
+                MediaRepairEvent::Edit(id) => {
+                    self.tab = tabs::AppTab::Media;
+                    self.media.loaded = false;
+                    self.media.selected = Some(id);
+                    self.reload_media();
+                    self.media_repair.open = false;
+                }
+                MediaRepairEvent::SearchFolder => {
+                    if let Some(folder) = dialogs::pick_folder() {
+                        self.media_repair.start_scan(folder);
+                    }
+                }
+                MediaRepairEvent::Apply(matches) => self.apply_media_repair_matches(&matches),
+                MediaRepairEvent::Refresh => self.refresh_media_repair(),
+            }
+        }
+    }
+
+    pub(super) fn apply_media_repair_matches(&mut self, matches: &[MediaRepairMatch]) {
+        let mut errors = Vec::new();
+        for item in matches {
+            if let Err(message) = self.app.relink_media(&item.media_id, &item.new_path) {
+                errors.push(format!("{}: {message}", item.old_path));
+            }
+        }
+        self.refresh_media_repair();
+        if !errors.is_empty() {
+            self.media_repair.error = Some(errors.join("; "));
+        }
+    }
+
+    fn refresh_media_repair(&mut self) {
+        match self.app.list_media() {
+            Ok(media) => {
+                self.media.loaded = false;
+                self.reload_media();
+                self.reload_album_media();
+                self.reload_media_albums();
+                self.media_repair.set_missing(media);
+            }
+            Err(message) => self.media_repair.error = Some(message),
         }
     }
 

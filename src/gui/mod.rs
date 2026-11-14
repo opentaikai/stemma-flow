@@ -25,6 +25,7 @@ pub mod labels;
 pub mod layout;
 pub mod map;
 pub mod media;
+pub mod media_repair;
 pub mod merge;
 pub mod names;
 pub mod nodes;
