@@ -23,11 +23,25 @@ pub struct GeocodeHit {
     pub longitude: f64,
 }
 
+/// One gazetteer match with its Nominatim classification.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GazetteerHit {
+    pub display_name: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub kind: Option<String>,
+    pub class: Option<String>,
+}
+
 #[derive(serde::Deserialize)]
 struct NominatimHit {
     lat: String,
     lon: String,
     display_name: String,
+    #[serde(default)]
+    class: Option<String>,
+    #[serde(default, rename = "type")]
+    kind: Option<String>,
 }
 
 /// Builds the shared HTTP agent used by a batch lookup.
@@ -42,47 +56,71 @@ pub fn agent() -> Agent {
 
 /// Looks up one place, returning the first provider match.
 pub fn lookup(agent: &Agent, query: &str) -> Result<Option<GeocodeHit>, String> {
+    Ok(parse_search_response(&request(agent, query, 1)?)?
+        .into_iter()
+        .next()
+        .map(|hit| GeocodeHit {
+            display_name: hit.display_name,
+            latitude: hit.latitude,
+            longitude: hit.longitude,
+        }))
+}
+
+/// Searches the gazetteer, returning up to `limit` validated matches.
+pub fn search(agent: &Agent, query: &str, limit: usize) -> Result<Vec<GazetteerHit>, String> {
+    parse_search_response(&request(agent, query, limit)?)
+}
+
+fn request(agent: &Agent, query: &str, limit: usize) -> Result<String, String> {
     let mut response = agent
         .get(SEARCH_URL)
         .query("q", query)
         .query("format", "jsonv2")
-        .query("limit", "1")
+        .query("limit", limit.to_string())
         .query("addressdetails", "0")
         .call()
         .map_err(|error| error.to_string())?;
-    let body = response
+    response
         .body_mut()
         .read_to_string()
-        .map_err(|error| error.to_string())?;
-    parse_response(&body)
+        .map_err(|error| error.to_string())
 }
 
 /// Parses a Nominatim search response into at most one validated hit.
 pub fn parse_response(body: &str) -> Result<Option<GeocodeHit>, String> {
+    Ok(parse_search_response(body)?
+        .into_iter()
+        .next()
+        .map(|hit| GeocodeHit {
+            display_name: hit.display_name,
+            latitude: hit.latitude,
+            longitude: hit.longitude,
+        }))
+}
+
+/// Parses a Nominatim search response into every valid match.
+pub fn parse_search_response(body: &str) -> Result<Vec<GazetteerHit>, String> {
     let hits: Vec<NominatimHit> = serde_json::from_str(body)
         .map_err(|error| format!("invalid geocoding response: {error}"))?;
-    let Some(hit) = hits.into_iter().next() else {
-        return Ok(None);
-    };
-    let latitude = hit
-        .lat
-        .parse::<f64>()
-        .map_err(|_| format!("invalid latitude \"{}\"", hit.lat))?;
-    let longitude = hit
-        .lon
-        .parse::<f64>()
-        .map_err(|_| format!("invalid longitude \"{}\"", hit.lon))?;
+    Ok(hits.into_iter().filter_map(valid_hit).collect())
+}
+
+fn valid_hit(hit: NominatimHit) -> Option<GazetteerHit> {
+    let latitude = hit.lat.parse::<f64>().ok()?;
+    let longitude = hit.lon.parse::<f64>().ok()?;
     if !latitude.is_finite() || !(-90.0..=90.0).contains(&latitude) {
-        return Err(format!("latitude {} is out of range", hit.lat));
+        return None;
     }
     if !longitude.is_finite() || !(-180.0..=180.0).contains(&longitude) {
-        return Err(format!("longitude {} is out of range", hit.lon));
+        return None;
     }
-    Ok(Some(GeocodeHit {
+    Some(GazetteerHit {
         display_name: hit.display_name,
         latitude,
         longitude,
-    }))
+        kind: hit.kind,
+        class: hit.class,
+    })
 }
 
 /// Runs a cache-first batch lookup, stopping on cancellation or the first error.
@@ -218,7 +256,50 @@ mod tests {
 
         assert_eq!(parse_response("[]").expect("empty parses"), None);
         assert!(parse_response("not json").is_err());
-        assert!(parse_response(r#"[{"lat":"91","lon":"17","display_name":"Bad"}]"#).is_err());
+        assert_eq!(
+            parse_response(r#"[{"lat":"91","lon":"17","display_name":"Bad"}]"#)
+                .expect("invalid hits are skipped"),
+            None
+        );
+    }
+
+    #[test]
+    fn parses_multiple_gazetteer_hits_with_types() {
+        let hits = parse_search_response(
+            r#"[
+                {"lat":"59.8586","lon":"17.6389","display_name":"Uppsala, Sweden","class":"place","type":"city"},
+                {"lat":"59.8000","lon":"17.6000","display_name":"Uppsala County","class":"boundary","type":"administrative"}
+            ]"#,
+        )
+        .expect("search response parses");
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].display_name, "Uppsala, Sweden");
+        assert_eq!(hits[0].kind.as_deref(), Some("city"));
+        assert_eq!(hits[0].class.as_deref(), Some("place"));
+        assert_eq!(hits[1].kind.as_deref(), Some("administrative"));
+    }
+
+    #[test]
+    fn skips_invalid_gazetteer_hits_but_keeps_valid_ones() {
+        let hits = parse_search_response(
+            r#"[
+                {"lat":"not-a-number","lon":"17","display_name":"Broken"},
+                {"lat":"59.8586","lon":"17.6389","display_name":"Uppsala, Sweden"},
+                {"lat":"59.0","lon":"200","display_name":"Out of range"}
+            ]"#,
+        )
+        .expect("search response parses");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].display_name, "Uppsala, Sweden");
+        assert_eq!(hits[0].kind, None);
+        assert_eq!(hits[0].class, None);
+
+        assert!(
+            parse_search_response("[]")
+                .expect("empty search")
+                .is_empty()
+        );
+        assert!(parse_search_response("not json").is_err());
     }
 
     #[test]
