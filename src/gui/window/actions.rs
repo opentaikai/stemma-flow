@@ -1496,6 +1496,7 @@ impl TreeWindow {
             &mut self.media,
             &self.tree.people,
             self.tree_settings.surname_first,
+            self.app.active_db().and_then(Path::parent),
         ) {
             self.apply_media_event(event);
         }

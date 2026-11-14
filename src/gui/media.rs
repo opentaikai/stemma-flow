@@ -1,6 +1,7 @@
 //! Media tab, thumbnail cache and reusable attachment dialog.
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use egui::{
     Color32, ColorImage, Context, RichText, TextureHandle, TextureOptions, Ui, Vec2, Window,
@@ -172,6 +173,7 @@ pub fn show(
     state: &mut MediaState,
     people: &[Person],
     surname_first: bool,
+    db_path: Option<&Path>,
 ) -> Option<MediaEvent> {
     let mut event = None;
     egui::Panel::left("media_list_panel")
@@ -364,11 +366,20 @@ pub fn show(
                 ui.end_row();
             });
         if !state.draft.file_path.trim().is_empty()
-            && !std::path::Path::new(&state.draft.file_path).is_file()
+            && !crate::media_path::resolve(db_path, &state.draft.file_path).is_file()
         {
             ui.label(
                 RichText::new("File not found; the path is stored as entered.")
                     .color(Color32::from_rgb(239, 68, 68))
+                    .small(),
+            );
+        }
+        if !state.draft.file_path.trim().is_empty()
+            && Path::new(state.draft.file_path.trim()).is_relative()
+        {
+            ui.label(
+                RichText::new("Stored relative to the tree folder.")
+                    .weak()
                     .small(),
             );
         }
@@ -823,7 +834,7 @@ pub fn show_attach(ctx: &Context, state: &mut MediaAttachState) -> Option<MediaA
 }
 
 fn thumbnail(ui: &mut Ui, cache: &mut ThumbnailCache, media: &MediaSummary) {
-    if let Some(texture) = cache.thumbnail(ui.ctx(), &media.file_path) {
+    if let Some(texture) = cache.thumbnail(ui.ctx(), &media.resolved_path.to_string_lossy()) {
         ui.add(
             egui::Image::new(&texture)
                 .fit_to_exact_size(Vec2::splat(THUMB_SIZE))
@@ -865,6 +876,7 @@ mod tests {
             media: vec![MediaSummary {
                 id: "m1".to_string(),
                 file_path: "/definitely/missing/photo.jpg".to_string(),
+                resolved_path: std::path::PathBuf::from("/definitely/missing/photo.jpg"),
                 format: Some("jpg".to_string()),
                 caption: Some("Photo".to_string()),
                 link_count: 0,
@@ -888,7 +900,7 @@ mod tests {
         let ctx = Context::default();
         let mut state = state();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            show(ui, &mut state, &[], false);
+            show(ui, &mut state, &[], false, None);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the media tab paints");
@@ -916,7 +928,7 @@ mod tests {
         };
         state.media_albums = state.albums.clone();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            show(ui, &mut state, &[], false);
+            show(ui, &mut state, &[], false, None);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "albums and their form paint");

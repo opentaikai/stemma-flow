@@ -6,5 +6,6 @@ pub mod gedcom;
 pub mod geocode;
 pub mod gui;
 pub mod i18n;
+pub mod media_path;
 pub mod model;
 pub mod report;

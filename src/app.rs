@@ -1022,8 +1022,8 @@ impl StemmaApp {
     /// Lists every media record.
     pub fn list_media(&self) -> Result<Vec<MediaSummary>, String> {
         let path = self.require_active_db()?;
-        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        media_store::list_media(&conn)
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        media_store::list_media_with_base(&conn, path.parent())
     }
 
     /// Loads one media record for editing.
@@ -1036,8 +1036,8 @@ impl StemmaApp {
     /// Inserts or updates a media record.
     pub fn save_media(&mut self, draft: &MediaDraft) -> Result<String, String> {
         let path = self.require_active_db()?;
-        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        let id = media_store::save_media(&conn, draft)?;
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        let id = media_store::save_media_with_base(&conn, draft, path.parent())?;
         self.set_status(UiStatus::Success("Media saved".to_string()));
         Ok(id)
     }
@@ -1086,8 +1086,8 @@ impl StemmaApp {
     /// Lists the ordered media in one album.
     pub fn list_album_media(&self, album_id: &str) -> Result<Vec<MediaSummary>, String> {
         let path = self.require_active_db()?;
-        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        album_store::list_album_media(&conn, album_id)
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        album_store::list_album_media_with_base(&conn, album_id, path.parent())
     }
 
     /// Adds a media record to an album.
@@ -1140,8 +1140,8 @@ impl StemmaApp {
     /// Lists media attached to one record.
     pub fn list_owner_media(&self, owner: &MediaOwner) -> Result<Vec<MediaSummary>, String> {
         let path = self.require_active_db()?;
-        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        media_store::list_owner_media(&conn, owner)
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        media_store::list_owner_media_with_base(&conn, owner, path.parent())
     }
 
     /// Attaches media to one record.
