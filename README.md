@@ -159,8 +159,9 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   repeated event citations stay separate records. Shared `0 @M@ OBJE`
   records and inline `OBJE` blocks on people, families, facts, sources,
   citations and places import their `FILE`, `FORM`, `TITL` and `NOTE`
-  values; each `FILE` becomes its own media row and relative paths resolve
-  against the GEDCOM directory. Custom `0 @P@ _PLACE` records carry place
+  values; each `FILE` becomes its own media row, relative paths resolve
+  against the GEDCOM directory, and file paths are stored relative to the
+  tree folder when possible. Custom `0 @P@ _PLACE` records carry place
   coordinates, notes, media and task links even when no event uses the
   place.
 - Warnings never block an import: the status bar appends the count
@@ -196,7 +197,9 @@ show a span; phrases, BC/dual years and unusable dates produce no age.
   are omitted when either person is filtered out. Visible media export as
   shared `0 @M@ OBJE` records with `FILE`/`FORM`/`TITL`/`NOTE`, linked from
   people, families, facts, sources, citations and places; media with no
-  visible owner is omitted. Tasks and groups use documented custom records:
+  visible owner is omitted. Portable `FILE` paths are written relative to
+  the tree folder when possible, while external absolute paths stay
+  absolute. Tasks and groups use documented custom records:
   `_TASK` with `TITL`/`NOTE`/`_STATUS`/`_PRIO`/`_FOLDER`/`_DUE`/`_DONE`,
   `_TASK @T@` links on owners, and `_GROUP` records with `_MEMBER @I@`.
   Custom records re-import without warnings but are ignored by other apps. Dates are canonicalised on the way out
@@ -226,7 +229,8 @@ new tree. Pick the archive and then a destination database; the default name
 is `<archive>-restored-YYYYMMDD-HHMMSS.db`. The database is validated and
 migrated when necessary, media are extracted next to it into
 `<restored-db-stem>_media/`, and media paths in the restored database are
-rewritten to that folder. The currently open tree is left untouched.
+rewritten relative to that folder so the restored tree stays portable. The
+currently open tree is left untouched.
 Restoring refuses to overwrite an existing database or media folder and
 rejects malformed archives, newer format/schema versions and unsafe media
 paths. Missing media keep their original paths so they remain visible as
@@ -622,12 +626,15 @@ views (the app always launches on Graph View):
 - **Media** — a filterable media list with cached image thumbnails and
   format/path fallbacks, a missing-file marker and link counts. The editor
   stores an external file path, format, caption and notes; **Browse…**
-  fills path/format/caption from a chosen file. Deleting a record cascades
-  its attachments. **Media…** dialogs on person, family, fact, source and
-  place records list attached media, attach existing records, add a file
-  directly and detach links. Citation/place media now round-trip through
-  GEDCOM; relative paths, copying files into the tree and broken-link repair
-  remain deferred.
+  fills path/format/caption from a chosen file. Media files under the tree
+  folder are stored relative to the database and resolved when opened, so
+  moving the tree and its media together keeps the links working; external
+  files stay absolute. The editor shows the stored path and a hint when it
+  is relative. Deleting a record cascades its attachments. **Media…** dialogs
+  on person, family, fact, source and place records list attached media,
+  attach existing records, add a file directly and detach links.
+  Citation/place media now round-trip through GEDCOM; copying files into the
+  tree and broken-link repair remain deferred.
 - **Media albums** — the Media sidebar lists general and per-person albums.
   Create or edit an album with a name, description and optional person, drag
   media onto album rows to add them, drag within an album to reorder, and
