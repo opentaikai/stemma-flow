@@ -52,7 +52,7 @@ use crate::db::sources::{
 use crate::db::tasks::{
     self as task_store, TaskDraft, TaskLinkSummary, TaskOwner, TaskRecord, TaskSummary,
 };
-use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options};
+use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_bases};
 use crate::geocode;
 use crate::gui::dialogs;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
@@ -1911,10 +1911,11 @@ pub fn perform_import(db_path: &Path, source: &Path) -> Result<ImportReport, Str
     let mut conn = db::open_connection(db_path).map_err(|error| error.to_string())?;
     db::init_db(&conn).map_err(|error| error.to_string())?;
     let file = std::fs::File::open(source).map_err(|error| error.to_string())?;
-    crate::gedcom::import_gedcom_with_base(
+    crate::gedcom::import_gedcom_with_bases(
         &mut conn,
         std::io::BufReader::new(file),
         source.parent(),
+        db_path.parent(),
     )
     .map_err(|error| error.to_string())
 }
@@ -1929,8 +1930,8 @@ pub fn perform_export(
 ) -> Result<usize, String> {
     let conn = db::open_connection(db_path).map_err(|error| error.to_string())?;
     db::init_db(&conn).map_err(|error| error.to_string())?;
-    let gedcom =
-        export_to_gedcom_with_options(&conn, options).map_err(|error| error.to_string())?;
+    let gedcom = export_to_gedcom_with_bases(&conn, options, db_path.parent())
+        .map_err(|error| error.to_string())?;
     std::fs::write(dest, gedcom.as_bytes()).map_err(|error| error.to_string())?;
     Ok(gedcom.len())
 }

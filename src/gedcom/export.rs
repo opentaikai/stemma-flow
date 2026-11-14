@@ -1,6 +1,7 @@
 //! Serializes the SQLite state back into GEDCOM 5.5.1.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use rusqlite::Connection;
 
@@ -388,6 +389,15 @@ pub fn export_to_gedcom(conn: &Connection) -> Result<String, GedcomError> {
 pub fn export_to_gedcom_with_options(
     conn: &Connection,
     options: &ExportOptions,
+) -> Result<String, GedcomError> {
+    export_to_gedcom_with_bases(conn, options, None)
+}
+
+/// Serializes a tree, writing media paths relative to `tree_base` when possible.
+pub fn export_to_gedcom_with_bases(
+    conn: &Connection,
+    options: &ExportOptions,
+    tree_base: Option<&Path>,
 ) -> Result<String, GedcomError> {
     let facts = crate::db::facts::load_fact_lookup(conn)
         .map_err(|error| GedcomError::Db(rusqlite::Error::InvalidParameterName(error)))?;
@@ -1147,7 +1157,10 @@ pub fn export_to_gedcom_with_options(
 
     for (index, media) in visible_media.iter().enumerate() {
         out.push_str(&format!("0 @M{}@ OBJE\n", index + 1));
-        out.push_str(&format!("1 FILE {}\n", media.file_path));
+        out.push_str(&format!(
+            "1 FILE {}\n",
+            crate::media_path::export(tree_base, &media.file_path)
+        ));
         if let Some(format) = &media.format {
             out.push_str(&format!("2 FORM {format}\n"));
         }
