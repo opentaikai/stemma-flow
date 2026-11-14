@@ -176,6 +176,8 @@ impl TreeWindow {
             self.person_privacy = None;
             self.notes = crate::gui::notes::NotesState::default();
             self.person_editor = None;
+            self.photo_tree = crate::gui::photo_tree::PhotoTreeState::default();
+            self.scrapbook = crate::gui::scrapbook::ScrapbookState::default();
             self.associations.clear();
             self.associations_owner = None;
             self.pending_association = None;

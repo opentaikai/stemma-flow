@@ -45,11 +45,13 @@ use crate::gui::merge::MergeEvent;
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
 use crate::gui::pedigree;
 use crate::gui::person_editor::{EditorPrompt, PersonEditor};
+use crate::gui::photo_tree::{self as photo_tree_ui, PhotoTreeEvent};
 use crate::gui::place_clean as place_clean_ui;
 use crate::gui::places::{self, PlacesEvent};
 use crate::gui::problems::ProblemsEvent;
 use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::research::{self as research_ui, ResearchEvent};
+use crate::gui::scrapbook as scrapbook_ui;
 use crate::gui::search_replace::{self as search_replace_ui, SearchReplaceEvent};
 use crate::gui::soundex;
 use crate::gui::sources::{self, SourcesEvent};
@@ -2862,6 +2864,155 @@ impl TreeWindow {
         self.reload_map();
         self.map.focus(hit.latitude, hit.longitude, 12);
         self.tab = tabs::AppTab::Map;
+    }
+
+    pub(super) fn open_photo_tree(&mut self) {
+        let root = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.photo_tree.open_with(root);
+    }
+
+    pub(super) fn show_photo_tree_window(&mut self, ctx: &egui::Context) {
+        if !self.photo_tree.open {
+            return;
+        }
+        if let Some(event) = photo_tree_ui::show(
+            ctx,
+            &mut self.photo_tree,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            let PhotoTreeEvent {
+                root_id,
+                generations,
+            } = event;
+            match self.build_photo_tree_report(&root_id, generations) {
+                Ok(report) => self.app.begin_photo_tree_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_photo_tree_report(
+        &self,
+        root_id: &str,
+        generations: usize,
+    ) -> Result<crate::report::photo_tree::PhotoTreeReport, String> {
+        let root = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == root_id)
+            .ok_or_else(|| "root person not found".to_string())?;
+        let scene = crate::gui::layout::build_pedigree_scene(
+            &self.tree,
+            root_id,
+            generations,
+            self.tree_settings.surname_first,
+        );
+        let portraits = self.app.portrait_paths().unwrap_or_default();
+        let people = scene
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let person = self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == node.person_id)?;
+                let dates = self.dates.get(&person.id);
+                Some(crate::report::photo_tree::PhotoTreePerson {
+                    person_id: person.id.clone(),
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                    birth: dates
+                        .and_then(|dates| dates.birth.clone())
+                        .unwrap_or_default(),
+                    death: dates
+                        .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default(),
+                    photo: portraits.get(&person.id).cloned(),
+                })
+            })
+            .collect();
+        Ok(crate::report::photo_tree::PhotoTreeReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            root_name: inspector::person_label(root, self.tree_settings.surname_first),
+            generations,
+            scene,
+            people,
+        })
+    }
+
+    pub(super) fn open_scrapbook(&mut self) {
+        match self.app.list_albums(self.tree_settings.surname_first) {
+            Ok(albums) => self.scrapbook.open_with(albums),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
+    pub(super) fn show_scrapbook_window(&mut self, ctx: &egui::Context) {
+        if !self.scrapbook.open {
+            return;
+        }
+        if let Some(ids) = scrapbook_ui::show(ctx, &mut self.scrapbook) {
+            match self.build_scrapbook_report(&ids) {
+                Ok(report) => self.app.begin_scrapbook_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_scrapbook_report(
+        &self,
+        album_ids: &[String],
+    ) -> Result<crate::report::scrapbook::ScrapbookReport, String> {
+        let albums = self.app.list_albums(self.tree_settings.surname_first)?;
+        let selected: std::collections::HashSet<&str> =
+            album_ids.iter().map(String::as_str).collect();
+        let mut sections = Vec::new();
+        for album in albums
+            .iter()
+            .filter(|album| selected.contains(album.id.as_str()))
+        {
+            let media = self.app.list_album_media(&album.id)?;
+            let photos = media
+                .into_iter()
+                .map(|media| crate::report::scrapbook::ScrapbookPhoto {
+                    path: media.resolved_path,
+                    caption: media.caption,
+                    format: media.format,
+                    missing: media.missing,
+                })
+                .collect();
+            sections.push(crate::report::scrapbook::ScrapbookAlbum {
+                name: album.name.clone(),
+                description: album.description.clone(),
+                person_name: album.person_name.clone(),
+                photos,
+            });
+        }
+        if sections.is_empty() {
+            return Err("select at least one album".to_string());
+        }
+        Ok(crate::report::scrapbook::ScrapbookReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            albums: sections,
+        })
+    }
+
+    fn tree_name(&self) -> String {
+        self.app
+            .active_db()
+            .and_then(Path::file_stem)
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("family_tree")
+            .to_string()
     }
 
     pub(super) fn open_merge_dialog(&mut self, keep: Option<String>) {
