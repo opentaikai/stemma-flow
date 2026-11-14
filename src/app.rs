@@ -52,7 +52,7 @@ use crate::db::sources::{
 use crate::db::tasks::{
     self as task_store, TaskDraft, TaskLinkSummary, TaskOwner, TaskRecord, TaskSummary,
 };
-use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_options};
+use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_bases};
 use crate::geocode;
 use crate::gui::dialogs;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
@@ -1022,8 +1022,8 @@ impl StemmaApp {
     /// Lists every media record.
     pub fn list_media(&self) -> Result<Vec<MediaSummary>, String> {
         let path = self.require_active_db()?;
-        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        media_store::list_media(&conn)
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        media_store::list_media_with_base(&conn, path.parent())
     }
 
     /// Loads one media record for editing.
@@ -1036,8 +1036,8 @@ impl StemmaApp {
     /// Inserts or updates a media record.
     pub fn save_media(&mut self, draft: &MediaDraft) -> Result<String, String> {
         let path = self.require_active_db()?;
-        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        let id = media_store::save_media(&conn, draft)?;
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        let id = media_store::save_media_with_base(&conn, draft, path.parent())?;
         self.set_status(UiStatus::Success("Media saved".to_string()));
         Ok(id)
     }
@@ -1086,8 +1086,8 @@ impl StemmaApp {
     /// Lists the ordered media in one album.
     pub fn list_album_media(&self, album_id: &str) -> Result<Vec<MediaSummary>, String> {
         let path = self.require_active_db()?;
-        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        album_store::list_album_media(&conn, album_id)
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        album_store::list_album_media_with_base(&conn, album_id, path.parent())
     }
 
     /// Adds a media record to an album.
@@ -1140,8 +1140,8 @@ impl StemmaApp {
     /// Lists media attached to one record.
     pub fn list_owner_media(&self, owner: &MediaOwner) -> Result<Vec<MediaSummary>, String> {
         let path = self.require_active_db()?;
-        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
-        media_store::list_owner_media(&conn, owner)
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        media_store::list_owner_media_with_base(&conn, owner, path.parent())
     }
 
     /// Attaches media to one record.
@@ -1911,10 +1911,11 @@ pub fn perform_import(db_path: &Path, source: &Path) -> Result<ImportReport, Str
     let mut conn = db::open_connection(db_path).map_err(|error| error.to_string())?;
     db::init_db(&conn).map_err(|error| error.to_string())?;
     let file = std::fs::File::open(source).map_err(|error| error.to_string())?;
-    crate::gedcom::import_gedcom_with_base(
+    crate::gedcom::import_gedcom_with_bases(
         &mut conn,
         std::io::BufReader::new(file),
         source.parent(),
+        db_path.parent(),
     )
     .map_err(|error| error.to_string())
 }
@@ -1929,8 +1930,8 @@ pub fn perform_export(
 ) -> Result<usize, String> {
     let conn = db::open_connection(db_path).map_err(|error| error.to_string())?;
     db::init_db(&conn).map_err(|error| error.to_string())?;
-    let gedcom =
-        export_to_gedcom_with_options(&conn, options).map_err(|error| error.to_string())?;
+    let gedcom = export_to_gedcom_with_bases(&conn, options, db_path.parent())
+        .map_err(|error| error.to_string())?;
     std::fs::write(dest, gedcom.as_bytes()).map_err(|error| error.to_string())?;
     Ok(gedcom.len())
 }

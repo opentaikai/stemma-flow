@@ -1,10 +1,11 @@
 //! Media record persistence and record attachments.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
+use crate::media_path;
 use crate::model::name::format_name;
 
 /// A record that can own a media link.
@@ -69,6 +70,7 @@ pub struct MediaRecord {
 pub struct MediaSummary {
     pub id: String,
     pub file_path: String,
+    pub resolved_path: PathBuf,
     pub format: Option<String>,
     pub caption: Option<String>,
     pub link_count: i64,
@@ -116,11 +118,14 @@ pub(crate) fn summary(
     format: Option<String>,
     caption: Option<String>,
     link_count: i64,
+    base_dir: Option<&Path>,
 ) -> MediaSummary {
+    let resolved_path = media_path::resolve(base_dir, &file_path);
     MediaSummary {
-        missing: !Path::new(&file_path).is_file(),
+        missing: !resolved_path.is_file(),
         id,
         file_path,
+        resolved_path,
         format,
         caption,
         link_count,
@@ -129,6 +134,14 @@ pub(crate) fn summary(
 
 /// Lists every media record with its link count.
 pub fn list_media(conn: &Connection) -> Result<Vec<MediaSummary>, String> {
+    list_media_with_base(conn, None)
+}
+
+/// Lists every media record, resolving relative paths against `base_dir`.
+pub fn list_media_with_base(
+    conn: &Connection,
+    base_dir: Option<&Path>,
+) -> Result<Vec<MediaSummary>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT m.id, m.file_path, m.format, m.caption,
@@ -144,6 +157,7 @@ pub fn list_media(conn: &Connection) -> Result<Vec<MediaSummary>, String> {
                 row.get(2)?,
                 row.get(3)?,
                 row.get(4)?,
+                base_dir,
             ))
         })
         .map_err(|error| error.to_string())?
@@ -175,7 +189,17 @@ pub fn load_media(conn: &Connection, id: &str) -> Result<Option<MediaRecord>, St
 
 /// Inserts or updates a media record.
 pub fn save_media(conn: &Connection, draft: &MediaDraft) -> Result<String, String> {
+    save_media_with_base(conn, draft, None)
+}
+
+/// Inserts or updates a media record, storing paths portably when possible.
+pub fn save_media_with_base(
+    conn: &Connection,
+    draft: &MediaDraft,
+    base_dir: Option<&Path>,
+) -> Result<String, String> {
     let file_path = clean(&draft.file_path).ok_or_else(|| "choose a media file".to_string())?;
+    let file_path = media_path::store(base_dir, &file_path);
     let format = clean(&draft.format).or_else(|| inferred_format(&file_path));
     let caption = clean(&draft.caption);
     let notes = clean(&draft.notes);
@@ -221,6 +245,15 @@ pub fn list_owner_media(
     conn: &Connection,
     owner: &MediaOwner,
 ) -> Result<Vec<MediaSummary>, String> {
+    list_owner_media_with_base(conn, owner, None)
+}
+
+/// Lists media attached to one record, resolving paths against `base_dir`.
+pub fn list_owner_media_with_base(
+    conn: &Connection,
+    owner: &MediaOwner,
+    base_dir: Option<&Path>,
+) -> Result<Vec<MediaSummary>, String> {
     let sql = format!(
         "SELECT m.id, m.file_path, m.format, m.caption,
                 (SELECT COUNT(*) FROM media_links l WHERE l.media_id = m.id)
@@ -239,6 +272,7 @@ pub fn list_owner_media(
                 row.get(2)?,
                 row.get(3)?,
                 row.get(4)?,
+                base_dir,
             ))
         })
         .map_err(|error| error.to_string())?
@@ -507,6 +541,36 @@ mod tests {
         assert_eq!(record.format.as_deref(), Some("jpg"));
         assert!(list_media(&conn).expect("list")[0].missing);
         assert!(save_media(&conn, &draft("   ")).is_err());
+    }
+
+    #[test]
+    fn stores_and_resolves_relative_paths() {
+        let conn = connection();
+        let base = std::env::temp_dir().join(format!(
+            "stemma-media-paths-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(base.join("media")).expect("media dir");
+        let file = base.join("media").join("photo.jpg");
+        std::fs::write(&file, b"photo").expect("media file");
+        let id = save_media_with_base(&conn, &draft(&file.to_string_lossy()), Some(&base))
+            .expect("save");
+        let record = load_media(&conn, &id).expect("load").expect("record");
+        assert_eq!(record.file_path, "media/photo.jpg");
+
+        let list = list_media_with_base(&conn, Some(&base)).expect("list");
+        assert!(!list[0].missing);
+        assert_eq!(list[0].resolved_path, file);
+
+        let outside = base.with_file_name(format!("outside-{}.jpg", uuid::Uuid::new_v4().simple()));
+        std::fs::write(&outside, b"outside").expect("outside file");
+        let id = save_media_with_base(&conn, &draft(&outside.to_string_lossy()), Some(&base))
+            .expect("save outside");
+        let record = load_media(&conn, &id).expect("load").expect("record");
+        assert!(Path::new(&record.file_path).is_absolute());
+
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_file(outside);
     }
 
     #[test]

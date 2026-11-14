@@ -1,5 +1,7 @@
 //! Media albums and ordered album membership.
 
+use std::path::Path;
+
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
@@ -189,6 +191,15 @@ pub fn delete_album(conn: &Connection, id: &str) -> Result<(), String> {
 
 /// Lists the ordered media in one album.
 pub fn list_album_media(conn: &Connection, album_id: &str) -> Result<Vec<MediaSummary>, String> {
+    list_album_media_with_base(conn, album_id, None)
+}
+
+/// Lists the ordered media in one album, resolving paths against `base_dir`.
+pub fn list_album_media_with_base(
+    conn: &Connection,
+    album_id: &str,
+    base_dir: Option<&Path>,
+) -> Result<Vec<MediaSummary>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT m.id, m.file_path, m.format, m.caption,
@@ -206,6 +217,7 @@ pub fn list_album_media(conn: &Connection, album_id: &str) -> Result<Vec<MediaSu
                 row.get(2)?,
                 row.get(3)?,
                 row.get(4)?,
+                base_dir,
             ))
         })
         .map_err(|error| error.to_string())?

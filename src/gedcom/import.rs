@@ -1924,6 +1924,17 @@ pub fn import_gedcom_with_base<R: BufRead>(
     reader: R,
     base_dir: Option<&Path>,
 ) -> Result<ImportReport, GedcomError> {
+    import_gedcom_with_bases(conn, reader, base_dir, None)
+}
+
+/// Imports GEDCOM, resolving media against `base_dir` and storing paths
+/// relative to `tree_base` when possible.
+pub fn import_gedcom_with_bases<R: BufRead>(
+    conn: &mut Connection,
+    reader: R,
+    base_dir: Option<&Path>,
+    tree_base: Option<&Path>,
+) -> Result<ImportReport, GedcomError> {
     let facts = crate::db::facts::load_fact_lookup(conn)
         .map_err(|error| GedcomError::Db(rusqlite::Error::InvalidParameterName(error)))?;
     let mut reader = RecordReader::new(reader, facts);
@@ -1991,6 +2002,7 @@ pub fn import_gedcom_with_base<R: BufRead>(
                     &mut pending_media,
                     &mut pending_task_links,
                     base_dir,
+                    tree_base,
                     &mut report,
                 )?;
                 collect_task_refs(
@@ -2051,6 +2063,7 @@ pub fn import_gedcom_with_base<R: BufRead>(
                         &mut pending_media,
                         &mut pending_task_links,
                         base_dir,
+                        tree_base,
                         &mut report,
                     )?;
                     collect_task_refs(
@@ -2097,6 +2110,7 @@ pub fn import_gedcom_with_base<R: BufRead>(
                     &mut pending_media,
                     &mut pending_task_links,
                     base_dir,
+                    tree_base,
                     &mut report,
                 )?;
                 collect_task_refs(
@@ -2130,6 +2144,7 @@ pub fn import_gedcom_with_base<R: BufRead>(
                         &mut pending_media,
                         &mut pending_task_links,
                         base_dir,
+                        tree_base,
                         &mut report,
                     )?;
                     collect_task_refs(
@@ -2177,7 +2192,7 @@ pub fn import_gedcom_with_base<R: BufRead>(
                 }
                 let mut ids = Vec::new();
                 for parsed in &media.media {
-                    if let Some(id) = insert_media(&tx, parsed, base_dir, &mut report)? {
+                    if let Some(id) = insert_media(&tx, parsed, base_dir, tree_base, &mut report)? {
                         for xref in &parsed.tasks {
                             pending_task_links.push(PendingTaskLink {
                                 owner: TaskOwner::Media(id.clone()),
@@ -2463,6 +2478,7 @@ pub fn import_gedcom_with_base<R: BufRead>(
             &mut pending_media,
             &mut pending_task_links,
             base_dir,
+            tree_base,
             &mut report,
         )?;
         collect_task_refs(
@@ -2867,6 +2883,7 @@ fn insert_media(
     conn: &Connection,
     media: &ParsedMedia,
     base_dir: Option<&Path>,
+    tree_base: Option<&Path>,
     report: &mut ImportReport,
 ) -> rusqlite::Result<Option<String>> {
     let Some(file_path) = media
@@ -2880,7 +2897,8 @@ fn insert_media(
             .push("OBJE without FILE ignored".to_string());
         return Ok(None);
     };
-    let file_path = resolve_media_path(file_path, base_dir);
+    let resolved = resolve_media_path(file_path, base_dir);
+    let file_path = crate::media_path::store(tree_base, &resolved);
     let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO media (id, file_path, format, caption, notes)
@@ -2914,6 +2932,7 @@ fn collect_media(
     pending: &mut Vec<PendingMedia>,
     pending_tasks: &mut Vec<PendingTaskLink>,
     base_dir: Option<&Path>,
+    tree_base: Option<&Path>,
     report: &mut ImportReport,
 ) -> rusqlite::Result<()> {
     let _ = ids;
@@ -2924,7 +2943,7 @@ fn collect_media(
                 xref: xref.clone(),
             }),
             ParsedMediaRef::Inline(media) => {
-                if let Some(media_id) = insert_media(conn, media, base_dir, report)? {
+                if let Some(media_id) = insert_media(conn, media, base_dir, tree_base, report)? {
                     link_media(conn, &media_id, &owner)?;
                     for xref in &media.tasks {
                         pending_tasks.push(PendingTaskLink {

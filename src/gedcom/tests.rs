@@ -1,13 +1,15 @@
 //! Unit tests for the GEDCOM 5.5.1 import and export engine.
 
 use std::io::{BufReader, Cursor};
+use std::path::Path;
 
 use rusqlite::{Connection, params};
 
 use super::import::parse_name;
 use super::{
-    ExportOptions, GedcomError, export_to_gedcom, export_to_gedcom_with_options, import_gedcom,
-    import_gedcom_with_base,
+    ExportOptions, GedcomError, export_to_gedcom, export_to_gedcom_with_bases,
+    export_to_gedcom_with_options, import_gedcom, import_gedcom_with_base,
+    import_gedcom_with_bases,
 };
 use crate::db::init_db;
 
@@ -1581,6 +1583,52 @@ fn shared_notes_resolve_and_export_inline() -> Result<(), GedcomError> {
     let report = import_gedcom(&mut fresh, Cursor::new(ged.as_str()))?;
     assert!(report.warnings.is_empty(), "{:?}", report.warnings);
     assert_eq!(export_to_gedcom(&fresh)?, ged);
+    Ok(())
+}
+
+#[test]
+fn portable_media_paths_are_tree_relative() -> Result<(), GedcomError> {
+    let sample = "\
+0 HEAD
+0 @I1@ INDI
+1 NAME Ada /King/
+1 OBJE @M1@
+0 @M1@ OBJE
+1 FILE photos/photo.jpg
+0 TRLR
+";
+    let mut conn = setup_test_db().map_err(GedcomError::Db)?;
+    import_gedcom_with_bases(
+        &mut conn,
+        Cursor::new(sample),
+        Some(Path::new("/data/tree/gedcom")),
+        Some(Path::new("/data/tree")),
+    )?;
+    let stored: String = conn
+        .query_row("SELECT file_path FROM media", [], |row| row.get(0))
+        .map_err(GedcomError::Db)?;
+    assert_eq!(stored, "gedcom/photos/photo.jpg");
+
+    let options = ExportOptions {
+        include_living: true,
+        include_private: true,
+        ..ExportOptions::default()
+    };
+    let ged = export_to_gedcom_with_bases(&conn, &options, Some(Path::new("/data/tree")))?;
+    assert!(ged.contains("1 FILE gedcom/photos/photo.jpg"), "{ged}");
+
+    conn.execute(
+        "UPDATE media SET file_path = '/data/tree/photos/photo.jpg'",
+        [],
+    )
+    .map_err(GedcomError::Db)?;
+    let ged = export_to_gedcom_with_bases(&conn, &options, Some(Path::new("/data/tree")))?;
+    assert!(ged.contains("1 FILE photos/photo.jpg"), "{ged}");
+
+    conn.execute("UPDATE media SET file_path = '/other/photo.jpg'", [])
+        .map_err(GedcomError::Db)?;
+    let ged = export_to_gedcom_with_bases(&conn, &options, Some(Path::new("/data/tree")))?;
+    assert!(ged.contains("1 FILE /other/photo.jpg"), "{ged}");
     Ok(())
 }
 

@@ -157,7 +157,7 @@ Goal: connect people to locations and sources of evidence beyond text.
 | Gazetteer search | done | P2 | Multi-result Nominatim lookup, session cache, editor fill and map focus |
 | Media attachments with thumbnails and list modes | done | P1 | Media tab list plus record attachment dialogs |
 | Media albums and drag-and-drop organisation | done | P2 | General and per-person albums with drag/drop add and reorder |
-| Relative media links so trees move between computers | planned | P2 | Portable paths |
+| Relative media links so trees move between computers | done | P2 | Portable tree-relative paths, import/export and backup restore |
 | Broken media link repair | planned | P2 | Locate or relink |
 | Photo tree and scrapbook | planned | P2 | Publishing-oriented |
 

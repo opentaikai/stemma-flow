@@ -254,15 +254,7 @@ fn media_rows(db_path: &Path) -> Result<Vec<(String, String)>, String> {
 }
 
 fn resolve_media_path(db_path: &Path, stored: &str) -> PathBuf {
-    let path = Path::new(stored);
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        db_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(path)
-    }
+    crate::media_path::resolve(db_path.parent(), stored)
 }
 
 /// Restores `archive` into a new database at `dest_db`.
@@ -373,9 +365,10 @@ fn read_backup(
     let mut restored_paths = BTreeMap::new();
     for (archive_path, name) in &targets {
         let path = std::path::absolute(media_dir.join(name)).map_err(|error| error.to_string())?;
+        let stored = crate::media_path::store(dest_db.parent(), &path.to_string_lossy());
         for entry in &manifest.media {
             if entry.archive_path.as_deref() == Some(archive_path.as_str()) {
-                restored_paths.insert(entry.id.clone(), path.clone());
+                restored_paths.insert(entry.id.clone(), stored.clone());
             }
         }
     }
@@ -385,7 +378,7 @@ fn read_backup(
         for (id, path) in &restored_paths {
             tx.execute(
                 "UPDATE media SET file_path = ?1 WHERE id = ?2",
-                params![path.to_string_lossy().to_string(), id],
+                params![path, id],
             )
             .map_err(|error| error.to_string())?;
         }
@@ -539,7 +532,11 @@ mod tests {
                 row.get(0)
             })
             .expect("media row survives");
-        let stored_path = PathBuf::from(stored);
+        assert!(
+            Path::new(&stored).is_relative(),
+            "restored media paths are portable"
+        );
+        let stored_path = crate::media_path::resolve(restored.parent(), &stored);
         assert!(stored_path.is_file(), "restored media file exists");
         assert_eq!(
             fs::read(stored_path).expect("media bytes"),
@@ -549,6 +546,38 @@ mod tests {
             restored_media_dir(&restored).is_dir(),
             "media folder is next to the restored database"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn relative_media_paths_survive_backup_and_restore() {
+        let dir = temp_dir();
+        let db_path = dir.join("tree.db");
+        let conn = connection(&db_path);
+        let media_dir = dir.join("media");
+        fs::create_dir_all(&media_dir).expect("media dir");
+        fs::write(media_dir.join("photo.jpg"), b"photo").expect("media file");
+        conn.execute(
+            "INSERT INTO media (id, file_path) VALUES ('m1', 'media/photo.jpg')",
+            [],
+        )
+        .expect("media row");
+        drop(conn);
+        let archive = dir.join("backup.zip");
+        let report = backup_tree(&db_path, &archive).expect("backup");
+        assert_eq!(report.media_included, 1);
+
+        let restored = dir.join("restored.db");
+        restore_backup(&archive, &restored).expect("restore");
+        let conn = Connection::open(&restored).expect("db");
+        let stored: String = conn
+            .query_row("SELECT file_path FROM media WHERE id = 'm1'", [], |row| {
+                row.get(0)
+            })
+            .expect("media");
+        assert!(Path::new(&stored).is_relative(), "{stored}");
+        assert!(crate::media_path::resolve(restored.parent(), &stored).is_file());
+
         let _ = fs::remove_dir_all(dir);
     }
 
