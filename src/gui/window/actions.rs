@@ -12,6 +12,7 @@ use crate::db::people::{ParentRole, PersonDetails};
 use crate::db::search_replace::ReplaceSelection;
 use crate::db::sources::SourceDraft;
 use crate::db::tasks::TaskOwner;
+use crate::geocode::GazetteerHit;
 use crate::gui::advanced_search::{self as advanced_search_ui, AdvancedSearchEvent};
 use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
 use crate::gui::associations_view::{self as association_view_ui, AssociationViewEvent};
@@ -25,6 +26,7 @@ use crate::gui::event_editor::{self, EventEditorOutcome};
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
 use crate::gui::find_everywhere::{self as find_ui, FindEvent};
+use crate::gui::gazetteer::{self as gazetteer_ui, GazetteerEvent};
 use crate::gui::geocode::{self as geocode_ui, GeocodeEvent};
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
@@ -641,6 +643,7 @@ impl TreeWindow {
             PlacesEvent::EditEvent(id) => self.open_event_editor(&id),
             PlacesEvent::PlaceClean => self.open_place_clean(),
             PlacesEvent::Geocode => self.open_geocode(),
+            PlacesEvent::Gazetteer => self.open_gazetteer(),
             PlacesEvent::Notes { place_id, title } => {
                 self.open_notes(NoteOwner::Place(place_id), title);
             }
@@ -2580,6 +2583,48 @@ impl TreeWindow {
             }
             Err(message) => self.geocode.error = Some(message),
         }
+    }
+
+    pub(super) fn open_gazetteer(&mut self) {
+        let query = self.places.draft.name.trim().to_string();
+        self.gazetteer.open_with_query(&query);
+    }
+
+    pub(super) fn show_gazetteer_window(&mut self, ctx: &egui::Context) {
+        if !self.gazetteer.open {
+            return;
+        }
+        if let Some(event) =
+            gazetteer_ui::show(ctx, &mut self.gazetteer, self.config.allow_online_geocoding)
+        {
+            match event {
+                GazetteerEvent::UsePlace(hit) => self.use_gazetteer_hit(hit),
+                GazetteerEvent::ShowOnMap(hit) => self.show_gazetteer_on_map(hit),
+                GazetteerEvent::OpenSettings => self.show_settings = true,
+            }
+        }
+    }
+
+    pub(super) fn use_gazetteer_hit(&mut self, hit: GazetteerHit) {
+        if self.places.selected.is_none() {
+            self.places.draft = places::PlaceEdit::default();
+            self.places.usage.clear();
+        }
+        self.places.draft.name = hit.display_name;
+        self.places.draft.latitude = format!("{:.6}", hit.latitude);
+        self.places.draft.longitude = format!("{:.6}", hit.longitude);
+        self.places.editing = true;
+        self.places.error = None;
+        self.tab = tabs::AppTab::Places;
+    }
+
+    pub(super) fn show_gazetteer_on_map(&mut self, hit: GazetteerHit) {
+        self.map.active_group = None;
+        self.map.visible_ids = None;
+        self.map.loaded = false;
+        self.reload_map();
+        self.map.focus(hit.latitude, hit.longitude, 12);
+        self.tab = tabs::AppTab::Map;
     }
 
     pub(super) fn open_merge_dialog(&mut self, keep: Option<String>) {

@@ -21,6 +21,7 @@ use super::date_calculator;
 use super::event_editor;
 use super::fact_types;
 use super::find_everywhere;
+use super::gazetteer;
 use super::geocode;
 use super::import_report;
 use super::inspector::InspectorForm;
@@ -98,6 +99,7 @@ pub struct TreeWindow {
     pub(super) data_clean: dataclean_ui::DataCleanState,
     pub(super) place_clean: place_clean::PlaceCleanState,
     pub(super) geocode: geocode::GeocodeState,
+    pub(super) gazetteer: gazetteer::GazetteerState,
     pub(super) date_calculator: date_calculator::DateCalculatorState,
     pub(super) association_rows: Vec<crate::db::associations::AssociationViewRow>,
     pub(super) places: places::PlacesState,
@@ -177,6 +179,7 @@ impl TreeWindow {
             data_clean: dataclean_ui::DataCleanState::default(),
             place_clean: place_clean::PlaceCleanState::default(),
             geocode: geocode::GeocodeState::default(),
+            gazetteer: gazetteer::GazetteerState::default(),
             date_calculator: date_calculator::DateCalculatorState::default(),
             association_rows: Vec::new(),
             places: places::PlacesState::default(),
@@ -338,6 +341,7 @@ impl App for TreeWindow {
             self.show_data_clean_window(ui.ctx());
             self.show_place_clean_window(ui.ctx());
             self.show_geocode_window(ui.ctx());
+            self.show_gazetteer_window(ui.ctx());
             self.show_advanced_search_window(ui.ctx());
             self.show_find_window(ui.ctx());
             self.show_search_replace_window(ui.ctx());
@@ -376,6 +380,7 @@ mod tests {
     use crate::db::people::{ParentRole, PersonDetails};
     use crate::db::places::PlaceDraft;
     use crate::db::sources::SourceDraft;
+    use crate::geocode::GazetteerHit;
     use crate::gui::event_editor::EventEditorOutcome;
     use crate::gui::fact_types::FactTypesEvent;
     use crate::gui::inspector;
@@ -2312,6 +2317,55 @@ mod tests {
         let editor = window.event_editor.take().expect("editor reopens");
         window.apply_event_editor_outcome(editor, EventEditorOutcome::Cancel);
         assert!(window.event_editor.is_none(), "cancel closes the editor");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn gazetteer_results_fill_the_place_draft_and_focus_the_map() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let place_id = window
+            .app
+            .save_place(&PlaceDraft {
+                name: "Old".to_string(),
+                ..PlaceDraft::default()
+            })
+            .expect("place saves");
+        window.reload_places();
+        window.apply_places_event(PlacesEvent::Select(place_id.clone()));
+
+        let hit = GazetteerHit {
+            display_name: "Uppsala, Sweden".to_string(),
+            latitude: 59.8586,
+            longitude: 17.6389,
+            kind: Some("city".to_string()),
+            class: Some("place".to_string()),
+        };
+        window.use_gazetteer_hit(hit.clone());
+        assert_eq!(window.tab, tabs::AppTab::Places);
+        assert_eq!(window.places.draft.id.as_deref(), Some(place_id.as_str()));
+        assert_eq!(window.places.draft.name, "Uppsala, Sweden");
+        assert_eq!(window.places.draft.latitude, "59.858600");
+        assert_eq!(window.places.draft.longitude, "17.638900");
+        assert!(window.places.editing);
+
+        window.places.selected = None;
+        window.places.editing = false;
+        window.use_gazetteer_hit(hit.clone());
+        assert_eq!(window.places.draft.id, None);
+        assert!(window.places.usage.is_empty());
+        assert!(window.places.editing);
+
+        window.show_gazetteer_on_map(hit.clone());
+        assert_eq!(window.tab, tabs::AppTab::Map);
+        assert!(!window.map.needs_fit);
+        assert_eq!(window.map.zoom, 12);
+        assert!((window.map.center_x - crate::model::map::lon_to_x(17.6389)).abs() < 1e-9);
+        assert!((window.map.center_y - crate::model::map::lat_to_y(59.8586)).abs() < 1e-9);
 
         let _ = std::fs::remove_file(&db_file);
     }
