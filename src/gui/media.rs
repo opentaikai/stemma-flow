@@ -115,6 +115,7 @@ pub enum MediaEvent {
     Save(Box<MediaDraft>),
     Delete(String),
     Browse,
+    RepairMissing,
     Detach {
         owner_type: String,
         owner_id: String,
@@ -195,12 +196,17 @@ pub fn show(
                     state.filter.clear();
                 }
             });
-            if ui
-                .add(egui::Button::new(RichText::new("+ New Media").strong()))
-                .clicked()
-            {
-                event = Some(MediaEvent::New);
-            }
+            ui.horizontal(|ui| {
+                if ui
+                    .add(egui::Button::new(RichText::new("+ New Media").strong()))
+                    .clicked()
+                {
+                    event = Some(MediaEvent::New);
+                }
+                if ui.button("Repair missing\u{2026}").clicked() {
+                    event = Some(MediaEvent::RepairMissing);
+                }
+            });
             ui.separator();
             let filter = state.filter.trim().to_lowercase();
             let source = if state.selected_album.is_some() {
@@ -338,7 +344,12 @@ pub fn show(
         } else {
             "New media"
         });
-        if ui.button("Browse…").clicked() {
+        if ui.button("Browse\u{2026}").clicked() {
+            event = Some(MediaEvent::Browse);
+        }
+        let missing_path = !state.draft.file_path.trim().is_empty()
+            && !crate::media_path::resolve(db_path, &state.draft.file_path).is_file();
+        if missing_path && ui.button("Locate\u{2026}").clicked() {
             event = Some(MediaEvent::Browse);
         }
         egui::Grid::new("media_fields")

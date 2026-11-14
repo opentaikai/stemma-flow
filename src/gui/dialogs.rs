@@ -55,6 +55,11 @@ pub fn pick_media_path() -> Option<PathBuf> {
         .pick_file()
 }
 
+/// Opens the native folder picker used for media repair searches.
+pub fn pick_folder() -> Option<PathBuf> {
+    FileDialog::new().pick_folder()
+}
+
 /// Opens the save dialog for a new timestamped backup archive.
 pub fn prompt_backup_path(default_name: &str, directory: Option<&Path>) -> Option<PathBuf> {
     let mut dialog = FileDialog::new()

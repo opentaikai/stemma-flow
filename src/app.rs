@@ -1042,6 +1042,27 @@ impl StemmaApp {
         Ok(id)
     }
 
+    /// Points an existing media record at a new file while preserving its links.
+    pub fn relink_media(&mut self, media_id: &str, file_path: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
+        let record = media_store::load_media(&conn, media_id)?
+            .ok_or_else(|| format!("no media with id {media_id}"))?;
+        let format = media_store::inferred_format(file_path)
+            .or(record.format)
+            .unwrap_or_default();
+        let draft = MediaDraft {
+            id: Some(record.id),
+            file_path: file_path.to_string(),
+            format,
+            caption: record.caption.unwrap_or_default(),
+            notes: record.notes.unwrap_or_default(),
+        };
+        media_store::save_media_with_base(&conn, &draft, path.parent())?;
+        self.set_status(UiStatus::Success("Media relinked".to_string()));
+        Ok(())
+    }
+
     /// Deletes one media record and its links.
     pub fn delete_media(&mut self, id: &str) -> Result<(), String> {
         let path = self.require_active_db()?;
@@ -2189,6 +2210,49 @@ mod tests {
             app.take_geocode_report().is_none(),
             "the report is consumed once"
         );
+    }
+
+    #[test]
+    fn relinking_media_preserves_links_and_albums() -> Result<(), String> {
+        let db_path = temp_path("db");
+        create_tree(&db_path)?;
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_path);
+
+        let place_id = app.save_place(&PlaceDraft {
+            name: "Uppsala".to_string(),
+            ..PlaceDraft::default()
+        })?;
+        let media_id = app.save_media(&MediaDraft {
+            file_path: "missing/photo.jpg".to_string(),
+            caption: "Photo".to_string(),
+            ..MediaDraft::default()
+        })?;
+        app.attach_media(&media_id, &MediaOwner::Place(place_id))?;
+        let album_id = app.save_album(&AlbumDraft {
+            name: "Trip".to_string(),
+            ..AlbumDraft::default()
+        })?;
+        app.add_media_to_album(&album_id, &media_id)?;
+
+        let media_dir = db_path.with_file_name(format!("media-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&media_dir).map_err(|error| error.to_string())?;
+        let file = media_dir.join("photo.jpg");
+        std::fs::write(&file, b"photo").map_err(|error| error.to_string())?;
+        app.relink_media(&media_id, &file.to_string_lossy())?;
+
+        let record = app.load_media(&media_id)?.expect("media exists");
+        assert_eq!(record.caption.as_deref(), Some("Photo"));
+        assert_eq!(app.list_media_links(&media_id, false)?.len(), 1);
+        assert_eq!(app.albums_for_media(&media_id, false)?.len(), 1);
+        let media = app.list_media()?;
+        assert_eq!(media.len(), 1);
+        assert!(!media[0].missing);
+        assert!(media[0].resolved_path.is_file());
+
+        let _ = std::fs::remove_dir_all(media_dir);
+        let _ = std::fs::remove_file(&db_path);
+        Ok(())
     }
 
     #[test]

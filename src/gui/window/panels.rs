@@ -220,6 +220,13 @@ impl TreeWindow {
                 }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
+                    && ui.button(tr("tools.media_repair")).clicked()
+                {
+                    ui.close();
+                    self.open_media_repair();
+                }
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
                     && ui.button(tr("tools.replace")).clicked()
                 {
                     ui.close();

@@ -30,6 +30,7 @@ use super::inspector::RelationForm;
 use super::layout::TreeScene;
 use super::map;
 use super::media;
+use super::media_repair;
 use super::merge as merge_dialog;
 use super::names;
 use super::notes as notes_dialog;
@@ -105,6 +106,7 @@ pub struct TreeWindow {
     pub(super) places: places::PlacesState,
     pub(super) map: map::MapState,
     pub(super) media: media::MediaState,
+    pub(super) media_repair: media_repair::MediaRepairState,
     pub(super) media_attach: Option<media::MediaAttachState>,
     pub(super) research: research::ResearchState,
     pub(super) task_attach: Option<tasks::TaskAttachState>,
@@ -185,6 +187,7 @@ impl TreeWindow {
             places: places::PlacesState::default(),
             map: map::MapState::default(),
             media: media::MediaState::default(),
+            media_repair: media_repair::MediaRepairState::default(),
             media_attach: None,
             research: research::ResearchState::default(),
             task_attach: None,
@@ -333,6 +336,7 @@ impl App for TreeWindow {
             self.show_participant_window(ui.ctx());
             self.show_association_window(ui.ctx());
             self.show_media_attach(ui.ctx());
+            self.show_media_repair_window(ui.ctx());
             self.show_person_editor(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
@@ -392,6 +396,7 @@ mod tests {
     use crate::gui::sources::SourcesEvent;
     use crate::gui::welcome;
     use crate::model::geocode::{GeocodeOutcome, GeocodeReport, GeocodeResult};
+    use crate::model::media_repair::MediaRepairMatch;
     use crate::model::quality::SourceQuality;
     use egui::{Pos2, Rect, vec2};
     use std::collections::HashMap;
@@ -1988,6 +1993,56 @@ mod tests {
             1
         );
 
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn media_repair_opens_and_applies_folder_matches() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let media_id = window
+            .app
+            .save_media(&crate::db::media::MediaDraft {
+                file_path: "missing/photo.jpg".to_string(),
+                caption: "Photo".to_string(),
+                ..crate::db::media::MediaDraft::default()
+            })
+            .expect("media saves");
+        window.media.loaded = false;
+        window.reload_media();
+        window.open_media_repair();
+        assert!(window.media_repair.open);
+        assert_eq!(window.media_repair.missing.len(), 1);
+
+        let media_dir = db_file.with_file_name(format!("repair-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&media_dir).expect("media dir");
+        let file = media_dir.join("photo.jpg");
+        std::fs::write(&file, b"photo").expect("media file");
+        window.apply_media_repair_matches(&[MediaRepairMatch {
+            media_id: media_id.clone(),
+            old_path: "missing/photo.jpg".to_string(),
+            new_path: file.to_string_lossy().to_string(),
+        }]);
+        assert!(window.media_repair.missing.is_empty());
+        let record = window
+            .app
+            .load_media(&media_id)
+            .expect("load")
+            .expect("media");
+        assert_eq!(record.caption.as_deref(), Some("Photo"));
+        assert!(
+            window
+                .app
+                .list_media()
+                .expect("media list")
+                .iter()
+                .all(|media| !media.missing)
+        );
+
+        let _ = std::fs::remove_dir_all(media_dir);
         let _ = std::fs::remove_file(&db_file);
     }
 

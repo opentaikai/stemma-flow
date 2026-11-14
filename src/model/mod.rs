@@ -12,6 +12,7 @@ pub mod family_view;
 pub mod geocode;
 pub mod graph;
 pub mod map;
+pub mod media_repair;
 pub mod name;
 pub mod navigation;
 pub mod pedigree;
