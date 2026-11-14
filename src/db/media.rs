@@ -110,7 +110,7 @@ pub(crate) fn inferred_format(path: &str) -> Option<String> {
         .filter(|extension| !extension.is_empty())
 }
 
-fn summary(
+pub(crate) fn summary(
     id: String,
     file_path: String,
     format: Option<String>,

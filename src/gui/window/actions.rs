@@ -1488,7 +1488,15 @@ impl TreeWindow {
         if !self.media.loaded {
             self.reload_media();
         }
-        if let Some(event) = media_ui::show(ui, &mut self.media) {
+        if !self.media.albums_loaded {
+            self.reload_albums();
+        }
+        if let Some(event) = media_ui::show(
+            ui,
+            &mut self.media,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
             self.apply_media_event(event);
         }
     }
@@ -1510,6 +1518,54 @@ impl TreeWindow {
         }
     }
 
+    pub(super) fn reload_albums(&mut self) {
+        match self.app.list_albums(self.tree_settings.surname_first) {
+            Ok(list) => {
+                self.media.albums = list;
+                self.media.albums_loaded = true;
+                self.media.album_error = None;
+                if self
+                    .media
+                    .selected_album
+                    .as_ref()
+                    .is_some_and(|id| !self.media.albums.iter().any(|album| &album.id == id))
+                {
+                    self.media.selected_album = None;
+                    self.media.album_media.clear();
+                }
+            }
+            Err(message) => {
+                self.media.album_error = Some(message);
+                self.media.albums_loaded = true;
+            }
+        }
+    }
+
+    fn reload_album_media(&mut self) {
+        let Some(id) = self.media.selected_album.clone() else {
+            self.media.album_media.clear();
+            return;
+        };
+        match self.app.list_album_media(&id) {
+            Ok(list) => {
+                self.media.album_media = list;
+                self.media.album_error = None;
+            }
+            Err(message) => self.media.album_error = Some(message),
+        }
+    }
+
+    fn reload_media_albums(&mut self) {
+        let Some(id) = self.media.selected.clone() else {
+            self.media.media_albums.clear();
+            return;
+        };
+        self.media.media_albums = self
+            .app
+            .albums_for_media(&id, self.tree_settings.surname_first)
+            .unwrap_or_default();
+    }
+
     pub(super) fn load_media_draft(&mut self, id: &str) {
         match (
             self.app.load_media(id),
@@ -1520,6 +1576,10 @@ impl TreeWindow {
                 self.media.selected = Some(id.to_string());
                 self.media.draft = media_ui::MediaEdit::from_record(&record);
                 self.media.links = links;
+                self.media.media_albums = self
+                    .app
+                    .albums_for_media(id, self.tree_settings.surname_first)
+                    .unwrap_or_default();
                 self.media.editing = true;
                 self.media.error = None;
             }
@@ -1527,6 +1587,7 @@ impl TreeWindow {
                 self.media.selected = None;
                 self.media.draft = media_ui::MediaEdit::default();
                 self.media.links.clear();
+                self.media.media_albums.clear();
                 self.media.editing = false;
             }
             (Err(message), _) | (_, Err(message)) => self.media.error = Some(message),
@@ -1539,6 +1600,7 @@ impl TreeWindow {
                 self.media.selected = None;
                 self.media.draft = media_ui::MediaEdit::default();
                 self.media.links.clear();
+                self.media.media_albums.clear();
                 self.media.editing = true;
                 self.media.error = None;
             }
@@ -1557,9 +1619,13 @@ impl TreeWindow {
                     self.media.selected = None;
                     self.media.draft = media_ui::MediaEdit::default();
                     self.media.links.clear();
+                    self.media.media_albums.clear();
                     self.media.editing = false;
                     self.media.loaded = false;
+                    self.media.albums_loaded = false;
                     self.reload_media();
+                    self.reload_albums();
+                    self.reload_album_media();
                 }
                 Err(message) => self.media.error = Some(message),
             },
@@ -1594,6 +1660,87 @@ impl TreeWindow {
                     Err(message) => self.media.error = Some(message),
                 }
             }
+            MediaEvent::SelectAlbum(id) => {
+                self.media.selected_album = id;
+                self.reload_album_media();
+            }
+            MediaEvent::NewAlbum => {
+                self.media.album_edit = media_ui::AlbumEdit::default();
+                self.media.album_form = true;
+                self.media.album_confirm_delete = false;
+                self.media.album_person_search.clear();
+                self.media.album_error = None;
+            }
+            MediaEvent::EditAlbum(id) => {
+                if let Some(album) = self.media.albums.iter().find(|album| album.id == id) {
+                    self.media.album_edit = media_ui::AlbumEdit::from_summary(album);
+                    self.media.album_form = true;
+                    self.media.album_confirm_delete = false;
+                    self.media.album_person_search.clear();
+                    self.media.album_error = None;
+                }
+            }
+            MediaEvent::SaveAlbum(draft) => match self.app.save_album(&draft) {
+                Ok(id) => {
+                    self.media.album_form = false;
+                    self.media.album_confirm_delete = false;
+                    self.media.album_error = None;
+                    self.media.selected_album = Some(id);
+                    self.media.albums_loaded = false;
+                    self.reload_albums();
+                    self.reload_album_media();
+                    self.reload_media_albums();
+                }
+                Err(message) => self.media.album_error = Some(message),
+            },
+            MediaEvent::DeleteAlbum(id) => match self.app.delete_album(&id) {
+                Ok(()) => {
+                    if self.media.selected_album.as_deref() == Some(id.as_str()) {
+                        self.media.selected_album = None;
+                        self.media.album_media.clear();
+                    }
+                    self.media.album_form = false;
+                    self.media.album_confirm_delete = false;
+                    self.media.album_error = None;
+                    self.media.albums_loaded = false;
+                    self.reload_albums();
+                    self.reload_media_albums();
+                }
+                Err(message) => self.media.album_error = Some(message),
+            },
+            MediaEvent::AddToAlbum { album_id, media_id } => {
+                match self.app.add_media_to_album(&album_id, &media_id) {
+                    Ok(()) => {
+                        self.media.albums_loaded = false;
+                        self.reload_albums();
+                        self.reload_album_media();
+                        self.reload_media_albums();
+                    }
+                    Err(message) => self.media.album_error = Some(message),
+                }
+            }
+            MediaEvent::RemoveFromAlbum { album_id, media_id } => {
+                match self.app.remove_media_from_album(&album_id, &media_id) {
+                    Ok(()) => {
+                        self.media.albums_loaded = false;
+                        self.reload_albums();
+                        self.reload_album_media();
+                        self.reload_media_albums();
+                    }
+                    Err(message) => self.media.album_error = Some(message),
+                }
+            }
+            MediaEvent::MoveInAlbum {
+                album_id,
+                media_id,
+                before_id,
+            } => match self
+                .app
+                .move_media_in_album(&album_id, &media_id, before_id.as_deref())
+            {
+                Ok(()) => self.reload_album_media(),
+                Err(message) => self.media.album_error = Some(message),
+            },
         }
     }
 

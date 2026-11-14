@@ -20,13 +20,13 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
-- `db::init_db(&conn)` creates or upgrades the schema (32 tables, 47
-  indexes) and records its version in `PRAGMA user_version` (currently 21):
+- `db::init_db(&conn)` creates or upgrades the schema (34 tables, 49
+  indexes) and records its version in `PRAGMA user_version` (currently 22):
   `people`, `alternate_names`, `tree_settings`, `notes`, `associations`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `geocode_cache`, `fact_types`, `fact_type_roles`,
   `events`, `event_participants`, `citations`, `citation_links`, `media`,
-  `media_links`, `tasks`, `task_links`, `groups`, `group_members`, `labels`,
+  `media_links`, `albums`, `album_media`, `tasks`, `task_links`, `groups`, `group_members`, `labels`,
   `person_labels`, `bookmarks` and `problem_dismissals`. A v1 database is migrated in place: citation titles
   become `sources`, event places become `places`, and the new links are
   backfilled. v2 databases gain the v3 source/citation metadata, v4 the
@@ -39,7 +39,7 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   citation columns, v14 directed person associations, v15 event
   associations, v16 parentage types, v17 problem dismissals, v18 group
   rules, v19 group colours and person labels, v20 persistent bookmarks,
-  and v21 the tree-local geocoding cache.
+  v21 the tree-local geocoding cache, and v22 media albums.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -628,6 +628,14 @@ views (the app always launches on Graph View):
   directly and detach links. Citation/place media now round-trip through
   GEDCOM; relative paths, copying files into the tree and broken-link repair
   remain deferred.
+- **Media albums** — the Media sidebar lists general and per-person albums.
+  Create or edit an album with a name, description and optional person, drag
+  media onto album rows to add them, drag within an album to reorder, and
+  use **Remove** to take an item out. Media may belong to multiple albums.
+  The media editor lists memberships and offers an **Add to album** selector.
+  Albums and ordering are metadata only; source files are never moved or
+  copied. Deleting an album keeps its media, while deleting a person removes
+  that person's albums.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,

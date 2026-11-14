@@ -6,7 +6,10 @@ use egui::{
     Color32, ColorImage, Context, RichText, TextureHandle, TextureOptions, Ui, Vec2, Window,
 };
 
+use crate::db::Person;
+use crate::db::albums::{AlbumDraft, AlbumSummary};
 use crate::db::media::{MediaDraft, MediaLinkSummary, MediaOwner, MediaRecord, MediaSummary};
+use crate::gui::inspector::person_label;
 
 const THUMB_SIZE: f32 = 64.0;
 const MAX_CHOICES: usize = 24;
@@ -67,6 +70,42 @@ impl MediaEdit {
     }
 }
 
+/// An album buffered for editing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AlbumEdit {
+    pub id: Option<String>,
+    pub name: String,
+    pub description: String,
+    pub person_id: Option<String>,
+}
+
+impl AlbumEdit {
+    pub fn from_summary(album: &AlbumSummary) -> Self {
+        Self {
+            id: Some(album.id.clone()),
+            name: album.name.clone(),
+            description: album.description.clone().unwrap_or_default(),
+            person_id: album.person_id.clone(),
+        }
+    }
+
+    pub fn to_draft(&self) -> AlbumDraft {
+        AlbumDraft {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            description: self.description.clone(),
+            person_id: self.person_id.clone(),
+        }
+    }
+}
+
+/// Payload used while dragging media rows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MediaDrag {
+    Media(String),
+    AlbumEntry { album_id: String, media_id: String },
+}
+
 /// What the user asked the shell to do from the Media tab.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MediaEvent {
@@ -83,6 +122,24 @@ pub enum MediaEvent {
         media_id: String,
         title: String,
     },
+    SelectAlbum(Option<String>),
+    NewAlbum,
+    EditAlbum(String),
+    SaveAlbum(Box<AlbumDraft>),
+    DeleteAlbum(String),
+    AddToAlbum {
+        album_id: String,
+        media_id: String,
+    },
+    RemoveFromAlbum {
+        album_id: String,
+        media_id: String,
+    },
+    MoveInAlbum {
+        album_id: String,
+        media_id: String,
+        before_id: Option<String>,
+    },
 }
 
 /// State owned by the window while the Media tab is open.
@@ -97,15 +154,32 @@ pub struct MediaState {
     pub error: Option<String>,
     pub loaded: bool,
     pub thumbnails: ThumbnailCache,
+    pub albums: Vec<AlbumSummary>,
+    pub albums_loaded: bool,
+    pub selected_album: Option<String>,
+    pub album_media: Vec<MediaSummary>,
+    pub album_edit: AlbumEdit,
+    pub album_form: bool,
+    pub album_person_search: String,
+    pub album_confirm_delete: bool,
+    pub album_error: Option<String>,
+    pub media_albums: Vec<AlbumSummary>,
 }
 
 /// Draws the Media tab and returns the action the window should apply.
-pub fn show(ui: &mut Ui, state: &mut MediaState) -> Option<MediaEvent> {
+pub fn show(
+    ui: &mut Ui,
+    state: &mut MediaState,
+    people: &[Person],
+    surname_first: bool,
+) -> Option<MediaEvent> {
     let mut event = None;
     egui::Panel::left("media_list_panel")
         .resizable(true)
         .default_size(360.0)
         .show(ui, |ui| {
+            albums_section(ui, state, people, surname_first, &mut event);
+            ui.separator();
             ui.horizontal(|ui| {
                 ui.label("Filter:");
                 ui.add(
@@ -127,8 +201,12 @@ pub fn show(ui: &mut Ui, state: &mut MediaState) -> Option<MediaEvent> {
             }
             ui.separator();
             let filter = state.filter.trim().to_lowercase();
-            let visible: Vec<MediaSummary> = state
-                .media
+            let source = if state.selected_album.is_some() {
+                &state.album_media
+            } else {
+                &state.media
+            };
+            let visible: Vec<MediaSummary> = source
                 .iter()
                 .filter(|media| {
                     filter.is_empty()
@@ -153,8 +231,14 @@ pub fn show(ui: &mut Ui, state: &mut MediaState) -> Option<MediaEvent> {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     if visible.is_empty() {
-                        ui.label(RichText::new("No media yet.").weak().small());
+                        let label = if state.selected_album.is_some() {
+                            "No media in this album."
+                        } else {
+                            "No media yet."
+                        };
+                        ui.label(RichText::new(label).weak().small());
                     }
+                    let album_id = state.selected_album.clone();
                     for media in visible {
                         let selected = state.selected.as_deref() == Some(media.id.as_str());
                         let label = media
@@ -162,25 +246,81 @@ pub fn show(ui: &mut Ui, state: &mut MediaState) -> Option<MediaEvent> {
                             .clone()
                             .or_else(|| Some(display_path(&media.file_path)))
                             .unwrap_or_else(|| "(no caption)".to_string());
-                        ui.horizontal(|ui| {
-                            thumbnail(ui, &mut state.thumbnails, &media);
-                            let response = ui.selectable_label(selected, label);
-                            if response.clicked() {
-                                event = Some(MediaEvent::Select(media.id.clone()));
+                        let payload = match &album_id {
+                            Some(album_id) => MediaDrag::AlbumEntry {
+                                album_id: album_id.clone(),
+                                media_id: media.id.clone(),
+                            },
+                            None => MediaDrag::Media(media.id.clone()),
+                        };
+                        let mut clicked = false;
+                        let mut remove = false;
+                        let response = ui
+                            .dnd_drag_source(
+                                egui::Id::unique(("media_drag", media.id.as_str())),
+                                payload,
+                                |ui| {
+                                    ui.horizontal(|ui| {
+                                        thumbnail(ui, &mut state.thumbnails, &media);
+                                        clicked = ui.selectable_label(selected, label).clicked();
+                                        if media.missing {
+                                            ui.label(
+                                                RichText::new("missing")
+                                                    .color(Color32::from_rgb(239, 68, 68))
+                                                    .small(),
+                                            );
+                                        }
+                                        ui.label(
+                                            RichText::new(format!("{} links", media.link_count))
+                                                .weak()
+                                                .small(),
+                                        );
+                                        if album_id.is_some() && ui.small_button("Remove").clicked()
+                                        {
+                                            remove = true;
+                                        }
+                                    });
+                                },
+                            )
+                            .response;
+                        if clicked {
+                            event = Some(MediaEvent::Select(media.id.clone()));
+                        }
+                        if remove && let Some(album_id) = &album_id {
+                            event = Some(MediaEvent::RemoveFromAlbum {
+                                album_id: album_id.clone(),
+                                media_id: media.id.clone(),
+                            });
+                        }
+                        if let Some(dropped) = response.dnd_release_payload::<MediaDrag>() {
+                            match &*dropped {
+                                MediaDrag::AlbumEntry {
+                                    album_id: source,
+                                    media_id,
+                                } if album_id.as_deref() == Some(source.as_str())
+                                    && media_id != &media.id =>
+                                {
+                                    event = Some(MediaEvent::MoveInAlbum {
+                                        album_id: source.clone(),
+                                        media_id: media_id.clone(),
+                                        before_id: Some(media.id.clone()),
+                                    });
+                                }
+                                MediaDrag::AlbumEntry { media_id, .. } if album_id.is_some() => {
+                                    event = Some(MediaEvent::AddToAlbum {
+                                        album_id: album_id.clone().expect("album"),
+                                        media_id: media_id.clone(),
+                                    });
+                                }
+                                MediaDrag::Media(media_id) if album_id.is_some() => {
+                                    event = Some(MediaEvent::AddToAlbum {
+                                        album_id: album_id.clone().expect("album"),
+                                        media_id: media_id.clone(),
+                                    });
+                                }
+                                _ => {}
                             }
-                            if media.missing {
-                                ui.label(
-                                    RichText::new("missing")
-                                        .color(Color32::from_rgb(239, 68, 68))
-                                        .small(),
-                                );
-                            }
-                            ui.label(
-                                RichText::new(format!("{} links", media.link_count))
-                                    .weak()
-                                    .small(),
-                            );
-                        });
+                        }
                         ui.separator();
                     }
                 });
@@ -289,8 +429,262 @@ pub fn show(ui: &mut Ui, state: &mut MediaState) -> Option<MediaEvent> {
                 }
             });
         }
+
+        ui.separator();
+        ui.label(RichText::new("Albums").strong());
+        if state.media_albums.is_empty() {
+            ui.label(RichText::new("(not in an album)").weak().small());
+        }
+        for album in &state.media_albums {
+            ui.horizontal(|ui| {
+                ui.label(&album.name);
+                if ui.small_button("Remove").clicked()
+                    && let Some(media_id) = &state.selected
+                {
+                    event = Some(MediaEvent::RemoveFromAlbum {
+                        album_id: album.id.clone(),
+                        media_id: media_id.clone(),
+                    });
+                }
+            });
+        }
+        if let Some(media_id) = state.selected.clone() {
+            let available: Vec<AlbumSummary> = state
+                .albums
+                .iter()
+                .filter(|album| {
+                    !state
+                        .media_albums
+                        .iter()
+                        .any(|member| member.id == album.id)
+                })
+                .cloned()
+                .collect();
+            if !available.is_empty() {
+                egui::ComboBox::from_id_salt("media_add_album")
+                    .selected_text("Add to album\u{2026}")
+                    .show_ui(ui, |ui| {
+                        for album in available {
+                            if ui.selectable_label(false, &album.name).clicked() {
+                                event = Some(MediaEvent::AddToAlbum {
+                                    album_id: album.id,
+                                    media_id: media_id.clone(),
+                                });
+                            }
+                        }
+                    });
+            }
+        }
     });
     event
+}
+
+fn albums_section(
+    ui: &mut Ui,
+    state: &mut MediaState,
+    people: &[Person],
+    surname_first: bool,
+    event: &mut Option<MediaEvent>,
+) {
+    ui.label(RichText::new("Albums").strong());
+    if ui.button("+ New album").clicked() {
+        *event = Some(MediaEvent::NewAlbum);
+    }
+    if ui
+        .selectable_label(state.selected_album.is_none(), "All media")
+        .clicked()
+        && state.selected_album.is_some()
+    {
+        state.selected_album = None;
+        *event = Some(MediaEvent::SelectAlbum(None));
+    }
+    let albums = state.albums.clone();
+    egui::ScrollArea::vertical()
+        .id_salt("media_album_list")
+        .max_height(180.0)
+        .show(ui, |ui| {
+            for album in &albums {
+                let selected = state.selected_album.as_deref() == Some(album.id.as_str());
+                let label = match &album.person_name {
+                    Some(person) => format!("{} \u{2014} {}", album.name, person),
+                    None => album.name.clone(),
+                };
+                let mut clicked = false;
+                let (_, dropped) = ui.dnd_drop_zone::<MediaDrag, _>(
+                    egui::Frame::default().inner_margin(2.0),
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            clicked = ui.selectable_label(selected, label).clicked();
+                            ui.label(RichText::new(album.media_count.to_string()).weak().small());
+                        });
+                    },
+                );
+                if clicked {
+                    state.selected_album = Some(album.id.clone());
+                    *event = Some(MediaEvent::SelectAlbum(Some(album.id.clone())));
+                }
+                if let Some(payload) = dropped {
+                    match &*payload {
+                        MediaDrag::Media(media_id) => {
+                            *event = Some(MediaEvent::AddToAlbum {
+                                album_id: album.id.clone(),
+                                media_id: media_id.clone(),
+                            });
+                        }
+                        MediaDrag::AlbumEntry { album_id, media_id } => {
+                            if album_id == &album.id {
+                                *event = Some(MediaEvent::MoveInAlbum {
+                                    album_id: album.id.clone(),
+                                    media_id: media_id.clone(),
+                                    before_id: None,
+                                });
+                            } else {
+                                *event = Some(MediaEvent::AddToAlbum {
+                                    album_id: album.id.clone(),
+                                    media_id: media_id.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    if state.album_form {
+        album_form(ui, state, people, surname_first, event);
+    } else if let Some(error) = &state.album_error {
+        ui.label(
+            RichText::new(error)
+                .color(ui.visuals().error_fg_color)
+                .small(),
+        );
+    }
+}
+
+fn album_form(
+    ui: &mut Ui,
+    state: &mut MediaState,
+    people: &[Person],
+    surname_first: bool,
+    event: &mut Option<MediaEvent>,
+) {
+    ui.separator();
+    ui.label(
+        RichText::new(if state.album_edit.id.is_some() {
+            "Edit album"
+        } else {
+            "New album"
+        })
+        .strong(),
+    );
+    egui::Grid::new("album_fields")
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            ui.label(RichText::new("Name *").strong());
+            ui.text_edit_singleline(&mut state.album_edit.name);
+            ui.end_row();
+
+            ui.label("Description:");
+            ui.add(
+                egui::TextEdit::multiline(&mut state.album_edit.description)
+                    .desired_rows(2)
+                    .desired_width(f32::INFINITY),
+            );
+            ui.end_row();
+        });
+
+    let selected_name = state
+        .album_edit
+        .person_id
+        .as_deref()
+        .and_then(|id| people.iter().find(|person| person.id == id))
+        .map(|person| person_label(person, surname_first));
+    ui.horizontal(|ui| {
+        ui.label("Person:");
+        if let Some(name) = &selected_name {
+            ui.label(name);
+            if ui.small_button("Clear").clicked() {
+                state.album_edit.person_id = None;
+            }
+        } else {
+            ui.label(RichText::new("General album").weak().small());
+        }
+    });
+
+    ui.add(
+        egui::TextEdit::singleline(&mut state.album_person_search)
+            .hint_text("Search people\u{2026}"),
+    );
+    let needle = state.album_person_search.trim().to_lowercase();
+    if !needle.is_empty() {
+        egui::ScrollArea::vertical()
+            .id_salt("album_person_choices")
+            .max_height(120.0)
+            .show(ui, |ui| {
+                for person in people
+                    .iter()
+                    .filter(|person| {
+                        person_label(person, surname_first)
+                            .to_lowercase()
+                            .contains(&needle)
+                    })
+                    .take(8)
+                {
+                    if ui
+                        .selectable_label(false, person_label(person, surname_first))
+                        .clicked()
+                    {
+                        state.album_edit.person_id = Some(person.id.clone());
+                        state.album_person_search.clear();
+                    }
+                }
+            });
+    }
+
+    if let Some(error) = &state.album_error {
+        ui.label(
+            RichText::new(error)
+                .color(ui.visuals().error_fg_color)
+                .small(),
+        );
+    }
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(
+                !state.album_edit.name.trim().is_empty(),
+                egui::Button::new(RichText::new("Save").strong()),
+            )
+            .clicked()
+        {
+            *event = Some(MediaEvent::SaveAlbum(Box::new(state.album_edit.to_draft())));
+        }
+        if state.album_edit.id.is_some() {
+            if state.album_confirm_delete {
+                if ui.button("Delete album").clicked()
+                    && let Some(id) = &state.album_edit.id
+                {
+                    *event = Some(MediaEvent::DeleteAlbum(id.clone()));
+                }
+                if ui.button("Cancel delete").clicked() {
+                    state.album_confirm_delete = false;
+                }
+            } else if ui.button("Delete").clicked() {
+                state.album_confirm_delete = true;
+            }
+        }
+        if ui.button("Cancel").clicked() {
+            state.album_form = false;
+            state.album_confirm_delete = false;
+            state.album_error = None;
+        }
+    });
+    if state.album_confirm_delete {
+        ui.label(
+            RichText::new("Delete this album? Media records stay in the library.")
+                .color(ui.visuals().error_fg_color)
+                .small(),
+        );
+    }
 }
 
 /// State owned by the reusable attach dialog.
@@ -494,10 +888,38 @@ mod tests {
         let ctx = Context::default();
         let mut state = state();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            show(ui, &mut state);
+            show(ui, &mut state, &[], false);
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the media tab paints");
+    }
+
+    #[test]
+    fn media_albums_render_headless() {
+        let ctx = Context::default();
+        let mut state = state();
+        state.albums = vec![AlbumSummary {
+            id: "a1".to_string(),
+            name: "Trip".to_string(),
+            description: None,
+            person_id: None,
+            person_name: None,
+            media_count: 1,
+        }];
+        state.selected_album = Some("a1".to_string());
+        state.album_media = state.media.clone();
+        state.album_form = true;
+        state.album_edit = AlbumEdit {
+            id: Some("a1".to_string()),
+            name: "Trip".to_string(),
+            ..AlbumEdit::default()
+        };
+        state.media_albums = state.albums.clone();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            show(ui, &mut state, &[], false);
+        });
+        output.textures_delta.clear();
+        assert!(!output.shapes.is_empty(), "albums and their form paint");
     }
 
     #[test]

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use crate::backup::{self, BackupReport, RestoreReport};
 use crate::db;
+use crate::db::albums::{self as album_store, AlbumDraft, AlbumRecord, AlbumSummary};
 use crate::db::associations::{self, AssociationDraft, AssociationRecord, AssociationViewRow};
 use crate::db::bookmarks::{self as bookmark_store, BookmarkPerson};
 use crate::db::citations::{
@@ -1048,6 +1049,92 @@ impl StemmaApp {
         media_store::delete_media(&conn, id)?;
         self.set_status(UiStatus::Success("Media deleted".to_string()));
         Ok(())
+    }
+
+    /// Lists general and per-person media albums.
+    pub fn list_albums(&self, surname_first: bool) -> Result<Vec<AlbumSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        album_store::list_albums(&conn, surname_first)
+    }
+
+    /// Loads one album for editing.
+    pub fn load_album(&self, id: &str) -> Result<Option<AlbumRecord>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        album_store::load_album(&conn, id)
+    }
+
+    /// Inserts or updates an album.
+    pub fn save_album(&mut self, draft: &AlbumDraft) -> Result<String, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let id = album_store::save_album(&conn, draft)?;
+        self.set_status(UiStatus::Success("Album saved".to_string()));
+        Ok(id)
+    }
+
+    /// Deletes an album; its media records are kept.
+    pub fn delete_album(&mut self, id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        album_store::delete_album(&conn, id)?;
+        self.set_status(UiStatus::Success("Album deleted".to_string()));
+        Ok(())
+    }
+
+    /// Lists the ordered media in one album.
+    pub fn list_album_media(&self, album_id: &str) -> Result<Vec<MediaSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        album_store::list_album_media(&conn, album_id)
+    }
+
+    /// Adds a media record to an album.
+    pub fn add_media_to_album(&mut self, album_id: &str, media_id: &str) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        album_store::add_to_album(&conn, album_id, media_id)?;
+        self.set_status(UiStatus::Success("Added to album".to_string()));
+        Ok(())
+    }
+
+    /// Removes a media record from an album.
+    pub fn remove_media_from_album(
+        &mut self,
+        album_id: &str,
+        media_id: &str,
+    ) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        album_store::remove_from_album(&conn, album_id, media_id)?;
+        self.set_status(UiStatus::Success("Removed from album".to_string()));
+        Ok(())
+    }
+
+    /// Moves a media record before another entry, or to the end.
+    pub fn move_media_in_album(
+        &mut self,
+        album_id: &str,
+        media_id: &str,
+        before_id: Option<&str>,
+    ) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        album_store::move_album_media(&conn, album_id, media_id, before_id)?;
+        self.set_status(UiStatus::Success("Album order updated".to_string()));
+        Ok(())
+    }
+
+    /// Lists the albums containing one media record.
+    pub fn albums_for_media(
+        &self,
+        media_id: &str,
+        surname_first: bool,
+    ) -> Result<Vec<AlbumSummary>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        album_store::albums_for_media(&conn, media_id, surname_first)
     }
 
     /// Lists media attached to one record.

@@ -279,6 +279,14 @@ pub(super) fn migrate_v20_to_v21(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// Adds per-person and general media albums.
+pub(super) fn migrate_v21_to_v22(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch(super::schema::ALBUMS_SQL)?;
+    tx.pragma_update(None, "user_version", 22)?;
+    tx.commit()
+}
+
 /// Copies distinct event places into `places` and links the events.
 fn migrate_places(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut stmt = tx.prepare(

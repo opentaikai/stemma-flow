@@ -386,6 +386,7 @@ mod tests {
     use crate::gui::inspector;
     use crate::gui::inspector::InspectorAction;
     use crate::gui::inspector::RelationKind;
+    use crate::gui::media::MediaEvent;
     use crate::gui::places::PlacesEvent;
     use crate::gui::repositories::RepositoriesEvent;
     use crate::gui::sources::SourcesEvent;
@@ -1986,6 +1987,75 @@ mod tests {
             window.media_attach.as_ref().expect("dialog").attached.len(),
             1
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn media_albums_create_add_move_and_remove() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let first = window
+            .app
+            .save_media(&crate::db::media::MediaDraft {
+                file_path: "/tmp/one.jpg".to_string(),
+                ..crate::db::media::MediaDraft::default()
+            })
+            .expect("first media");
+        let second = window
+            .app
+            .save_media(&crate::db::media::MediaDraft {
+                file_path: "/tmp/two.jpg".to_string(),
+                ..crate::db::media::MediaDraft::default()
+            })
+            .expect("second media");
+        window.media.loaded = false;
+        window.media.albums_loaded = false;
+        window.reload_media();
+        window.reload_albums();
+        assert_eq!(window.media.media.len(), 2);
+
+        window.apply_media_event(MediaEvent::NewAlbum);
+        window.media.album_edit.name = "Trip".to_string();
+        let draft = window.media.album_edit.to_draft();
+        window.apply_media_event(MediaEvent::SaveAlbum(Box::new(draft)));
+        let album_id = window.media.selected_album.clone().expect("album selected");
+        assert_eq!(window.media.albums.len(), 1);
+
+        window.apply_media_event(MediaEvent::AddToAlbum {
+            album_id: album_id.clone(),
+            media_id: first.clone(),
+        });
+        window.apply_media_event(MediaEvent::AddToAlbum {
+            album_id: album_id.clone(),
+            media_id: second.clone(),
+        });
+        assert_eq!(window.media.album_media.len(), 2);
+        assert_eq!(window.media.album_media[1].id, second);
+
+        window.apply_media_event(MediaEvent::MoveInAlbum {
+            album_id: album_id.clone(),
+            media_id: second.clone(),
+            before_id: Some(first.clone()),
+        });
+        assert_eq!(window.media.album_media[0].id, second);
+
+        window.load_media_draft(&first);
+        assert_eq!(window.media.media_albums.len(), 1);
+        window.apply_media_event(MediaEvent::RemoveFromAlbum {
+            album_id: album_id.clone(),
+            media_id: first.clone(),
+        });
+        assert_eq!(window.media.album_media.len(), 1);
+        assert!(window.media.media_albums.is_empty());
+
+        window.apply_media_event(MediaEvent::DeleteAlbum(album_id));
+        assert!(window.media.albums.is_empty());
+        assert_eq!(window.app.list_media().expect("media").len(), 2);
 
         let _ = std::fs::remove_file(&db_file);
     }
