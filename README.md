@@ -21,7 +21,7 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
 - `db::open_connection(path)` opens a connection with the required pragmas:
   `journal_mode = WAL` and `foreign_keys = ON`.
 - `db::init_db(&conn)` creates or upgrades the schema (34 tables, 49
-  indexes) and records its version in `PRAGMA user_version` (currently 22):
+  indexes) and records its version in `PRAGMA user_version` (currently 23):
   `people`, `alternate_names`, `tree_settings`, `notes`, `associations`, `families`, `family_children`, `repositories`, `sources`,
   `source_fields`, `source_repositories`, `source_templates`,
   `source_template_fields`, `places`, `geocode_cache`, `fact_types`, `fact_type_roles`,
@@ -39,7 +39,8 @@ cargo run     # open the desktop window (reopens the last tree, welcome dashboar
   citation columns, v14 directed person associations, v15 event
   associations, v16 parentage types, v17 problem dismissals, v18 group
   rules, v19 group colours and person labels, v20 persistent bookmarks,
-  v21 the tree-local geocoding cache, and v22 media albums.
+  v21 the tree-local geocoding cache, v22 media albums, and v23 primary
+  person portraits.
   Databases from a newer build are rejected. The upgrade runs on every open (the `gui::window` loader
   validates and migrates before loading), so existing trees keep opening.
 - `db::{Person, Family, Event, Citation}` are the serde-enabled entity
@@ -634,7 +635,8 @@ views (the app always launches on Graph View):
   on person, family, fact, source and place records list attached media,
   attach existing records, add a file directly and detach links.
   Citation/place media now round-trip through GEDCOM; copying files into the
-  tree and broken-link repair remain deferred.
+  tree remains deferred. Media attached to a person can be marked as that
+  person's **portrait** in the editor and is used by the photo tree.
 - **Media albums** — the Media sidebar lists general and per-person albums.
   Create or edit an album with a name, description and optional person, drag
   media onto album rows to add them, drag within an album to reorder, and
@@ -650,6 +652,13 @@ views (the app always launches on Graph View):
   unique filename matches as old → new paths, and applies only checked rows;
   ambiguous and unmatched files remain listed. The media editor also offers a
   **Locate…** button when its current path is missing.
+- **Photo Tree and Scrapbook** — **Tools > Photo Tree…** exports a
+  printable ancestor chart as one HTML file with embedded portraits, names,
+  dates and family connectors. Choose a root person and two to six
+  generations. **Tools > Scrapbook…** exports selected general or per-person
+  albums as printable album pages with photos, captions and descriptions.
+  Both documents open in the browser and include a print toolbar; missing or
+  unsupported images render as placeholders.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,
