@@ -158,7 +158,7 @@ Goal: connect people to locations and sources of evidence beyond text.
 | Media attachments with thumbnails and list modes | done | P1 | Media tab list plus record attachment dialogs |
 | Media albums and drag-and-drop organisation | done | P2 | General and per-person albums with drag/drop add and reorder |
 | Relative media links so trees move between computers | done | P2 | Portable tree-relative paths, import/export and backup restore |
-| Broken media link repair | planned | P2 | Locate or relink |
+| Broken media link repair | done | P2 | Locate files or preview folder matches by filename |
 | Photo tree and scrapbook | planned | P2 | Publishing-oriented |
 
 ## M5 - Publishing (P1/P2)

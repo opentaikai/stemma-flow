@@ -643,6 +643,13 @@ views (the app always launches on Graph View):
   Albums and ordering are metadata only; source files are never moved or
   copied. Deleting an album keeps its media, while deleting a person removes
   that person's albums.
+- **Media repair** — **Repair missing…** in the Media tab, or **Tools >
+  Repair Media…**, lists records whose files cannot be found. **Locate…**
+  chooses a replacement file and keeps the record's caption, notes, links and
+  album memberships. **Search folder…** scans a folder recursively, previews
+  unique filename matches as old → new paths, and applies only checked rows;
+  ambiguous and unmatched files remain listed. The media editor also offers a
+  **Locate…** button when its current path is missing.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,
