@@ -7,6 +7,7 @@ pub mod group_roster;
 pub mod html;
 pub mod individual_list;
 pub mod individual_summary;
+pub mod kinship;
 pub mod list_entry;
 pub mod pedigree;
 pub mod photo_tree;

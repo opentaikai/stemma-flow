@@ -26,6 +26,7 @@ pub mod import_report;
 pub mod individual_list;
 pub mod individual_summary;
 pub mod inspector;
+pub mod kinship_report;
 pub mod labels;
 pub mod layout;
 pub mod map;

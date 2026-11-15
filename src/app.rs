@@ -65,6 +65,7 @@ use crate::report::family_group::FamilyGroupSheetReport;
 use crate::report::group_roster::{self, GroupRosterReport};
 use crate::report::individual_list::IndividualListReport;
 use crate::report::individual_summary::IndividualSummaryReport;
+use crate::report::kinship::KinshipReport;
 use crate::report::pedigree::PedigreeReport;
 use crate::report::photo_tree::PhotoTreeReport;
 use crate::report::research_log::{self, ResearchLogReport};
@@ -147,6 +148,11 @@ pub enum JobEvent {
         bytes: usize,
         people: usize,
     },
+    KinshipReportExported {
+        path: PathBuf,
+        bytes: usize,
+        people: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -194,6 +200,7 @@ enum Job {
     IndividualList(Box<IndividualListReport>),
     AhnentafelList(Box<AhnentafelListReport>),
     DescendantList(Box<DescendantListReport>),
+    KinshipReport(Box<KinshipReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -397,6 +404,11 @@ impl StemmaApp {
             Job::DescendantList(Box::new(report)),
             self.active_db.clone(),
         );
+    }
+
+    /// Writes a print-ready kinship report on a worker thread.
+    pub fn begin_kinship_report_export(&mut self, report: KinshipReport) {
+        self.begin(Job::KinshipReport(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1665,6 +1677,7 @@ impl StemmaApp {
             Job::IndividualList(_) => "Choosing individual list destination\u{2026}",
             Job::AhnentafelList(_) => "Choosing Ahnentafel list destination\u{2026}",
             Job::DescendantList(_) => "Choosing descendant list destination\u{2026}",
+            Job::KinshipReport(_) => "Choosing kinship report destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1843,6 +1856,14 @@ impl StemmaApp {
                 people,
             } => UiStatus::Success(format!(
                 "Exported {people} descendants ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::KinshipReportExported {
+                path,
+                bytes,
+                people,
+            } => UiStatus::Success(format!(
+                "Exported kinship report for {people} people ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::Geocoded(report) => {
@@ -2270,6 +2291,29 @@ impl Job {
                             Err(message) => JobEvent::Failed(message),
                         }
                     }
+                }
+            }
+            Job::KinshipReport(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::kinship::file_name(&report.subject_name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::kinship::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::KinshipReportExported {
+                                path: dest,
+                                bytes,
+                                people: report.rows.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
                 }
             }
             Job::Maintenance { kind, backup_first } => {

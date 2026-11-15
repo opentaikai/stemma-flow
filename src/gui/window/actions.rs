@@ -41,6 +41,7 @@ use crate::gui::inspector::NewPersonState;
 use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
+use crate::gui::kinship_report as kinship_report_ui;
 use crate::gui::labels::{self as label_ui, LabelEvent};
 use crate::gui::map as map_ui;
 use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, MediaEvent};
@@ -3807,6 +3808,96 @@ impl TreeWindow {
             });
         }
         marriages
+    }
+
+    pub(super) fn open_kinship_report(&mut self) {
+        let subject = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.kinship_report.open_with(subject);
+    }
+
+    pub(super) fn show_kinship_report_window(&mut self, ctx: &egui::Context) {
+        if !self.kinship_report.open {
+            return;
+        }
+        if let Some(event) = kinship_report_ui::show(
+            ctx,
+            &mut self.kinship_report,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            match self.build_kinship_report(&event.subject_id, event.only_relatives) {
+                Ok(report) => self.app.begin_kinship_report_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_kinship_report(
+        &self,
+        subject_id: &str,
+        only_relatives: bool,
+    ) -> Result<crate::report::kinship::KinshipReport, String> {
+        let subject = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == subject_id)
+            .ok_or_else(|| "subject person not found".to_string())?;
+        let mut rows: Vec<(bool, String, crate::report::kinship::KinshipRow)> = Vec::new();
+        for person in &self.tree.people {
+            if person.id == subject_id {
+                continue;
+            }
+            let Some(kinship) = crate::model::relationship::relationship_to_root(
+                &self.tree, subject_id, &person.id,
+            ) else {
+                continue;
+            };
+            let unrelated = matches!(kinship, crate::model::relationship::Kinship::Unrelated);
+            if only_relatives && unrelated {
+                continue;
+            }
+            let relationship = kinship.label();
+            let dates = self.dates.get(&person.id);
+            rows.push((
+                unrelated,
+                relationship.clone(),
+                crate::report::kinship::KinshipRow {
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                    relationship,
+                    birth: dates
+                        .and_then(|dates| dates.birth.clone())
+                        .unwrap_or_default(),
+                    birth_place: dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default(),
+                    death: dates
+                        .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default(),
+                    death_place: dates
+                        .and_then(|dates| dates.death_place.clone())
+                        .unwrap_or_default(),
+                },
+            ));
+        }
+        rows.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.to_lowercase().cmp(&right.1.to_lowercase()))
+                .then_with(|| left.2.name.to_lowercase().cmp(&right.2.name.to_lowercase()))
+        });
+        Ok(crate::report::kinship::KinshipReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            subject_name: inspector::person_label(subject, self.tree_settings.surname_first),
+            only_relatives,
+            rows: rows.into_iter().map(|(_, _, row)| row).collect(),
+        })
     }
 
     fn tree_name(&self) -> String {
