@@ -42,17 +42,19 @@ impl RelationshipCalculatorState {
 }
 
 /// Draws the calculator window.
+///
+/// Returns the current pair when the user asks for a printable report.
 pub fn show(
     ctx: &Context,
     state: &mut RelationshipCalculatorState,
     tree: &FamilyTree,
     surname_first: bool,
-) -> bool {
+) -> Option<(String, String)> {
     if !state.open {
-        return false;
+        return None;
     }
     let mut open = true;
-    let mut changed = false;
+    let mut print = None;
     Window::new(tr("calculator.title"))
         .id(egui::Id::unique("relationship_calculator"))
         .collapsible(false)
@@ -89,7 +91,6 @@ pub fn show(
                 if ui.button(tr("calculator.swap")).clicked() {
                     std::mem::swap(&mut state.from, &mut state.to);
                     std::mem::swap(&mut state.from_search, &mut state.to_search);
-                    changed = true;
                 }
                 if ui.button(tr("common.clear")).clicked() {
                     state.from = None;
@@ -132,6 +133,14 @@ pub fn show(
                 ui.label(RichText::new(error).color(ui.visuals().error_fg_color));
             }
             ui.separator();
+            let ready = state.result.is_some() && state.from.is_some() && state.to.is_some();
+            if ui
+                .add_enabled(ready, egui::Button::new(tr("calculator.print")))
+                .clicked()
+                && let (Some(from), Some(to)) = (state.from.clone(), state.to.clone())
+            {
+                print = Some((from, to));
+            }
             if ui.button(tr("common.close")).clicked() {
                 state.open = false;
             }
@@ -139,7 +148,7 @@ pub fn show(
     if !open {
         state.open = false;
     }
-    changed
+    print
 }
 
 fn person_picker(
@@ -251,7 +260,7 @@ mod tests {
         };
         let tree = tree();
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
-            show(ui.ctx(), &mut state, &tree, false);
+            assert!(show(ui.ctx(), &mut state, &tree, false).is_none());
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty());

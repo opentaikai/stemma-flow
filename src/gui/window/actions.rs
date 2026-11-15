@@ -2318,12 +2318,17 @@ impl TreeWindow {
     }
 
     pub(super) fn show_relationship_calculator(&mut self, ctx: &egui::Context) {
-        crate::gui::relationship_calculator::show(
+        if let Some((from, to)) = crate::gui::relationship_calculator::show(
             ctx,
             &mut self.relationship_calculator,
             &self.tree,
             self.tree_settings.surname_first,
-        );
+        ) {
+            match self.build_relationship_report(&from, &to) {
+                Ok(report) => self.app.begin_relationship_report_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
     }
 
     pub(super) fn open_media(&mut self, owner: MediaOwner, title: String) {
@@ -3897,6 +3902,60 @@ impl TreeWindow {
             subject_name: inspector::person_label(subject, self.tree_settings.surname_first),
             only_relatives,
             rows: rows.into_iter().map(|(_, _, row)| row).collect(),
+        })
+    }
+
+    pub(super) fn build_relationship_report(
+        &self,
+        from_id: &str,
+        to_id: &str,
+    ) -> Result<crate::report::relationship::RelationshipReport, String> {
+        use crate::model::relationship::PathKind;
+        let from = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == from_id)
+            .ok_or_else(|| "first person not found".to_string())?;
+        let to = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == to_id)
+            .ok_or_else(|| "second person not found".to_string())?;
+        let result = crate::model::relationship::relationship_between(&self.tree, from_id, to_id)
+            .ok_or_else(|| "no relationship result".to_string())?;
+        let hops = result
+            .path
+            .iter()
+            .map(|step| crate::report::relationship::RelationshipHop {
+                relation: crate::i18n::tr(match step.kind {
+                    PathKind::Parent => "calculator.parent_step",
+                    PathKind::Child => "calculator.child_step",
+                    PathKind::Spouse => "calculator.spouse_step",
+                }),
+                person: self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == step.to_person_id)
+                    .map(|person| inspector::person_label(person, self.tree_settings.surname_first))
+                    .unwrap_or_default(),
+            })
+            .collect();
+        let common_ancestor = result
+            .common_ancestor
+            .as_deref()
+            .and_then(|id| self.tree.people.iter().find(|person| person.id == id))
+            .map(|person| inspector::person_label(person, self.tree_settings.surname_first));
+        Ok(crate::report::relationship::RelationshipReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            from_name: inspector::person_label(from, self.tree_settings.surname_first),
+            to_name: inspector::person_label(to, self.tree_settings.surname_first),
+            kinship: result.kinship.label(),
+            common_ancestor,
+            hops,
         })
     }
 

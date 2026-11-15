@@ -68,6 +68,7 @@ use crate::report::individual_summary::IndividualSummaryReport;
 use crate::report::kinship::KinshipReport;
 use crate::report::pedigree::PedigreeReport;
 use crate::report::photo_tree::PhotoTreeReport;
+use crate::report::relationship::RelationshipReport;
 use crate::report::research_log::{self, ResearchLogReport};
 use crate::report::scrapbook::ScrapbookReport;
 
@@ -153,6 +154,11 @@ pub enum JobEvent {
         bytes: usize,
         people: usize,
     },
+    RelationshipReportExported {
+        path: PathBuf,
+        bytes: usize,
+        steps: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -201,6 +207,7 @@ enum Job {
     AhnentafelList(Box<AhnentafelListReport>),
     DescendantList(Box<DescendantListReport>),
     KinshipReport(Box<KinshipReport>),
+    RelationshipReport(Box<RelationshipReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -409,6 +416,14 @@ impl StemmaApp {
     /// Writes a print-ready kinship report on a worker thread.
     pub fn begin_kinship_report_export(&mut self, report: KinshipReport) {
         self.begin(Job::KinshipReport(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready relationship report on a worker thread.
+    pub fn begin_relationship_report_export(&mut self, report: RelationshipReport) {
+        self.begin(
+            Job::RelationshipReport(Box::new(report)),
+            self.active_db.clone(),
+        );
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1678,6 +1693,7 @@ impl StemmaApp {
             Job::AhnentafelList(_) => "Choosing Ahnentafel list destination\u{2026}",
             Job::DescendantList(_) => "Choosing descendant list destination\u{2026}",
             Job::KinshipReport(_) => "Choosing kinship report destination\u{2026}",
+            Job::RelationshipReport(_) => "Choosing relationship report destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1866,6 +1882,12 @@ impl StemmaApp {
                 "Exported kinship report for {people} people ({bytes} bytes) to {}",
                 path.display()
             )),
+            JobEvent::RelationshipReportExported { path, bytes, steps } => {
+                UiStatus::Success(format!(
+                    "Exported relationship report with {steps} steps ({bytes} bytes) to {}",
+                    path.display()
+                ))
+            }
             JobEvent::Geocoded(report) => {
                 let found = report.found_count();
                 let error = report.error.clone();
@@ -2310,6 +2332,32 @@ impl Job {
                                 path: dest,
                                 bytes,
                                 people: report.rows.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::RelationshipReport(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name = crate::report::relationship::file_name(
+                    &report.from_name,
+                    &report.to_name,
+                    &timestamp,
+                );
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::relationship::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::RelationshipReportExported {
+                                path: dest,
+                                bytes,
+                                steps: report.hops.len(),
                             }
                         }
                         Err(message) => JobEvent::Failed(message),

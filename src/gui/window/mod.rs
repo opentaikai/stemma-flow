@@ -2410,6 +2410,39 @@ mod tests {
     }
 
     #[test]
+    fn builds_relationship_report() {
+        let db_file = temp_path("db");
+        import_kinship(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let john = person_id_by_given(&window, "John");
+        let eve = person_id_by_given(&window, "Eve");
+
+        let report = window
+            .build_relationship_report(&john, &eve)
+            .expect("relationship report");
+        assert_eq!(report.from_name, "John Stone");
+        assert_eq!(report.to_name, "Eve Ward");
+        assert_eq!(report.kinship, "Granddaughter");
+        assert_eq!(report.common_ancestor.as_deref(), Some("George Stone"));
+        let hops: Vec<(&str, &str)> = report
+            .hops
+            .iter()
+            .map(|hop| (hop.relation.as_str(), hop.person.as_str()))
+            .collect();
+        assert_eq!(
+            hops,
+            vec![("child of", "Bea Stone"), ("child of", "Eve Ward")]
+        );
+
+        assert!(window.build_relationship_report(&john, "missing").is_err());
+        assert!(window.build_relationship_report("missing", &eve).is_err());
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn builds_pedigree_report() {
         let db_file = temp_path("db");
         import_family(&db_file);

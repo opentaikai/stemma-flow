@@ -11,5 +11,6 @@ pub mod kinship;
 pub mod list_entry;
 pub mod pedigree;
 pub mod photo_tree;
+pub mod relationship;
 pub mod research_log;
 pub mod scrapbook;
