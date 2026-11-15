@@ -5,6 +5,7 @@ pub mod couples;
 pub mod dataclean;
 pub mod date;
 pub mod date_calc;
+pub mod descendant_list;
 pub mod descendant_view;
 pub mod duplicates;
 pub mod fact;

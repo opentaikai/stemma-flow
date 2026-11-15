@@ -1,6 +1,7 @@
 //! Native desktop integrations used by the future egui shell.
 
 pub mod advanced_search;
+pub mod ahnentafel_list;
 pub mod associations;
 pub mod associations_view;
 pub mod canvas;
@@ -11,6 +12,7 @@ pub mod database_tools;
 pub mod dataclean;
 pub mod date_calculator;
 pub mod date_picker;
+pub mod descendant_list;
 pub mod dialogs;
 pub mod event_editor;
 pub mod export_dialog;

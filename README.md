@@ -668,6 +668,15 @@ views (the app always launches on Graph View):
   death dates and places. Single-parent families and families without a
   recorded marriage are supported. Both reports are single-file HTML with a
   print toolbar, like the photo tree and scrapbook.
+- **Genealogy Lists** — **Tools > Ahnentafel List…** exports numbered
+  ancestors grouped by generation, with birth and death dates and places
+  plus every spouse and marriage. **Tools > Descendant List…** exports an
+  **Indented** full descendancy with one indentation level per generation,
+  or a **Direct line** to a chosen descendant. Descendant numbering can be
+  **d'Aboville** (`1.1`, `1.2`, `1.1.1`) or **Henry** (`11`, `12`, `111`).
+  Indented lists cover two to seven generations; direct lists follow the
+  full blood line. Both are single-file printable HTML with a print
+  toolbar.
 - **Individual Reports** — **Tools > Individual Summary…** exports one
   person as printable HTML with a portrait, vital data, all facts, parents,
   spouses with marriage details, children and optional notes.

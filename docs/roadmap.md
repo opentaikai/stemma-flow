@@ -169,7 +169,7 @@ Goal: turn research into shareable output.
 |---|---|---|---|
 | Pedigree charts and family group sheets | done | P1 | Ahnentafel chart and printable family group sheet HTML |
 | Individual summary and individual list reports | done | P1 | Printable summary with facts and relatives; list matches People filters and columns |
-| Ahnentafel and descendant lists (indented and direct) | planned | P1 | Multiple numbering schemes |
+| Ahnentafel and descendant lists (indented and direct) | done | P1 | Ahnentafel and indented/direct descendant HTML with d'Aboville and Henry numbering |
 | Kinship and relationship reports | planned | P2 | Uses the relationship calculator |
 | Birthday, anniversary and calendar reports | planned | P2 | Home page can reuse the data |
 | Timeline reports | planned | P2 | Per person or group |
