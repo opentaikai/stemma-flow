@@ -167,7 +167,7 @@ Goal: turn research into shareable output.
 
 | Feature | Status | Priority | Notes |
 |---|---|---|---|
-| Pedigree charts and family group sheets | planned | P1 | Core parity items |
+| Pedigree charts and family group sheets | done | P1 | Ahnentafel chart and printable family group sheet HTML |
 | Individual summary and individual list reports | planned | P1 | Facts, parents, spouses, children |
 | Ahnentafel and descendant lists (indented and direct) | planned | P1 | Multiple numbering schemes |
 | Kinship and relationship reports | planned | P2 | Uses the relationship calculator |
