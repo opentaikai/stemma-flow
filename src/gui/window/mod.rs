@@ -32,6 +32,7 @@ use super::individual_summary;
 use super::inspector::InspectorForm;
 use super::inspector::ParticipantForm;
 use super::inspector::RelationForm;
+use super::kinship_report;
 use super::layout::TreeScene;
 use super::map;
 use super::media;
@@ -129,6 +130,7 @@ pub struct TreeWindow {
     pub(super) individual_list: individual_list::IndividualListState,
     pub(super) ahnentafel_list: ahnentafel_list::AhnentafelListState,
     pub(super) descendant_list: descendant_list::DescendantListState,
+    pub(super) kinship_report: kinship_report::KinshipReportState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -218,6 +220,7 @@ impl TreeWindow {
             individual_list: individual_list::IndividualListState::default(),
             ahnentafel_list: ahnentafel_list::AhnentafelListState::default(),
             descendant_list: descendant_list::DescendantListState::default(),
+            kinship_report: kinship_report::KinshipReportState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -370,6 +373,7 @@ impl App for TreeWindow {
             self.show_individual_list_window(ui.ctx());
             self.show_ahnentafel_list_window(ui.ctx());
             self.show_descendant_list_window(ui.ctx());
+            self.show_kinship_report_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2329,6 +2333,111 @@ mod tests {
                 .is_err(),
             "ancestors are not descendants"
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    fn import_kinship(db_file: &Path) {
+        import_people(
+            db_file,
+            "0 HEAD\n1 CHAR UTF-8\n\
+             0 @I1@ INDI\n1 NAME John /Stone/\n1 SEX M\n1 BIRT\n2 DATE 1810\n2 PLAC London\n1 DEAT\n2 DATE 1880\n2 PLAC Bath\n\
+             0 @I2@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 1815\n2 PLAC London\n\
+             0 @I3@ INDI\n1 NAME Bea /Stone/\n1 SEX F\n1 BIRT\n2 DATE 1840\n2 PLAC London\n\
+             0 @I4@ INDI\n1 NAME Dan /Ward/\n1 SEX M\n\
+             0 @I5@ INDI\n1 NAME Eve /Ward/\n1 SEX F\n1 BIRT\n2 DATE 1865\n2 PLAC Bath\n\
+             0 @I6@ INDI\n1 NAME Lone /Person/\n1 SEX U\n\
+             0 @I7@ INDI\n1 NAME George /Stone/\n1 SEX M\n\
+             0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I3@\n1 MARR\n2 DATE 1838\n2 PLAC Bath\n\
+             0 @F2@ FAM\n1 HUSB @I4@\n1 WIFE @I3@\n1 CHIL @I5@\n1 MARR\n2 DATE 1860\n2 PLAC Bath\n\
+             0 @F3@ FAM\n1 HUSB @I7@\n1 CHIL @I1@\n\
+             0 TRLR\n",
+        );
+    }
+
+    #[test]
+    fn builds_kinship_reports_for_every_person() {
+        let db_file = temp_path("db");
+        import_kinship(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let john = person_id_by_given(&window, "John");
+
+        let all = window
+            .build_kinship_report(&john, false)
+            .expect("kinship report");
+        assert_eq!(all.subject_name, "John Stone");
+        assert_eq!(all.rows.len(), 6);
+        let relationships: Vec<&str> = all
+            .rows
+            .iter()
+            .map(|row| row.relationship.as_str())
+            .collect();
+        assert!(relationships.contains(&"Wife"));
+        assert!(relationships.contains(&"Daughter"));
+        assert!(relationships.contains(&"Father"));
+        assert!(relationships.contains(&"Granddaughter"));
+        assert!(relationships.contains(&"Related by marriage"));
+        assert_eq!(
+            all.rows.last().map(|row| row.relationship.as_str()),
+            Some("Not directly related"),
+            "unrelated people sort last"
+        );
+        let ada = all
+            .rows
+            .iter()
+            .find(|row| row.name == "Ada King")
+            .expect("wife row");
+        assert_eq!(ada.birth, "1815");
+        assert_eq!(ada.birth_place, "London");
+
+        let relatives = window
+            .build_kinship_report(&john, true)
+            .expect("kinship report");
+        assert!(relatives.only_relatives);
+        assert_eq!(relatives.rows.len(), 5);
+        assert!(
+            relatives
+                .rows
+                .iter()
+                .all(|row| row.relationship != "Not directly related")
+        );
+
+        assert!(window.build_kinship_report("missing", false).is_err());
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_relationship_report() {
+        let db_file = temp_path("db");
+        import_kinship(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let john = person_id_by_given(&window, "John");
+        let eve = person_id_by_given(&window, "Eve");
+
+        let report = window
+            .build_relationship_report(&john, &eve)
+            .expect("relationship report");
+        assert_eq!(report.from_name, "John Stone");
+        assert_eq!(report.to_name, "Eve Ward");
+        assert_eq!(report.kinship, "Granddaughter");
+        assert_eq!(report.common_ancestor.as_deref(), Some("George Stone"));
+        let hops: Vec<(&str, &str)> = report
+            .hops
+            .iter()
+            .map(|hop| (hop.relation.as_str(), hop.person.as_str()))
+            .collect();
+        assert_eq!(
+            hops,
+            vec![("child of", "Bea Stone"), ("child of", "Eve Ward")]
+        );
+
+        assert!(window.build_relationship_report(&john, "missing").is_err());
+        assert!(window.build_relationship_report("missing", &eve).is_err());
 
         let _ = std::fs::remove_file(&db_file);
     }

@@ -41,6 +41,7 @@ use crate::gui::inspector::NewPersonState;
 use crate::gui::inspector::RelationForm;
 use crate::gui::inspector::RelationKind;
 use crate::gui::inspector::RelationOutcome;
+use crate::gui::kinship_report as kinship_report_ui;
 use crate::gui::labels::{self as label_ui, LabelEvent};
 use crate::gui::map as map_ui;
 use crate::gui::media::{self as media_ui, MediaAttachOutcome, MediaAttachState, MediaEvent};
@@ -2317,12 +2318,17 @@ impl TreeWindow {
     }
 
     pub(super) fn show_relationship_calculator(&mut self, ctx: &egui::Context) {
-        crate::gui::relationship_calculator::show(
+        if let Some((from, to)) = crate::gui::relationship_calculator::show(
             ctx,
             &mut self.relationship_calculator,
             &self.tree,
             self.tree_settings.surname_first,
-        );
+        ) {
+            match self.build_relationship_report(&from, &to) {
+                Ok(report) => self.app.begin_relationship_report_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
     }
 
     pub(super) fn open_media(&mut self, owner: MediaOwner, title: String) {
@@ -3807,6 +3813,150 @@ impl TreeWindow {
             });
         }
         marriages
+    }
+
+    pub(super) fn open_kinship_report(&mut self) {
+        let subject = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.kinship_report.open_with(subject);
+    }
+
+    pub(super) fn show_kinship_report_window(&mut self, ctx: &egui::Context) {
+        if !self.kinship_report.open {
+            return;
+        }
+        if let Some(event) = kinship_report_ui::show(
+            ctx,
+            &mut self.kinship_report,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            match self.build_kinship_report(&event.subject_id, event.only_relatives) {
+                Ok(report) => self.app.begin_kinship_report_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_kinship_report(
+        &self,
+        subject_id: &str,
+        only_relatives: bool,
+    ) -> Result<crate::report::kinship::KinshipReport, String> {
+        let subject = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == subject_id)
+            .ok_or_else(|| "subject person not found".to_string())?;
+        let mut rows: Vec<(bool, String, crate::report::kinship::KinshipRow)> = Vec::new();
+        for person in &self.tree.people {
+            if person.id == subject_id {
+                continue;
+            }
+            let Some(kinship) = crate::model::relationship::relationship_to_root(
+                &self.tree, subject_id, &person.id,
+            ) else {
+                continue;
+            };
+            let unrelated = matches!(kinship, crate::model::relationship::Kinship::Unrelated);
+            if only_relatives && unrelated {
+                continue;
+            }
+            let relationship = kinship.label();
+            let dates = self.dates.get(&person.id);
+            rows.push((
+                unrelated,
+                relationship.clone(),
+                crate::report::kinship::KinshipRow {
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                    relationship,
+                    birth: dates
+                        .and_then(|dates| dates.birth.clone())
+                        .unwrap_or_default(),
+                    birth_place: dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default(),
+                    death: dates
+                        .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default(),
+                    death_place: dates
+                        .and_then(|dates| dates.death_place.clone())
+                        .unwrap_or_default(),
+                },
+            ));
+        }
+        rows.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.to_lowercase().cmp(&right.1.to_lowercase()))
+                .then_with(|| left.2.name.to_lowercase().cmp(&right.2.name.to_lowercase()))
+        });
+        Ok(crate::report::kinship::KinshipReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            subject_name: inspector::person_label(subject, self.tree_settings.surname_first),
+            only_relatives,
+            rows: rows.into_iter().map(|(_, _, row)| row).collect(),
+        })
+    }
+
+    pub(super) fn build_relationship_report(
+        &self,
+        from_id: &str,
+        to_id: &str,
+    ) -> Result<crate::report::relationship::RelationshipReport, String> {
+        use crate::model::relationship::PathKind;
+        let from = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == from_id)
+            .ok_or_else(|| "first person not found".to_string())?;
+        let to = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == to_id)
+            .ok_or_else(|| "second person not found".to_string())?;
+        let result = crate::model::relationship::relationship_between(&self.tree, from_id, to_id)
+            .ok_or_else(|| "no relationship result".to_string())?;
+        let hops = result
+            .path
+            .iter()
+            .map(|step| crate::report::relationship::RelationshipHop {
+                relation: crate::i18n::tr(match step.kind {
+                    PathKind::Parent => "calculator.parent_step",
+                    PathKind::Child => "calculator.child_step",
+                    PathKind::Spouse => "calculator.spouse_step",
+                }),
+                person: self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == step.to_person_id)
+                    .map(|person| inspector::person_label(person, self.tree_settings.surname_first))
+                    .unwrap_or_default(),
+            })
+            .collect();
+        let common_ancestor = result
+            .common_ancestor
+            .as_deref()
+            .and_then(|id| self.tree.people.iter().find(|person| person.id == id))
+            .map(|person| inspector::person_label(person, self.tree_settings.surname_first));
+        Ok(crate::report::relationship::RelationshipReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            from_name: inspector::person_label(from, self.tree_settings.surname_first),
+            to_name: inspector::person_label(to, self.tree_settings.surname_first),
+            kinship: result.kinship.label(),
+            common_ancestor,
+            hops,
+        })
     }
 
     fn tree_name(&self) -> String {
