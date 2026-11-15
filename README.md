@@ -668,6 +668,12 @@ views (the app always launches on Graph View):
   death dates and places. Single-parent families and families without a
   recorded marriage are supported. Both reports are single-file HTML with a
   print toolbar, like the photo tree and scrapbook.
+- **Individual Reports** — **Tools > Individual Summary…** exports one
+  person as printable HTML with a portrait, vital data, all facts, parents,
+  spouses with marriage details, children and optional notes.
+  **Tools > Individual List…** exports the current People list exactly as
+  filtered, sorted and configured, using its visible columns in landscape
+  layout. Both are single-file documents with a print toolbar.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,
