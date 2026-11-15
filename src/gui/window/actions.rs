@@ -14,6 +14,7 @@ use crate::db::sources::SourceDraft;
 use crate::db::tasks::TaskOwner;
 use crate::geocode::GazetteerHit;
 use crate::gui::advanced_search::{self as advanced_search_ui, AdvancedSearchEvent};
+use crate::gui::ahnentafel_list as ahnentafel_list_ui;
 use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
 use crate::gui::associations_view::{self as association_view_ui, AssociationViewEvent};
 use crate::gui::citations::CitationDraft;
@@ -3551,6 +3552,119 @@ impl TreeWindow {
             lines.extend(crate::model::person_search::describe_criteria(criteria));
         }
         lines
+    }
+
+    pub(super) fn open_ahnentafel_list(&mut self) {
+        let root = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.ahnentafel_list.open_with(root);
+    }
+
+    pub(super) fn show_ahnentafel_list_window(&mut self, ctx: &egui::Context) {
+        if !self.ahnentafel_list.open {
+            return;
+        }
+        if let Some(event) = ahnentafel_list_ui::show(
+            ctx,
+            &mut self.ahnentafel_list,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            match self.build_ahnentafel_list_report(&event.root_id, event.generations) {
+                Ok(report) => self.app.begin_ahnentafel_list_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_ahnentafel_list_report(
+        &self,
+        root_id: &str,
+        generations: usize,
+    ) -> Result<crate::report::ahnentafel_list::AhnentafelListReport, String> {
+        let root = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == root_id)
+            .ok_or_else(|| "root person not found".to_string())?;
+        let numbers = crate::model::pedigree::ahnentafel_numbers(&self.tree, root_id);
+        let limit = 1u32.checked_shl(generations as u32).unwrap_or(u32::MAX);
+        let mut entries: Vec<_> = self
+            .tree
+            .people
+            .iter()
+            .filter_map(|person| {
+                let number = *numbers.get(&person.id)?;
+                if number >= limit {
+                    return None;
+                }
+                let dates = self.dates.get(&person.id);
+                Some(crate::report::ahnentafel_list::AhnentafelEntry {
+                    number,
+                    generation: (u32::BITS - number.leading_zeros()) as usize,
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                    birth: dates
+                        .and_then(|dates| dates.birth.clone())
+                        .unwrap_or_default(),
+                    birth_place: dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default(),
+                    death: dates
+                        .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default(),
+                    death_place: dates
+                        .and_then(|dates| dates.death_place.clone())
+                        .unwrap_or_default(),
+                    marriages: self.list_marriages(&person.id),
+                })
+            })
+            .collect();
+        entries.sort_by_key(|entry| entry.number);
+        Ok(crate::report::ahnentafel_list::AhnentafelListReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            root_name: inspector::person_label(root, self.tree_settings.surname_first),
+            generations,
+            entries,
+        })
+    }
+
+    /// Marriage lines for list reports: one per spouse family.
+    fn list_marriages(&self, person_id: &str) -> Vec<crate::report::list_entry::ListMarriage> {
+        let mut marriages = Vec::new();
+        for family in &self.tree.families {
+            let is_spouse = family.husband_id.as_deref() == Some(person_id)
+                || family.wife_id.as_deref() == Some(person_id);
+            if !is_spouse {
+                continue;
+            }
+            let other_id = if family.husband_id.as_deref() == Some(person_id) {
+                family.wife_id.as_deref()
+            } else {
+                family.husband_id.as_deref()
+            };
+            let Some(spouse) = other_id.and_then(|id| {
+                self.tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == id)
+                    .map(|person| inspector::person_label(person, self.tree_settings.surname_first))
+            }) else {
+                continue;
+            };
+            let info = self.marriages.get(&family.id);
+            marriages.push(crate::report::list_entry::ListMarriage {
+                spouse,
+                date: info.and_then(|info| info.date.clone()).unwrap_or_default(),
+                place: info.and_then(|info| info.place.clone()).unwrap_or_default(),
+            });
+        }
+        marriages
     }
 
     fn tree_name(&self) -> String {
