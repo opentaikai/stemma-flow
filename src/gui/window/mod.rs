@@ -25,6 +25,7 @@ use super::find_everywhere;
 use super::gazetteer;
 use super::geocode;
 use super::import_report;
+use super::individual_list;
 use super::individual_summary;
 use super::inspector::InspectorForm;
 use super::inspector::ParticipantForm;
@@ -123,6 +124,7 @@ pub struct TreeWindow {
     pub(super) pedigree_chart: pedigree_chart::PedigreeChartState,
     pub(super) family_sheet: family_sheet::FamilySheetState,
     pub(super) individual_summary: individual_summary::IndividualSummaryState,
+    pub(super) individual_list: individual_list::IndividualListState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -209,6 +211,7 @@ impl TreeWindow {
             pedigree_chart: pedigree_chart::PedigreeChartState::default(),
             family_sheet: family_sheet::FamilySheetState::default(),
             individual_summary: individual_summary::IndividualSummaryState::default(),
+            individual_list: individual_list::IndividualListState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -358,6 +361,7 @@ impl App for TreeWindow {
             self.show_pedigree_chart_window(ui.ctx());
             self.show_family_sheet_window(ui.ctx());
             self.show_individual_summary_window(ui.ctx());
+            self.show_individual_list_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2243,6 +2247,41 @@ mod tests {
                 .build_individual_summary_report("missing", true)
                 .is_err()
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_individual_list_report_from_the_visible_rows() {
+        let db_file = temp_path("db");
+        import_family(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+
+        window.watch.filter = "john".to_string();
+        window.watch.mark_dirty();
+        let list = window
+            .build_individual_list_report()
+            .expect("individual list report");
+        assert_eq!(list.rows.len(), 1);
+        assert!(
+            list.columns
+                .iter()
+                .any(|column| column.eq_ignore_ascii_case("given name")),
+            "{:?}",
+            list.columns
+        );
+        assert_eq!(list.rows[0][0], "John");
+        assert!(list.filter.iter().any(|line| line.contains("john")));
+
+        window.watch.filter = "nobody".to_string();
+        window.watch.mark_dirty();
+        let list = window
+            .build_individual_list_report()
+            .expect("individual list report");
+        assert!(list.rows.is_empty());
+        assert!(window.individual_list_preview().count == 0);
 
         let _ = std::fs::remove_file(&db_file);
     }

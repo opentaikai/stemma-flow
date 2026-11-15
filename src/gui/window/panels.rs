@@ -262,6 +262,13 @@ impl TreeWindow {
                 }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
+                    && ui.button(tr("tools.individual_list")).clicked()
+                {
+                    ui.close();
+                    self.open_individual_list();
+                }
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
                     && ui.button(tr("tools.replace")).clicked()
                 {
                     ui.close();

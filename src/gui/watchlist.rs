@@ -327,6 +327,18 @@ impl WatchState {
                 .is_none_or(|criteria| row.search_document().matches(criteria))
     }
 
+    /// Rows currently shown in the grid: filtered, sorted and rebuilt
+    /// lazily when the filter or sort order changed.
+    pub fn visible<'a>(&mut self, rows: &'a [PersonRow]) -> Vec<&'a PersonRow> {
+        if self.dirty {
+            self.rebuild(rows);
+        }
+        self.view
+            .iter()
+            .filter_map(|index| rows.get(*index))
+            .collect()
+    }
+
     pub fn has_advanced_search(&self) -> bool {
         self.advanced
             .as_ref()
@@ -407,7 +419,7 @@ fn text_value(row: &PersonRow, column: PeopleColumn) -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
-fn cell_value(row: &PersonRow, column: PeopleColumn) -> String {
+pub(crate) fn cell_value(row: &PersonRow, column: PeopleColumn) -> String {
     match column {
         PeopleColumn::Events
         | PeopleColumn::Citations
@@ -769,6 +781,22 @@ mod tests {
         state.filter = "zzz".to_string();
         state.rebuild(&rows);
         assert!(state.view.is_empty());
+    }
+
+    #[test]
+    fn visible_rows_apply_filter_and_sort_order() {
+        let rows = rows_for(&[("Bo", "Same"), ("Ada", "Same"), ("Carl", "Tester")]);
+        let mut state = WatchState::default();
+        state.toggle_sort(PeopleColumn::GivenName);
+        let visible = state.visible(&rows);
+        let names: Vec<&str> = visible.iter().map(|row| row.given_name.as_str()).collect();
+        assert_eq!(names, ["Ada", "Bo", "Carl"]);
+
+        state.filter = "tester".to_string();
+        state.mark_dirty();
+        let visible = state.visible(&rows);
+        let names: Vec<&str> = visible.iter().map(|row| row.given_name.as_str()).collect();
+        assert_eq!(names, ["Carl"]);
     }
 
     #[test]
