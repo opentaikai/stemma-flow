@@ -10,20 +10,26 @@ use crate::report::html::{escape_html, image_data_uri};
 pub struct PhotoTreePerson {
     pub person_id: String,
     pub name: String,
+    pub number: Option<u32>,
     pub birth: String,
+    pub birth_place: String,
     pub death: String,
+    pub death_place: String,
     pub photo: Option<PathBuf>,
 }
 
 /// Everything needed to render an ancestor photo chart.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhotoTreeReport {
+    pub title: String,
     pub tree_name: String,
     pub generated_at: String,
     pub root_name: String,
     pub generations: usize,
     pub scene: TreeScene,
     pub people: Vec<PhotoTreePerson>,
+    pub show_places: bool,
+    pub include_photos: bool,
 }
 
 /// Default timestamped HTML file name.
@@ -39,13 +45,17 @@ pub fn render_html(report: &PhotoTreeReport) -> String {
     let mut html = String::with_capacity(8192 + report.scene.nodes.len() * 512);
     html.push_str("<!doctype html>\n<html><head><meta charset=\"utf-8\">");
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-    html.push_str("<title>Photo Tree \u{2014} ");
+    html.push_str("<title>");
+    html.push_str(&escape_html(&report.title));
+    html.push_str(" \u{2014} ");
     html.push_str(&escape_html(&report.root_name));
     html.push_str("</title><style>");
     html.push_str(CSS);
     html.push_str("</style></head><body>");
     html.push_str("<div class=\"toolbar\"><button type=\"button\" onclick=\"window.print()\">Print</button><span>Print or save as PDF from the browser.</span></div>");
-    html.push_str("<header><h1>Photo Tree</h1><p>");
+    html.push_str("<header><h1>");
+    html.push_str(&escape_html(&report.title));
+    html.push_str("</h1><p>");
     html.push_str(&escape_html(&report.tree_name));
     html.push_str("</p><p class=\"muted\">");
     html.push_str(&escape_html(&report.generated_at));
@@ -68,7 +78,9 @@ pub fn render_html(report: &PhotoTreeReport) -> String {
 
     html.push_str("<main class=\"chart\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 ");
     html.push_str(&format!("{width:.1} {height:.1}"));
-    html.push_str("\" role=\"img\" aria-label=\"Ancestor photo tree\">");
+    html.push_str("\" role=\"img\" aria-label=\"");
+    html.push_str(&escape_html(&report.title));
+    html.push_str("\">");
     html.push_str("<g class=\"edges\">");
     for union in &report.scene.unions {
         if let Some([a, b]) = union.spouse_line {
@@ -111,51 +123,89 @@ pub fn render_html(report: &PhotoTreeReport) -> String {
         html.push_str(&format!(
             "<g class=\"card\"><rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"8\" />"
         ));
+        let show_photo = report.include_photos;
         let photo_x = x + 8.0;
         let photo_y = y + 8.0;
         let photo_size = (h - 16.0).clamp(20.0, 40.0);
-        if let Some(photo) = person.and_then(|person| person.photo.as_deref())
-            && let Some(uri) = image_data_uri(photo)
-        {
-            html.push_str(&format!(
-                "<defs><clipPath id=\"photo-{index}\"><rect x=\"{photo_x:.1}\" y=\"{photo_y:.1}\" width=\"{photo_size:.1}\" height=\"{photo_size:.1}\" rx=\"6\" /></clipPath></defs>"
-            ));
-            html.push_str(&format!(
-                "<image href=\"{}\" x=\"{photo_x:.1}\" y=\"{photo_y:.1}\" width=\"{photo_size:.1}\" height=\"{photo_size:.1}\" preserveAspectRatio=\"xMidYMid slice\" clip-path=\"url(#photo-{index})\" />",
-                escape_html(&uri)
-            ));
+        let text_x = if show_photo {
+            photo_x + photo_size + 10.0
         } else {
+            x + 8.0
+        };
+        if show_photo {
+            if let Some(photo) = person.and_then(|person| person.photo.as_deref())
+                && let Some(uri) = image_data_uri(photo)
+            {
+                html.push_str(&format!(
+                    "<defs><clipPath id=\"photo-{index}\"><rect x=\"{photo_x:.1}\" y=\"{photo_y:.1}\" width=\"{photo_size:.1}\" height=\"{photo_size:.1}\" rx=\"6\" /></clipPath></defs>"
+                ));
+                html.push_str(&format!(
+                    "<image href=\"{}\" x=\"{photo_x:.1}\" y=\"{photo_y:.1}\" width=\"{photo_size:.1}\" height=\"{photo_size:.1}\" preserveAspectRatio=\"xMidYMid slice\" clip-path=\"url(#photo-{index})\" />",
+                    escape_html(&uri)
+                ));
+            } else {
+                html.push_str(&format!(
+                    "<rect x=\"{photo_x:.1}\" y=\"{photo_y:.1}\" width=\"{photo_size:.1}\" height=\"{photo_size:.1}\" rx=\"6\" fill=\"#e2e8f0\" />"
+                ));
+                let initial = person
+                    .map(|person| first_letter(&person.name))
+                    .unwrap_or_default();
+                html.push_str(&format!(
+                    "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" class=\"initial\">{}</text>",
+                    photo_x + photo_size / 2.0,
+                    photo_y + photo_size / 2.0 + 4.0,
+                    escape_html(&initial)
+                ));
+            }
+        }
+        let number = person.and_then(|person| person.number);
+        let name_x = if number.is_some() {
+            text_x + 18.0
+        } else {
+            text_x
+        };
+        if let Some(number) = number {
             html.push_str(&format!(
-                "<rect x=\"{photo_x:.1}\" y=\"{photo_y:.1}\" width=\"{photo_size:.1}\" height=\"{photo_size:.1}\" rx=\"6\" fill=\"#e2e8f0\" />"
-            ));
-            let initial = person
-                .map(|person| first_letter(&person.name))
-                .unwrap_or_default();
-            html.push_str(&format!(
-                "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" class=\"initial\">{}</text>",
-                photo_x + photo_size / 2.0,
-                photo_y + photo_size / 2.0 + 4.0,
-                escape_html(&initial)
+                "<text x=\"{text_x:.1}\" y=\"{:.1}\" class=\"number\">{number}</text>",
+                y + 20.0
             ));
         }
-        let text_x = photo_x + photo_size + 10.0;
         let name = person
-            .map(|person| truncate(&person.name, 26))
+            .map(|person| truncate(&person.name, if report.show_places { 22 } else { 26 }))
             .unwrap_or_else(|| node.display_name.clone());
         html.push_str(&format!(
-            "<text x=\"{text_x:.1}\" y=\"{:.1}\" class=\"name\">{}</text>",
-            y + 22.0,
+            "<text x=\"{name_x:.1}\" y=\"{:.1}\" class=\"name\">{}</text>",
+            y + 20.0,
             escape_html(&name)
         ));
-        let dates = person
-            .map(|person| dates(&person.birth, &person.death))
-            .unwrap_or_default();
-        if !dates.is_empty() {
-            html.push_str(&format!(
-                "<text x=\"{text_x:.1}\" y=\"{:.1}\" class=\"dates\">{}</text>",
-                y + 40.0,
-                escape_html(&dates)
-            ));
+        if let Some(person) = person {
+            if report.show_places {
+                let birth = event_line("b.", &person.birth, &person.birth_place);
+                let death = event_line("d.", &person.death, &person.death_place);
+                if !birth.is_empty() {
+                    html.push_str(&format!(
+                        "<text x=\"{text_x:.1}\" y=\"{:.1}\" class=\"dates\">{}</text>",
+                        y + 34.0,
+                        escape_html(&birth)
+                    ));
+                }
+                if !death.is_empty() {
+                    html.push_str(&format!(
+                        "<text x=\"{text_x:.1}\" y=\"{:.1}\" class=\"dates\">{}</text>",
+                        y + 47.0,
+                        escape_html(&death)
+                    ));
+                }
+            } else {
+                let dates = dates(&person.birth, &person.death);
+                if !dates.is_empty() {
+                    html.push_str(&format!(
+                        "<text x=\"{text_x:.1}\" y=\"{:.1}\" class=\"dates\">{}</text>",
+                        y + 40.0,
+                        escape_html(&dates)
+                    ));
+                }
+            }
         }
         html.push_str("</g>");
     }
@@ -173,6 +223,17 @@ pub fn write_html(path: &Path, report: &PhotoTreeReport) -> Result<usize, String
 
 fn line(x1: f32, y1: f32, x2: f32, y2: f32) -> String {
     format!("<line x1=\"{x1:.1}\" y1=\"{y1:.1}\" x2=\"{x2:.1}\" y2=\"{y2:.1}\" />")
+}
+
+fn event_line(prefix: &str, date: &str, place: &str) -> String {
+    let date = date.trim();
+    let place = place.trim();
+    match (date.is_empty(), place.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => format!("{prefix} {date}"),
+        (true, false) => format!("{prefix} {place}"),
+        (false, false) => format!("{prefix} {date} \u{00b7} {place}"),
+    }
 }
 
 fn dates(birth: &str, death: &str) -> String {
@@ -201,7 +262,7 @@ fn first_letter(value: &str) -> String {
         .unwrap_or_else(|| "?".to_string())
 }
 
-fn sanitize_file_stem(value: &str) -> String {
+pub(crate) fn sanitize_file_stem(value: &str) -> String {
     let out: String = value
         .chars()
         .map(|character| {
@@ -237,6 +298,7 @@ header p { margin: 2px 0; }
 .card .name { font-size: 12px; font-weight: 600; fill: #0f172a; }
 .card .dates { font-size: 10px; fill: #475569; }
 .card .initial { font-size: 14px; font-weight: 600; fill: #475569; }
+.card .number { font-size: 9px; font-weight: 700; fill: #2563eb; }
 .edges line { stroke: #94a3b8; stroke-width: 1.2; }
 .empty { color: #64748b; }
 @media print { .toolbar { display: none; } body { background: white; margin: 0; } .chart { padding: 0; } @page { size: landscape; margin: 10mm; } }
@@ -254,6 +316,7 @@ mod tests {
             .save(&path)
             .expect("png writes");
         PhotoTreeReport {
+            title: "Photo Tree".to_string(),
             tree_name: "Family".to_string(),
             generated_at: "now".to_string(),
             root_name: "Ada & King".to_string(),
@@ -278,10 +341,15 @@ mod tests {
             people: vec![PhotoTreePerson {
                 person_id: "p1".to_string(),
                 name: "Ada & King".to_string(),
+                number: None,
                 birth: "1815".to_string(),
+                birth_place: String::new(),
                 death: "1852".to_string(),
+                death_place: String::new(),
                 photo: Some(path),
             }],
+            show_places: false,
+            include_photos: true,
         }
     }
 

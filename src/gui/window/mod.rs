@@ -20,6 +20,7 @@ use super::dataclean as dataclean_ui;
 use super::date_calculator;
 use super::event_editor;
 use super::fact_types;
+use super::family_sheet;
 use super::find_everywhere;
 use super::gazetteer;
 use super::geocode;
@@ -35,6 +36,7 @@ use super::merge as merge_dialog;
 use super::names;
 use super::notes as notes_dialog;
 use super::pedigree;
+use super::pedigree_chart;
 use super::person_editor;
 use super::photo_tree;
 use super::place_clean;
@@ -117,6 +119,8 @@ pub struct TreeWindow {
     pub(super) person_editor: Option<person_editor::PersonEditor>,
     pub(super) photo_tree: photo_tree::PhotoTreeState,
     pub(super) scrapbook: scrapbook::ScrapbookState,
+    pub(super) pedigree_chart: pedigree_chart::PedigreeChartState,
+    pub(super) family_sheet: family_sheet::FamilySheetState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -200,6 +204,8 @@ impl TreeWindow {
             person_editor: None,
             photo_tree: photo_tree::PhotoTreeState::default(),
             scrapbook: scrapbook::ScrapbookState::default(),
+            pedigree_chart: pedigree_chart::PedigreeChartState::default(),
+            family_sheet: family_sheet::FamilySheetState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -346,6 +352,8 @@ impl App for TreeWindow {
             self.show_person_editor(ui.ctx());
             self.show_photo_tree_window(ui.ctx());
             self.show_scrapbook_window(ui.ctx());
+            self.show_pedigree_chart_window(ui.ctx());
+            self.show_family_sheet_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2099,6 +2107,84 @@ mod tests {
             scrapbook.albums[0].photos[0].caption.as_deref(),
             Some("Photo")
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    fn import_family(db_file: &Path) {
+        import_people(
+            db_file,
+            "0 HEAD\n1 CHAR UTF-8\n\
+             0 @I1@ INDI\n1 NAME John /Stone/\n1 SEX M\n1 BIRT\n2 DATE 1810\n2 PLAC London\n1 DEAT\n2 DATE 1880\n2 PLAC Bath\n1 OCCU Teacher\n2 DATE 1840\n2 PLAC London\n\
+             0 @I2@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 1815\n2 PLAC London\n\
+             0 @I3@ INDI\n1 NAME Bea /Stone/\n1 SEX F\n1 BIRT\n2 DATE 1840\n2 PLAC London\n\
+             0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I3@\n1 MARR\n2 DATE 1838\n2 PLAC Bath\n\
+             0 TRLR\n",
+        );
+    }
+
+    #[test]
+    fn builds_pedigree_report() {
+        let db_file = temp_path("db");
+        import_family(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+
+        let husband_id = window
+            .tree
+            .people
+            .iter()
+            .find(|person| person.given_name == "John")
+            .expect("husband")
+            .id
+            .clone();
+
+        let pedigree = window
+            .build_pedigree_report(&husband_id, 4, false)
+            .expect("pedigree report");
+        assert_eq!(pedigree.title, "Pedigree Chart");
+        assert!(pedigree.show_places);
+        assert!(!pedigree.include_photos);
+        assert_eq!(pedigree.people.len(), 1);
+        assert_eq!(pedigree.people[0].number, Some(1));
+        assert_eq!(pedigree.people[0].birth_place, "London");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_family_sheet_report() {
+        let db_file = temp_path("db");
+        import_family(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let family_id = window.tree.families.first().expect("family").id.clone();
+
+        let choices = window.family_choices();
+        assert_eq!(choices.len(), 1);
+        assert!(choices[0].label.contains("John"));
+        assert_eq!(choices[0].detail, "1 child");
+
+        let sheet = window
+            .build_family_sheet_report(&family_id)
+            .expect("family sheet report");
+        assert_eq!(sheet.children.len(), 1);
+        assert_eq!(sheet.marriage_date, "1838");
+        assert_eq!(sheet.marriage_place, "Bath");
+        let husband = sheet.husband.as_ref().expect("husband");
+        assert_eq!(husband.role, "Husband");
+        assert_eq!(husband.birth_place, "London");
+        assert!(
+            husband
+                .facts
+                .iter()
+                .any(|fact| fact.label == "Occupation" && fact.value == "Teacher"),
+            "non-vital facts are included: {:?}",
+            husband.facts
+        );
+        assert_eq!(sheet.children[0].name, "Bea Stone");
 
         let _ = std::fs::remove_file(&db_file);
     }

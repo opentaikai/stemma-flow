@@ -659,6 +659,15 @@ views (the app always launches on Graph View):
   albums as printable album pages with photos, captions and descriptions.
   Both documents open in the browser and include a print toolbar; missing or
   unsupported images render as placeholders.
+- **Pedigree Charts and Family Group Sheets** — **Tools > Pedigree Chart…**
+  exports a numbered ancestor chart where each box carries its Ahnentafel
+  number (root `1`, father `2n`, mother `2n + 1`), name, birth and death
+  dates and places, with optional portraits. **Tools > Family Group Sheet…**
+  exports one family as a printable page with spouses, their parents,
+  marriage details, non-vital facts and a children table with birth and
+  death dates and places. Single-parent families and families without a
+  recorded marriage are supported. Both reports are single-file HTML with a
+  print toolbar, like the photo tree and scrapbook.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,

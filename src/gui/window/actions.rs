@@ -25,6 +25,7 @@ use crate::gui::dialogs;
 use crate::gui::event_editor::{self, EventEditorOutcome};
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
+use crate::gui::family_sheet::{self as family_sheet_ui, FamilyChoice};
 use crate::gui::find_everywhere::{self as find_ui, FindEvent};
 use crate::gui::gazetteer::{self as gazetteer_ui, GazetteerEvent};
 use crate::gui::geocode::{self as geocode_ui, GeocodeEvent};
@@ -44,6 +45,7 @@ use crate::gui::merge as merge_dialog;
 use crate::gui::merge::MergeEvent;
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
 use crate::gui::pedigree;
+use crate::gui::pedigree_chart::{self as pedigree_chart_ui, PedigreeChartEvent};
 use crate::gui::person_editor::{EditorPrompt, PersonEditor};
 use crate::gui::photo_tree::{self as photo_tree_ui, PhotoTreeEvent};
 use crate::gui::place_clean as place_clean_ui;
@@ -66,6 +68,7 @@ use crate::model::media_repair::MediaRepairMatch;
 use crate::report::research_log::ResearchLogReport;
 use eframe::Frame;
 use egui::Ui;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::RECENT_TREES_KEY;
@@ -2928,23 +2931,33 @@ impl TreeWindow {
                 Some(crate::report::photo_tree::PhotoTreePerson {
                     person_id: person.id.clone(),
                     name: inspector::person_label(person, self.tree_settings.surname_first),
+                    number: None,
                     birth: dates
                         .and_then(|dates| dates.birth.clone())
                         .unwrap_or_default(),
+                    birth_place: dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default(),
                     death: dates
                         .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default(),
+                    death_place: dates
+                        .and_then(|dates| dates.death_place.clone())
                         .unwrap_or_default(),
                     photo: portraits.get(&person.id).cloned(),
                 })
             })
             .collect();
         Ok(crate::report::photo_tree::PhotoTreeReport {
+            title: "Photo Tree".to_string(),
             tree_name: self.tree_name(),
             generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
             root_name: inspector::person_label(root, self.tree_settings.surname_first),
             generations,
             scene,
             people,
+            show_places: false,
+            include_photos: true,
         })
     }
 
@@ -3004,6 +3017,315 @@ impl TreeWindow {
             generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
             albums: sections,
         })
+    }
+
+    pub(super) fn open_pedigree_chart(&mut self) {
+        let root = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.pedigree_chart.open_with(root);
+    }
+
+    pub(super) fn show_pedigree_chart_window(&mut self, ctx: &egui::Context) {
+        if !self.pedigree_chart.open {
+            return;
+        }
+        if let Some(event) = pedigree_chart_ui::show(
+            ctx,
+            &mut self.pedigree_chart,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            let PedigreeChartEvent {
+                root_id,
+                generations,
+                include_photos,
+            } = event;
+            match self.build_pedigree_report(&root_id, generations, include_photos) {
+                Ok(report) => self.app.begin_pedigree_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_pedigree_report(
+        &self,
+        root_id: &str,
+        generations: usize,
+        include_photos: bool,
+    ) -> Result<crate::report::pedigree::PedigreeReport, String> {
+        let root = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == root_id)
+            .ok_or_else(|| "root person not found".to_string())?;
+        let scene = crate::gui::layout::build_pedigree_scene(
+            &self.tree,
+            root_id,
+            generations,
+            self.tree_settings.surname_first,
+        );
+        let numbers = crate::model::pedigree::ahnentafel_numbers(&self.tree, root_id);
+        let portraits = if include_photos {
+            self.app.portrait_paths().unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+        let people = scene
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let person = self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == node.person_id)?;
+                let dates = self.dates.get(&person.id);
+                Some(crate::report::pedigree::PedigreePerson {
+                    person_id: person.id.clone(),
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                    number: numbers.get(&person.id).copied(),
+                    birth: dates
+                        .and_then(|dates| dates.birth.clone())
+                        .unwrap_or_default(),
+                    birth_place: dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default(),
+                    death: dates
+                        .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default(),
+                    death_place: dates
+                        .and_then(|dates| dates.death_place.clone())
+                        .unwrap_or_default(),
+                    photo: portraits.get(&person.id).cloned(),
+                })
+            })
+            .collect();
+        Ok(crate::report::pedigree::PedigreeReport {
+            title: crate::report::pedigree::TITLE.to_string(),
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            root_name: inspector::person_label(root, self.tree_settings.surname_first),
+            generations,
+            scene,
+            people,
+            show_places: true,
+            include_photos,
+        })
+    }
+
+    pub(super) fn open_family_sheet(&mut self) {
+        self.family_sheet.open_with(self.family_choices());
+    }
+
+    pub(super) fn family_choices(&self) -> Vec<FamilyChoice> {
+        self.tree
+            .families
+            .iter()
+            .map(|family| {
+                let partners: Vec<String> =
+                    [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|id| self.tree.people.iter().find(|person| person.id == id))
+                        .map(|person| {
+                            inspector::person_label(person, self.tree_settings.surname_first)
+                        })
+                        .collect();
+                let label = if partners.is_empty() {
+                    "Unnamed family".to_string()
+                } else {
+                    partners.join(" & ")
+                };
+                let children = self
+                    .tree
+                    .child_links
+                    .iter()
+                    .filter(|(family_id, _)| family_id == &family.id)
+                    .count();
+                let detail = match children {
+                    1 => "1 child".to_string(),
+                    count => format!("{count} children"),
+                };
+                FamilyChoice {
+                    id: family.id.clone(),
+                    label,
+                    detail,
+                }
+            })
+            .collect()
+    }
+
+    pub(super) fn show_family_sheet_window(&mut self, ctx: &egui::Context) {
+        if !self.family_sheet.open {
+            return;
+        }
+        if let Some(family_id) = family_sheet_ui::show(ctx, &mut self.family_sheet) {
+            match self.build_family_sheet_report(&family_id) {
+                Ok(report) => self.app.begin_family_sheet_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_family_sheet_report(
+        &self,
+        family_id: &str,
+    ) -> Result<crate::report::family_group::FamilyGroupSheetReport, String> {
+        let family = self
+            .tree
+            .families
+            .iter()
+            .find(|family| family.id == family_id)
+            .ok_or_else(|| "family not found".to_string())?;
+        let portraits = self.app.portrait_paths().unwrap_or_default();
+        let husband = family
+            .husband_id
+            .as_deref()
+            .and_then(|id| self.sheet_person("Husband", id, &portraits));
+        let wife = family
+            .wife_id
+            .as_deref()
+            .and_then(|id| self.sheet_person("Wife", id, &portraits));
+        let family_label = match (&husband, &wife) {
+            (Some(husband), Some(wife)) => format!("{} & {}", husband.name, wife.name),
+            (Some(husband), None) => husband.name.clone(),
+            (None, Some(wife)) => wife.name.clone(),
+            (None, None) => "Unnamed family".to_string(),
+        };
+        let children = self
+            .tree
+            .child_links
+            .iter()
+            .filter(|(candidate, _)| candidate == family_id)
+            .filter_map(|(_, child_id)| {
+                let person = self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| &person.id == child_id)?;
+                let dates = self.dates.get(&person.id);
+                Some(crate::report::family_group::FamilySheetChild {
+                    person_id: person.id.clone(),
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                    birth: dates
+                        .and_then(|dates| dates.birth.clone())
+                        .unwrap_or_default(),
+                    birth_place: dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default(),
+                    death: dates
+                        .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default(),
+                    death_place: dates
+                        .and_then(|dates| dates.death_place.clone())
+                        .unwrap_or_default(),
+                })
+            })
+            .collect();
+        let marriage = self.marriages.get(family_id);
+        Ok(crate::report::family_group::FamilyGroupSheetReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            family_label,
+            husband,
+            wife,
+            marriage_date: marriage
+                .and_then(|marriage| marriage.date.clone())
+                .unwrap_or_default(),
+            marriage_place: marriage
+                .and_then(|marriage| marriage.place.clone())
+                .unwrap_or_default(),
+            children,
+        })
+    }
+
+    fn sheet_person(
+        &self,
+        role: &str,
+        person_id: &str,
+        portraits: &HashMap<String, PathBuf>,
+    ) -> Option<crate::report::family_group::FamilySheetPerson> {
+        let person = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == person_id)?;
+        let dates = self.dates.get(person_id);
+        let facts = self
+            .person_facts
+            .get(person_id)
+            .map(|facts| {
+                facts
+                    .iter()
+                    .map(|fact| crate::report::family_group::FamilySheetFact {
+                        label: fact.label.clone(),
+                        date: fact.date.clone().unwrap_or_default(),
+                        place: fact.place.clone().unwrap_or_default(),
+                        value: fact.value.clone().unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(crate::report::family_group::FamilySheetPerson {
+            role: role.to_string(),
+            person_id: person.id.clone(),
+            name: inspector::person_label(person, self.tree_settings.surname_first),
+            birth: dates
+                .and_then(|dates| dates.birth.clone())
+                .unwrap_or_default(),
+            birth_place: dates
+                .and_then(|dates| dates.birth_place.clone())
+                .unwrap_or_default(),
+            death: dates
+                .and_then(|dates| dates.death.clone())
+                .unwrap_or_default(),
+            death_place: dates
+                .and_then(|dates| dates.death_place.clone())
+                .unwrap_or_default(),
+            parents: self.parent_names(person_id),
+            facts,
+            photo: portraits.get(person_id).cloned(),
+        })
+    }
+
+    fn parent_names(&self, person_id: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        for (family_id, child_id) in &self.tree.child_links {
+            if child_id != person_id {
+                continue;
+            }
+            let Some(family) = self
+                .tree
+                .families
+                .iter()
+                .find(|family| &family.id == family_id)
+            else {
+                continue;
+            };
+            for parent_id in [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                let Some(parent) = self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == parent_id)
+                else {
+                    continue;
+                };
+                let name = inspector::person_label(parent, self.tree_settings.surname_first);
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        names
     }
 
     fn tree_name(&self) -> String {
