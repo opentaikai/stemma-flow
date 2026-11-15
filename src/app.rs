@@ -59,6 +59,7 @@ use crate::model::dataclean::{DataCleanPlan, build_plan};
 use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
+use crate::report::family_group::FamilyGroupSheetReport;
 use crate::report::group_roster::{self, GroupRosterReport};
 use crate::report::pedigree::PedigreeReport;
 use crate::report::photo_tree::PhotoTreeReport;
@@ -117,6 +118,11 @@ pub enum JobEvent {
         bytes: usize,
         people: usize,
     },
+    FamilySheetExported {
+        path: PathBuf,
+        bytes: usize,
+        children: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -159,6 +165,7 @@ enum Job {
     PhotoTree(Box<PhotoTreeReport>),
     Scrapbook(Box<ScrapbookReport>),
     Pedigree(Box<PedigreeReport>),
+    FamilySheet(Box<FamilyGroupSheetReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -325,6 +332,11 @@ impl StemmaApp {
     /// Writes a print-ready pedigree chart on a worker thread.
     pub fn begin_pedigree_export(&mut self, report: PedigreeReport) {
         self.begin(Job::Pedigree(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready family group sheet on a worker thread.
+    pub fn begin_family_sheet_export(&mut self, report: FamilyGroupSheetReport) {
+        self.begin(Job::FamilySheet(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1588,6 +1600,7 @@ impl StemmaApp {
             Job::PhotoTree(_) => "Choosing photo tree destination\u{2026}",
             Job::Scrapbook(_) => "Choosing scrapbook destination\u{2026}",
             Job::Pedigree(_) => "Choosing pedigree chart destination\u{2026}",
+            Job::FamilySheet(_) => "Choosing family group sheet destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1728,6 +1741,14 @@ impl StemmaApp {
                 people,
             } => UiStatus::Success(format!(
                 "Exported {people} ancestors ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::FamilySheetExported {
+                path,
+                bytes,
+                children,
+            } => UiStatus::Success(format!(
+                "Exported family sheet with {children} children ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::Geocoded(report) => {
@@ -2029,6 +2050,29 @@ impl Job {
                                 path: dest,
                                 bytes,
                                 people: report.people.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::FamilySheet(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::family_group::file_name(&report.family_label, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::family_group::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::FamilySheetExported {
+                                path: dest,
+                                bytes,
+                                children: report.children.len(),
                             }
                         }
                         Err(message) => JobEvent::Failed(message),

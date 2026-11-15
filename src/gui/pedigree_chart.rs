@@ -29,7 +29,7 @@ impl PedigreeChartState {
     pub fn open_with(&mut self, root_id: Option<String>) {
         self.open = true;
         self.root_id = root_id;
-        self.generations = self.generations.clamp(3, 8);
+        self.generations = self.generations.clamp(4, 8);
     }
 }
 
