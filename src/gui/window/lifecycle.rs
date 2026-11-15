@@ -180,6 +180,9 @@ impl TreeWindow {
             self.scrapbook = crate::gui::scrapbook::ScrapbookState::default();
             self.pedigree_chart = crate::gui::pedigree_chart::PedigreeChartState::default();
             self.family_sheet = crate::gui::family_sheet::FamilySheetState::default();
+            self.individual_summary =
+                crate::gui::individual_summary::IndividualSummaryState::default();
+            self.individual_list = crate::gui::individual_list::IndividualListState::default();
             self.associations.clear();
             self.associations_owner = None;
             self.pending_association = None;

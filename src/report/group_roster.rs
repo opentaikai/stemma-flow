@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use crate::i18n::{tr, tr_args};
-use crate::model::person_search::{GenderFilter, PersonSearchCriteria};
+use crate::model::person_search::{PersonSearchCriteria, describe_criteria};
 
 /// One person in the roster.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -78,7 +78,7 @@ pub fn render_html(report: &GroupRosterReport) -> String {
         html.push_str("</p>");
     }
     if let Some(rule) = &report.rule {
-        let lines = rule_lines(rule);
+        let lines = describe_criteria(rule);
         if !lines.is_empty() {
             html.push_str("<div class=\"rule\"><strong>");
             html.push_str(&escape_html(&tr("group_report.rule")));
@@ -136,75 +136,6 @@ pub fn write_html(path: &Path, report: &GroupRosterReport) -> Result<usize, Stri
     let html = render_html(report);
     std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
     Ok(html.len())
-}
-
-fn rule_lines(rule: &PersonSearchCriteria) -> Vec<String> {
-    let mut lines = Vec::new();
-    if !rule.name.trim().is_empty() {
-        lines.push(format!("{}: {}", tr("people.search_name"), rule.name));
-    }
-    if rule.gender != GenderFilter::Any {
-        lines.push(format!(
-            "{}: {}",
-            tr("people.search_gender"),
-            gender_label(rule.gender)
-        ));
-    }
-    push_range(
-        &mut lines,
-        tr("people.search_birth"),
-        rule.birth.from,
-        rule.birth.to,
-    );
-    push_range(
-        &mut lines,
-        tr("people.search_death"),
-        rule.death.from,
-        rule.death.to,
-    );
-    if !rule.place.trim().is_empty() {
-        lines.push(format!("{}: {}", tr("people.search_place"), rule.place));
-    }
-    if !rule.fact_type.trim().is_empty() {
-        lines.push(format!(
-            "{}: {}",
-            tr("people.search_fact_type"),
-            rule.fact_type
-        ));
-    }
-    if !rule.fact_text.trim().is_empty() {
-        lines.push(format!(
-            "{}: {}",
-            tr("people.search_fact_text"),
-            rule.fact_text
-        ));
-    }
-    if !rule.notes.trim().is_empty() {
-        lines.push(format!("{}: {}", tr("people.search_notes"), rule.notes));
-    }
-    lines
-}
-
-fn push_range(lines: &mut Vec<String>, label: String, from: Option<i32>, to: Option<i32>) {
-    if from.is_none() && to.is_none() {
-        return;
-    }
-    let from = from
-        .map(|year| year.to_string())
-        .unwrap_or_else(|| "…".to_string());
-    let to = to
-        .map(|year| year.to_string())
-        .unwrap_or_else(|| "…".to_string());
-    lines.push(format!("{label}: {from}–{to}"));
-}
-
-fn gender_label(gender: GenderFilter) -> String {
-    match gender {
-        GenderFilter::Any => tr("people.search_gender_any"),
-        GenderFilter::Male => tr("inspector.gender_male"),
-        GenderFilter::Female => tr("inspector.gender_female"),
-        GenderFilter::Unknown => tr("inspector.gender_unknown"),
-    }
 }
 
 fn escape_html(value: &str) -> String {

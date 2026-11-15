@@ -25,6 +25,8 @@ use super::find_everywhere;
 use super::gazetteer;
 use super::geocode;
 use super::import_report;
+use super::individual_list;
+use super::individual_summary;
 use super::inspector::InspectorForm;
 use super::inspector::ParticipantForm;
 use super::inspector::RelationForm;
@@ -121,6 +123,8 @@ pub struct TreeWindow {
     pub(super) scrapbook: scrapbook::ScrapbookState,
     pub(super) pedigree_chart: pedigree_chart::PedigreeChartState,
     pub(super) family_sheet: family_sheet::FamilySheetState,
+    pub(super) individual_summary: individual_summary::IndividualSummaryState,
+    pub(super) individual_list: individual_list::IndividualListState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -206,6 +210,8 @@ impl TreeWindow {
             scrapbook: scrapbook::ScrapbookState::default(),
             pedigree_chart: pedigree_chart::PedigreeChartState::default(),
             family_sheet: family_sheet::FamilySheetState::default(),
+            individual_summary: individual_summary::IndividualSummaryState::default(),
+            individual_list: individual_list::IndividualListState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -354,6 +360,8 @@ impl App for TreeWindow {
             self.show_scrapbook_window(ui.ctx());
             self.show_pedigree_chart_window(ui.ctx());
             self.show_family_sheet_window(ui.ctx());
+            self.show_individual_summary_window(ui.ctx());
+            self.show_individual_list_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2115,7 +2123,7 @@ mod tests {
         import_people(
             db_file,
             "0 HEAD\n1 CHAR UTF-8\n\
-             0 @I1@ INDI\n1 NAME John /Stone/\n1 SEX M\n1 BIRT\n2 DATE 1810\n2 PLAC London\n1 DEAT\n2 DATE 1880\n2 PLAC Bath\n1 OCCU Teacher\n2 DATE 1840\n2 PLAC London\n\
+             0 @I1@ INDI\n1 NAME John /Stone/\n1 SEX M\n1 NOTE Parish register\n1 BIRT\n2 DATE 1810\n2 PLAC London\n1 DEAT\n2 DATE 1880\n2 PLAC Bath\n1 OCCU Teacher\n2 DATE 1840\n2 PLAC London\n\
              0 @I2@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 1815\n2 PLAC London\n\
              0 @I3@ INDI\n1 NAME Bea /Stone/\n1 SEX F\n1 BIRT\n2 DATE 1840\n2 PLAC London\n\
              0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I3@\n1 MARR\n2 DATE 1838\n2 PLAC Bath\n\
@@ -2185,6 +2193,95 @@ mod tests {
             husband.facts
         );
         assert_eq!(sheet.children[0].name, "Bea Stone");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_individual_summary_report() {
+        let db_file = temp_path("db");
+        import_family(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let husband = window
+            .tree
+            .people
+            .iter()
+            .find(|person| person.given_name == "John")
+            .expect("husband");
+        let husband_id = husband.id.clone();
+
+        let summary = window
+            .build_individual_summary_report(&husband_id, true)
+            .expect("summary report");
+        assert_eq!(summary.name, "John Stone");
+        assert_eq!(summary.birth_place, "London");
+        assert_eq!(summary.spouses.len(), 1);
+        assert_eq!(summary.spouses[0].marriage_date, "1838");
+        assert_eq!(summary.spouses[0].marriage_place, "Bath");
+        assert_eq!(summary.children.len(), 1);
+        assert_eq!(summary.children[0].name, "Bea Stone");
+        assert!(
+            summary
+                .facts
+                .iter()
+                .any(|fact| fact.label == "Occupation" && fact.value == "Teacher")
+        );
+        assert!(
+            summary
+                .notes
+                .as_deref()
+                .is_some_and(|notes| notes.contains("Parish register")),
+            "notes are included: {:?}",
+            summary.notes
+        );
+
+        let without_notes = window
+            .build_individual_summary_report(&husband_id, false)
+            .expect("summary report");
+        assert!(without_notes.notes.is_none());
+
+        assert!(
+            window
+                .build_individual_summary_report("missing", true)
+                .is_err()
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_individual_list_report_from_the_visible_rows() {
+        let db_file = temp_path("db");
+        import_family(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+
+        window.watch.filter = "john".to_string();
+        window.watch.mark_dirty();
+        let list = window
+            .build_individual_list_report()
+            .expect("individual list report");
+        assert_eq!(list.rows.len(), 1);
+        assert!(
+            list.columns
+                .iter()
+                .any(|column| column.eq_ignore_ascii_case("given name")),
+            "{:?}",
+            list.columns
+        );
+        assert_eq!(list.rows[0][0], "John");
+        assert!(list.filter.iter().any(|line| line.contains("john")));
+
+        window.watch.filter = "nobody".to_string();
+        window.watch.mark_dirty();
+        let list = window
+            .build_individual_list_report()
+            .expect("individual list report");
+        assert!(list.rows.is_empty());
+        assert!(window.individual_list_preview().count == 0);
 
         let _ = std::fs::remove_file(&db_file);
     }

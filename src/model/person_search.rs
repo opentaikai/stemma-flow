@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::tr;
 use crate::model::date;
 
 /// Gender restriction for a person search.
@@ -214,6 +215,76 @@ fn contains_ci(haystack: &str, needle: &str) -> bool {
         .contains(&needle.trim().to_lowercase())
 }
 
+/// Human-readable non-empty criteria, one line per active restriction.
+pub fn describe_criteria(criteria: &PersonSearchCriteria) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !criteria.name.trim().is_empty() {
+        lines.push(format!("{}: {}", tr("people.search_name"), criteria.name));
+    }
+    if criteria.gender != GenderFilter::Any {
+        lines.push(format!(
+            "{}: {}",
+            tr("people.search_gender"),
+            gender_label(criteria.gender)
+        ));
+    }
+    push_range(
+        &mut lines,
+        tr("people.search_birth"),
+        criteria.birth.from,
+        criteria.birth.to,
+    );
+    push_range(
+        &mut lines,
+        tr("people.search_death"),
+        criteria.death.from,
+        criteria.death.to,
+    );
+    if !criteria.place.trim().is_empty() {
+        lines.push(format!("{}: {}", tr("people.search_place"), criteria.place));
+    }
+    if !criteria.fact_type.trim().is_empty() {
+        lines.push(format!(
+            "{}: {}",
+            tr("people.search_fact_type"),
+            criteria.fact_type
+        ));
+    }
+    if !criteria.fact_text.trim().is_empty() {
+        lines.push(format!(
+            "{}: {}",
+            tr("people.search_fact_text"),
+            criteria.fact_text
+        ));
+    }
+    if !criteria.notes.trim().is_empty() {
+        lines.push(format!("{}: {}", tr("people.search_notes"), criteria.notes));
+    }
+    lines
+}
+
+fn push_range(lines: &mut Vec<String>, label: String, from: Option<i32>, to: Option<i32>) {
+    if from.is_none() && to.is_none() {
+        return;
+    }
+    let from = from
+        .map(|year| year.to_string())
+        .unwrap_or_else(|| "\u{2026}".to_string());
+    let to = to
+        .map(|year| year.to_string())
+        .unwrap_or_else(|| "\u{2026}".to_string());
+    lines.push(format!("{label}: {from}\u{2013}{to}"));
+}
+
+fn gender_label(gender: GenderFilter) -> String {
+    match gender {
+        GenderFilter::Any => tr("people.search_gender_any"),
+        GenderFilter::Male => tr("people.search_gender_male"),
+        GenderFilter::Female => tr("people.search_gender_female"),
+        GenderFilter::Unknown => tr("people.search_gender_unknown"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,6 +446,34 @@ mod tests {
         assert!(SavedPersonSearch::remove(&mut list, "LONDON"));
         assert!(list.is_empty());
         assert!(!SavedPersonSearch::remove(&mut list, "missing"));
+    }
+
+    #[test]
+    fn criteria_descriptions_cover_every_active_field() {
+        let lines = describe_criteria(&PersonSearchCriteria {
+            name: "Ada".to_string(),
+            gender: GenderFilter::Female,
+            birth: YearRange {
+                from: Some(1800),
+                to: Some(1850),
+            },
+            death: YearRange {
+                from: Some(1880),
+                to: None,
+            },
+            place: "London".to_string(),
+            fact_type: "Occupation".to_string(),
+            fact_text: "teacher".to_string(),
+            notes: "parish".to_string(),
+        });
+        assert!(lines.iter().any(|line| line.contains("Ada")));
+        assert!(lines.iter().any(|line| line.contains("1800")));
+        assert!(lines.iter().any(|line| line.contains("1880")));
+        assert!(lines.iter().any(|line| line.contains("London")));
+        assert!(lines.iter().any(|line| line.contains("Occupation")));
+        assert!(lines.iter().any(|line| line.contains("teacher")));
+        assert!(lines.iter().any(|line| line.contains("parish")));
+        assert!(describe_criteria(&PersonSearchCriteria::default()).is_empty());
     }
 
     #[test]

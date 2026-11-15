@@ -29,6 +29,8 @@ use crate::gui::family_sheet::{self as family_sheet_ui, FamilyChoice};
 use crate::gui::find_everywhere::{self as find_ui, FindEvent};
 use crate::gui::gazetteer::{self as gazetteer_ui, GazetteerEvent};
 use crate::gui::geocode::{self as geocode_ui, GeocodeEvent};
+use crate::gui::individual_list as individual_list_ui;
+use crate::gui::individual_summary::{self as individual_summary_ui, IndividualSummaryEvent};
 use crate::gui::inspector;
 use crate::gui::inspector::InspectorAction;
 use crate::gui::inspector::InspectorForm;
@@ -3326,6 +3328,229 @@ impl TreeWindow {
             }
         }
         names
+    }
+
+    pub(super) fn open_individual_summary(&mut self) {
+        let person = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.individual_summary.open_with(person);
+    }
+
+    pub(super) fn show_individual_summary_window(&mut self, ctx: &egui::Context) {
+        if !self.individual_summary.open {
+            return;
+        }
+        if let Some(event) = individual_summary_ui::show(
+            ctx,
+            &mut self.individual_summary,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            let IndividualSummaryEvent {
+                person_id,
+                include_notes,
+            } = event;
+            match self.build_individual_summary_report(&person_id, include_notes) {
+                Ok(report) => self.app.begin_individual_summary_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_individual_summary_report(
+        &self,
+        person_id: &str,
+        include_notes: bool,
+    ) -> Result<crate::report::individual_summary::IndividualSummaryReport, String> {
+        let person = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == person_id)
+            .ok_or_else(|| "person not found".to_string())?;
+        let dates = self.dates.get(person_id);
+        let links = inspector::connections(
+            &self.tree,
+            person_id,
+            &self.marriages,
+            self.tree_settings.surname_first,
+        );
+        let portrait = self
+            .app
+            .portrait_paths()
+            .ok()
+            .and_then(|portraits| portraits.get(person_id).cloned());
+        let notes = include_notes
+            .then(|| {
+                self.rows
+                    .iter()
+                    .find(|row| row.id == person_id)
+                    .map(|row| row.notes_text.clone())
+            })
+            .flatten()
+            .filter(|notes| !notes.trim().is_empty());
+        let facts = self
+            .person_facts
+            .get(person_id)
+            .map(|facts| {
+                facts
+                    .iter()
+                    .map(|fact| crate::report::individual_summary::SummaryFact {
+                        label: fact.label.clone(),
+                        date: fact.date.clone().unwrap_or_default(),
+                        place: fact.place.clone().unwrap_or_default(),
+                        value: fact.value.clone().unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let relatives = |items: &[inspector::Relative]| {
+            items
+                .iter()
+                .map(|relative| self.summary_relative(relative))
+                .collect()
+        };
+        Ok(crate::report::individual_summary::IndividualSummaryReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            name: inspector::person_label(person, self.tree_settings.surname_first),
+            photo: portrait,
+            birth: dates
+                .and_then(|dates| dates.birth.clone())
+                .unwrap_or_default(),
+            birth_place: dates
+                .and_then(|dates| dates.birth_place.clone())
+                .unwrap_or_default(),
+            death: dates
+                .and_then(|dates| dates.death.clone())
+                .unwrap_or_default(),
+            death_place: dates
+                .and_then(|dates| dates.death_place.clone())
+                .unwrap_or_default(),
+            notes,
+            facts,
+            parents: relatives(&links.parents),
+            spouses: relatives(&links.spouses),
+            children: relatives(&links.children),
+        })
+    }
+
+    fn summary_relative(
+        &self,
+        relative: &inspector::Relative,
+    ) -> crate::report::individual_summary::SummaryRelative {
+        let dates = self.dates.get(&relative.id);
+        crate::report::individual_summary::SummaryRelative {
+            name: relative.label.clone(),
+            birth: dates
+                .and_then(|dates| dates.birth.clone())
+                .unwrap_or_default(),
+            death: dates
+                .and_then(|dates| dates.death.clone())
+                .unwrap_or_default(),
+            marriage_date: relative
+                .marriage
+                .as_ref()
+                .and_then(|marriage| marriage.date.clone())
+                .unwrap_or_default(),
+            marriage_place: relative
+                .marriage
+                .as_ref()
+                .and_then(|marriage| marriage.place.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    pub(super) fn open_individual_list(&mut self) {
+        self.watch.mark_dirty();
+        self.individual_list.open = true;
+    }
+
+    pub(super) fn individual_list_preview(&mut self) -> individual_list_ui::IndividualListPreview {
+        let count = self.watch.visible(&self.rows).len();
+        individual_list_ui::IndividualListPreview {
+            count,
+            columns: self.visible_people_columns().len(),
+            filter: self.individual_list_filter(),
+        }
+    }
+
+    pub(super) fn show_individual_list_window(&mut self, ctx: &egui::Context) {
+        if !self.individual_list.open {
+            return;
+        }
+        let preview = self.individual_list_preview();
+        if individual_list_ui::show(ctx, &mut self.individual_list, &preview).is_some() {
+            match self.build_individual_list_report() {
+                Ok(report) => self.app.begin_individual_list_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_individual_list_report(
+        &mut self,
+    ) -> Result<crate::report::individual_list::IndividualListReport, String> {
+        let columns = self.visible_people_columns();
+        if columns.is_empty() {
+            return Err("enable at least one people column".to_string());
+        }
+        let headings = columns
+            .iter()
+            .map(|column| crate::i18n::tr(column.label_key()))
+            .collect();
+        let rows = self
+            .watch
+            .visible(&self.rows)
+            .into_iter()
+            .map(|row| {
+                columns
+                    .iter()
+                    .map(|column| crate::gui::watchlist::cell_value(row, *column))
+                    .collect()
+            })
+            .collect();
+        Ok(crate::report::individual_list::IndividualListReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            filter: self.individual_list_filter(),
+            columns: headings,
+            rows,
+        })
+    }
+
+    fn visible_people_columns(&self) -> Vec<crate::model::people_columns::PeopleColumn> {
+        let mut columns: Vec<_> = self
+            .config
+            .people_columns
+            .iter()
+            .filter(|column| column.visible)
+            .map(|column| column.column)
+            .collect();
+        if columns.is_empty() {
+            columns = crate::model::people_columns::default_columns()
+                .into_iter()
+                .filter(|column| column.visible)
+                .map(|column| column.column)
+                .collect();
+        }
+        columns
+    }
+
+    fn individual_list_filter(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        let filter = self.watch.filter.trim();
+        if !filter.is_empty() {
+            lines.push(format!("Filter: {filter}"));
+        }
+        if let Some(criteria) = &self.watch.advanced {
+            lines.extend(crate::model::person_search::describe_criteria(criteria));
+        }
+        lines
     }
 
     fn tree_name(&self) -> String {
