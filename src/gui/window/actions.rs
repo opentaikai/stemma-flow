@@ -44,6 +44,7 @@ use crate::gui::merge as merge_dialog;
 use crate::gui::merge::MergeEvent;
 use crate::gui::notes::{self as notes_dialog, NotesOutcome};
 use crate::gui::pedigree;
+use crate::gui::pedigree_chart::{self as pedigree_chart_ui, PedigreeChartEvent};
 use crate::gui::person_editor::{EditorPrompt, PersonEditor};
 use crate::gui::photo_tree::{self as photo_tree_ui, PhotoTreeEvent};
 use crate::gui::place_clean as place_clean_ui;
@@ -66,6 +67,7 @@ use crate::model::media_repair::MediaRepairMatch;
 use crate::report::research_log::ResearchLogReport;
 use eframe::Frame;
 use egui::Ui;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::RECENT_TREES_KEY;
@@ -2928,23 +2930,33 @@ impl TreeWindow {
                 Some(crate::report::photo_tree::PhotoTreePerson {
                     person_id: person.id.clone(),
                     name: inspector::person_label(person, self.tree_settings.surname_first),
+                    number: None,
                     birth: dates
                         .and_then(|dates| dates.birth.clone())
                         .unwrap_or_default(),
+                    birth_place: dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default(),
                     death: dates
                         .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default(),
+                    death_place: dates
+                        .and_then(|dates| dates.death_place.clone())
                         .unwrap_or_default(),
                     photo: portraits.get(&person.id).cloned(),
                 })
             })
             .collect();
         Ok(crate::report::photo_tree::PhotoTreeReport {
+            title: "Photo Tree".to_string(),
             tree_name: self.tree_name(),
             generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
             root_name: inspector::person_label(root, self.tree_settings.surname_first),
             generations,
             scene,
             people,
+            show_places: false,
+            include_photos: true,
         })
     }
 
@@ -3003,6 +3015,105 @@ impl TreeWindow {
             tree_name: self.tree_name(),
             generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
             albums: sections,
+        })
+    }
+
+    pub(super) fn open_pedigree_chart(&mut self) {
+        let root = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.pedigree_chart.open_with(root);
+    }
+
+    pub(super) fn show_pedigree_chart_window(&mut self, ctx: &egui::Context) {
+        if !self.pedigree_chart.open {
+            return;
+        }
+        if let Some(event) = pedigree_chart_ui::show(
+            ctx,
+            &mut self.pedigree_chart,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            let PedigreeChartEvent {
+                root_id,
+                generations,
+                include_photos,
+            } = event;
+            match self.build_pedigree_report(&root_id, generations, include_photos) {
+                Ok(report) => self.app.begin_pedigree_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_pedigree_report(
+        &self,
+        root_id: &str,
+        generations: usize,
+        include_photos: bool,
+    ) -> Result<crate::report::pedigree::PedigreeReport, String> {
+        let root = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == root_id)
+            .ok_or_else(|| "root person not found".to_string())?;
+        let scene = crate::gui::layout::build_pedigree_scene(
+            &self.tree,
+            root_id,
+            generations,
+            self.tree_settings.surname_first,
+        );
+        let numbers = crate::model::pedigree::ahnentafel_numbers(&self.tree, root_id);
+        let portraits = if include_photos {
+            self.app.portrait_paths().unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+        let people = scene
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let person = self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == node.person_id)?;
+                let dates = self.dates.get(&person.id);
+                Some(crate::report::pedigree::PedigreePerson {
+                    person_id: person.id.clone(),
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                    number: numbers.get(&person.id).copied(),
+                    birth: dates
+                        .and_then(|dates| dates.birth.clone())
+                        .unwrap_or_default(),
+                    birth_place: dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default(),
+                    death: dates
+                        .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default(),
+                    death_place: dates
+                        .and_then(|dates| dates.death_place.clone())
+                        .unwrap_or_default(),
+                    photo: portraits.get(&person.id).cloned(),
+                })
+            })
+            .collect();
+        Ok(crate::report::pedigree::PedigreeReport {
+            title: crate::report::pedigree::TITLE.to_string(),
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            root_name: inspector::person_label(root, self.tree_settings.surname_first),
+            generations,
+            scene,
+            people,
+            show_places: true,
+            include_photos,
         })
     }
 

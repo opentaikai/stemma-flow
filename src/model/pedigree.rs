@@ -90,6 +90,56 @@ pub fn pedigree_tree(tree: &FamilyTree, root_id: &str, generations: usize) -> Fa
     }
 }
 
+/// Assigns Ahnentafel numbers to the ancestors of `root_id`.
+///
+/// The root is `1`; a father is `2n` and a mother `2n + 1`. The first parent
+/// family in `child_links` order is used when a person has more than one.
+pub fn ahnentafel_numbers(tree: &FamilyTree, root_id: &str) -> HashMap<String, u32> {
+    let mut numbers = HashMap::new();
+    if !tree.people.iter().any(|person| person.id == root_id) {
+        return numbers;
+    }
+    let family_by_id: HashMap<&str, &crate::db::Family> = tree
+        .families
+        .iter()
+        .map(|family| (family.id.as_str(), family))
+        .collect();
+    let mut parent_family: HashMap<&str, &crate::db::Family> = HashMap::new();
+    for (family_id, child_id) in &tree.child_links {
+        if let Some(family) = family_by_id.get(family_id.as_str()) {
+            parent_family.entry(child_id.as_str()).or_insert(family);
+        }
+    }
+
+    numbers.insert(root_id.to_string(), 1);
+    let mut queue = VecDeque::from([(root_id, 1u32)]);
+    while let Some((person_id, number)) = queue.pop_front() {
+        let Some(family) = parent_family.get(person_id) else {
+            continue;
+        };
+        for (parent, parent_number) in [
+            (family.husband_id.as_deref(), number.saturating_mul(2)),
+            (
+                family.wife_id.as_deref(),
+                number.saturating_mul(2).saturating_add(1),
+            ),
+        ] {
+            let Some(parent) = parent else {
+                continue;
+            };
+            if !tree.people.iter().any(|person| person.id == parent) {
+                continue;
+            }
+            if numbers.contains_key(parent) {
+                continue;
+            }
+            numbers.insert(parent.to_string(), parent_number);
+            queue.push_back((parent, parent_number));
+        }
+    }
+    numbers
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,5 +279,48 @@ mod tests {
             1,
             "cycles do not duplicate people"
         );
+    }
+
+    #[test]
+    fn ahnentafel_numbers_follow_father_and_mother_slots() {
+        let numbers = ahnentafel_numbers(&tree(), "root");
+        assert_eq!(numbers.get("root"), Some(&1));
+        assert_eq!(numbers.get("father"), Some(&2));
+        assert_eq!(numbers.get("mother"), Some(&3));
+        assert_eq!(numbers.get("gf"), Some(&4));
+        assert_eq!(numbers.get("gm"), Some(&5));
+        assert_eq!(numbers.get("ggf"), Some(&8));
+        assert_eq!(numbers.get("ggm"), Some(&9));
+        assert_eq!(numbers.get("gggf"), Some(&16));
+        assert!(!numbers.contains_key("child"));
+        assert!(!numbers.contains_key("spouse"));
+    }
+
+    #[test]
+    fn ahnentafel_keeps_slots_for_missing_parents() {
+        let mut tree = tree();
+        tree.families[1] = family("f2", None, Some("gm"));
+        let numbers = ahnentafel_numbers(&tree, "root");
+        assert_eq!(numbers.get("father"), Some(&2));
+        assert_eq!(numbers.get("gm"), Some(&5), "mother keeps the odd slot");
+        assert!(!numbers.contains_key("gf"));
+    }
+
+    #[test]
+    fn ahnentafel_uses_the_first_parent_family() {
+        let mut tree = tree();
+        tree.families.push(family("f7", Some("other"), None));
+        tree.child_links
+            .push(("f7".to_string(), "root".to_string()));
+        let numbers = ahnentafel_numbers(&tree, "root");
+        assert_eq!(numbers.get("father"), Some(&2));
+        assert_eq!(numbers.get("mother"), Some(&3));
+        assert!(!numbers.contains_key("other"));
+    }
+
+    #[test]
+    fn ahnentafel_is_empty_for_unknown_roots() {
+        assert!(ahnentafel_numbers(&tree(), "missing").is_empty());
+        assert!(ahnentafel_numbers(&FamilyTree::default(), "root").is_empty());
     }
 }

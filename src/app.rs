@@ -60,6 +60,7 @@ use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::group_roster::{self, GroupRosterReport};
+use crate::report::pedigree::PedigreeReport;
 use crate::report::photo_tree::PhotoTreeReport;
 use crate::report::research_log::{self, ResearchLogReport};
 use crate::report::scrapbook::ScrapbookReport;
@@ -111,6 +112,11 @@ pub enum JobEvent {
         bytes: usize,
         albums: usize,
     },
+    PedigreeExported {
+        path: PathBuf,
+        bytes: usize,
+        people: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -152,6 +158,7 @@ enum Job {
     GroupRoster(Box<GroupRosterReport>),
     PhotoTree(Box<PhotoTreeReport>),
     Scrapbook(Box<ScrapbookReport>),
+    Pedigree(Box<PedigreeReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -313,6 +320,11 @@ impl StemmaApp {
     /// Writes a print-ready scrapbook on a worker thread.
     pub fn begin_scrapbook_export(&mut self, report: ScrapbookReport) {
         self.begin(Job::Scrapbook(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready pedigree chart on a worker thread.
+    pub fn begin_pedigree_export(&mut self, report: PedigreeReport) {
+        self.begin(Job::Pedigree(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1575,6 +1587,7 @@ impl StemmaApp {
             Job::GroupRoster(_) => "Choosing group report destination\u{2026}",
             Job::PhotoTree(_) => "Choosing photo tree destination\u{2026}",
             Job::Scrapbook(_) => "Choosing scrapbook destination\u{2026}",
+            Job::Pedigree(_) => "Choosing pedigree chart destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1707,6 +1720,14 @@ impl StemmaApp {
                 albums,
             } => UiStatus::Success(format!(
                 "Exported {albums} albums ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::PedigreeExported {
+                path,
+                bytes,
+                people,
+            } => UiStatus::Success(format!(
+                "Exported {people} ancestors ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::Geocoded(report) => {
@@ -1985,6 +2006,29 @@ impl Job {
                                 path: dest,
                                 bytes,
                                 albums: report.albums.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::Pedigree(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::pedigree::file_name(&report.root_name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::pedigree::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::PedigreeExported {
+                                path: dest,
+                                bytes,
+                                people: report.people.len(),
                             }
                         }
                         Err(message) => JobEvent::Failed(message),
