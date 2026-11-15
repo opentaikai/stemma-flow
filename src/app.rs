@@ -60,6 +60,7 @@ use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::ahnentafel_list::AhnentafelListReport;
+use crate::report::descendant_list::DescendantListReport;
 use crate::report::family_group::FamilyGroupSheetReport;
 use crate::report::group_roster::{self, GroupRosterReport};
 use crate::report::individual_list::IndividualListReport;
@@ -141,6 +142,11 @@ pub enum JobEvent {
         bytes: usize,
         people: usize,
     },
+    DescendantListExported {
+        path: PathBuf,
+        bytes: usize,
+        people: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -187,6 +193,7 @@ enum Job {
     IndividualSummary(Box<IndividualSummaryReport>),
     IndividualList(Box<IndividualListReport>),
     AhnentafelList(Box<AhnentafelListReport>),
+    DescendantList(Box<DescendantListReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -380,6 +387,14 @@ impl StemmaApp {
     pub fn begin_ahnentafel_list_export(&mut self, report: AhnentafelListReport) {
         self.begin(
             Job::AhnentafelList(Box::new(report)),
+            self.active_db.clone(),
+        );
+    }
+
+    /// Writes a print-ready descendant list on a worker thread.
+    pub fn begin_descendant_list_export(&mut self, report: DescendantListReport) {
+        self.begin(
+            Job::DescendantList(Box::new(report)),
             self.active_db.clone(),
         );
     }
@@ -1649,6 +1664,7 @@ impl StemmaApp {
             Job::IndividualSummary(_) => "Choosing individual summary destination\u{2026}",
             Job::IndividualList(_) => "Choosing individual list destination\u{2026}",
             Job::AhnentafelList(_) => "Choosing Ahnentafel list destination\u{2026}",
+            Job::DescendantList(_) => "Choosing descendant list destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1819,6 +1835,14 @@ impl StemmaApp {
                 people,
             } => UiStatus::Success(format!(
                 "Exported {people} ancestors ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::DescendantListExported {
+                path,
+                bytes,
+                people,
+            } => UiStatus::Success(format!(
+                "Exported {people} descendants ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::Geocoded(report) => {
@@ -2189,6 +2213,31 @@ impl Job {
                             Ok(bytes) => {
                                 let _ = open::that(&dest);
                                 JobEvent::AhnentafelListExported {
+                                    path: dest,
+                                    bytes,
+                                    people: report.entries.len(),
+                                }
+                            }
+                            Err(message) => JobEvent::Failed(message),
+                        }
+                    }
+                }
+            }
+            Job::DescendantList(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::descendant_list::file_name(&report.root_name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => {
+                        match crate::report::descendant_list::write_html(&dest, &report) {
+                            Ok(bytes) => {
+                                let _ = open::that(&dest);
+                                JobEvent::DescendantListExported {
                                     path: dest,
                                     bytes,
                                     people: report.entries.len(),

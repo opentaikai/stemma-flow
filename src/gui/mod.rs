@@ -12,6 +12,7 @@ pub mod database_tools;
 pub mod dataclean;
 pub mod date_calculator;
 pub mod date_picker;
+pub mod descendant_list;
 pub mod dialogs;
 pub mod event_editor;
 pub mod export_dialog;

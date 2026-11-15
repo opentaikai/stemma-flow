@@ -184,6 +184,7 @@ impl TreeWindow {
                 crate::gui::individual_summary::IndividualSummaryState::default();
             self.individual_list = crate::gui::individual_list::IndividualListState::default();
             self.ahnentafel_list = crate::gui::ahnentafel_list::AhnentafelListState::default();
+            self.descendant_list = crate::gui::descendant_list::DescendantListState::default();
             self.associations.clear();
             self.associations_owner = None;
             self.pending_association = None;

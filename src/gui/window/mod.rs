@@ -19,6 +19,7 @@ use super::couples;
 use super::database_tools;
 use super::dataclean as dataclean_ui;
 use super::date_calculator;
+use super::descendant_list;
 use super::event_editor;
 use super::fact_types;
 use super::family_sheet;
@@ -127,6 +128,7 @@ pub struct TreeWindow {
     pub(super) individual_summary: individual_summary::IndividualSummaryState,
     pub(super) individual_list: individual_list::IndividualListState,
     pub(super) ahnentafel_list: ahnentafel_list::AhnentafelListState,
+    pub(super) descendant_list: descendant_list::DescendantListState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -215,6 +217,7 @@ impl TreeWindow {
             individual_summary: individual_summary::IndividualSummaryState::default(),
             individual_list: individual_list::IndividualListState::default(),
             ahnentafel_list: ahnentafel_list::AhnentafelListState::default(),
+            descendant_list: descendant_list::DescendantListState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -366,6 +369,7 @@ impl App for TreeWindow {
             self.show_individual_summary_window(ui.ctx());
             self.show_individual_list_window(ui.ctx());
             self.show_ahnentafel_list_window(ui.ctx());
+            self.show_descendant_list_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2207,6 +2211,124 @@ mod tests {
         assert_eq!(limited.entries.len(), 3, "generation three is excluded");
 
         assert!(window.build_ahnentafel_list_report("missing", 3).is_err());
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_descendant_list_reports() {
+        use crate::model::descendant_list::DescendantNumbering;
+        use crate::report::descendant_list::DescendantListMode;
+
+        let db_file = temp_path("db");
+        import_descendants(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let john = person_id_by_given(&window, "John");
+        let eve = person_id_by_given(&window, "Eve");
+        let bea = person_id_by_given(&window, "Bea");
+
+        let indented = window
+            .build_descendant_list_report(
+                &john,
+                4,
+                DescendantListMode::Indented,
+                DescendantNumbering::DAboville,
+                Some(&eve),
+            )
+            .expect("descendant report");
+        assert!(
+            indented.target_name.is_none(),
+            "indented lists ignore a stale direct target"
+        );
+        let rows: Vec<(&str, &str, usize)> = indented
+            .entries
+            .iter()
+            .map(|entry| (entry.number.as_str(), entry.name.as_str(), entry.depth))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("1", "John Stone", 0),
+                ("1.1", "Bea Stone", 1),
+                ("1.2", "Carl Stone", 1),
+                ("1.1.1", "Eve Ward", 2),
+                ("1.1.2", "Fay Ward", 2),
+            ]
+        );
+        assert_eq!(indented.entries[0].marriages[0].spouse, "Ada King");
+        assert_eq!(indented.entries[1].marriages[0].spouse, "Dan Ward");
+        assert_eq!(indented.entries[4].birth_place, "Bath");
+
+        let henry = window
+            .build_descendant_list_report(
+                &john,
+                4,
+                DescendantListMode::Indented,
+                DescendantNumbering::Henry,
+                None,
+            )
+            .expect("descendant report");
+        let numbers: Vec<&str> = henry
+            .entries
+            .iter()
+            .map(|entry| entry.number.as_str())
+            .collect();
+        assert_eq!(numbers, ["1", "11", "12", "111", "112"]);
+
+        let direct = window
+            .build_descendant_list_report(
+                &john,
+                4,
+                DescendantListMode::Direct,
+                DescendantNumbering::DAboville,
+                Some(&eve),
+            )
+            .expect("direct report");
+        assert_eq!(direct.target_name.as_deref(), Some("Eve Ward"));
+        let numbers: Vec<&str> = direct
+            .entries
+            .iter()
+            .map(|entry| entry.number.as_str())
+            .collect();
+        assert_eq!(numbers, ["1", "1.1", "1.1.1"]);
+
+        assert!(
+            window
+                .build_descendant_list_report(
+                    &john,
+                    4,
+                    DescendantListMode::Direct,
+                    DescendantNumbering::DAboville,
+                    None,
+                )
+                .is_err()
+        );
+        assert!(
+            window
+                .build_descendant_list_report(
+                    &bea,
+                    4,
+                    DescendantListMode::Direct,
+                    DescendantNumbering::DAboville,
+                    Some(&bea),
+                )
+                .is_ok(),
+            "a person may be the direct-line target of themselves"
+        );
+        assert!(
+            window
+                .build_descendant_list_report(
+                    &bea,
+                    4,
+                    DescendantListMode::Direct,
+                    DescendantNumbering::DAboville,
+                    Some(&john),
+                )
+                .is_err(),
+            "ancestors are not descendants"
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }
