@@ -61,6 +61,7 @@ use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::family_group::FamilyGroupSheetReport;
 use crate::report::group_roster::{self, GroupRosterReport};
+use crate::report::individual_summary::IndividualSummaryReport;
 use crate::report::pedigree::PedigreeReport;
 use crate::report::photo_tree::PhotoTreeReport;
 use crate::report::research_log::{self, ResearchLogReport};
@@ -123,6 +124,11 @@ pub enum JobEvent {
         bytes: usize,
         children: usize,
     },
+    IndividualSummaryExported {
+        path: PathBuf,
+        bytes: usize,
+        facts: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -166,6 +172,7 @@ enum Job {
     Scrapbook(Box<ScrapbookReport>),
     Pedigree(Box<PedigreeReport>),
     FamilySheet(Box<FamilyGroupSheetReport>),
+    IndividualSummary(Box<IndividualSummaryReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -337,6 +344,14 @@ impl StemmaApp {
     /// Writes a print-ready family group sheet on a worker thread.
     pub fn begin_family_sheet_export(&mut self, report: FamilyGroupSheetReport) {
         self.begin(Job::FamilySheet(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready individual summary on a worker thread.
+    pub fn begin_individual_summary_export(&mut self, report: IndividualSummaryReport) {
+        self.begin(
+            Job::IndividualSummary(Box::new(report)),
+            self.active_db.clone(),
+        );
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1601,6 +1616,7 @@ impl StemmaApp {
             Job::Scrapbook(_) => "Choosing scrapbook destination\u{2026}",
             Job::Pedigree(_) => "Choosing pedigree chart destination\u{2026}",
             Job::FamilySheet(_) => "Choosing family group sheet destination\u{2026}",
+            Job::IndividualSummary(_) => "Choosing individual summary destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1751,6 +1767,12 @@ impl StemmaApp {
                 "Exported family sheet with {children} children ({bytes} bytes) to {}",
                 path.display()
             )),
+            JobEvent::IndividualSummaryExported { path, bytes, facts } => {
+                UiStatus::Success(format!(
+                    "Exported individual summary with {facts} facts ({bytes} bytes) to {}",
+                    path.display()
+                ))
+            }
             JobEvent::Geocoded(report) => {
                 let found = report.found_count();
                 let error = report.error.clone();
@@ -2077,6 +2099,31 @@ impl Job {
                         }
                         Err(message) => JobEvent::Failed(message),
                     },
+                }
+            }
+            Job::IndividualSummary(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::individual_summary::file_name(&report.name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => {
+                        match crate::report::individual_summary::write_html(&dest, &report) {
+                            Ok(bytes) => {
+                                let _ = open::that(&dest);
+                                JobEvent::IndividualSummaryExported {
+                                    path: dest,
+                                    bytes,
+                                    facts: report.facts.len(),
+                                }
+                            }
+                            Err(message) => JobEvent::Failed(message),
+                        }
+                    }
                 }
             }
             Job::Maintenance { kind, backup_first } => {
