@@ -683,6 +683,13 @@ views (the app always launches on Graph View):
   **Tools > Individual List…** exports the current People list exactly as
   filtered, sorted and configured, using its visible columns in landscape
   layout. Both are single-file documents with a print toolbar.
+- **Kinship and Relationship Reports** — **Tools > Kinship Report…**
+  lists every other person with their relationship to a chosen subject,
+  birth and death dates and places, sorted by relationship with unrelated
+  people last. **Only relatives** hides unrelated people.
+  **Tools > Relationship Calculator…** now includes **Print report…**,
+  which exports the current pair as printable HTML with the relationship
+  label, nearest common ancestor and shortest parent/child/spouse path.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,
