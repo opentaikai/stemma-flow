@@ -677,6 +677,10 @@ views (the app always launches on Graph View):
   Indented lists cover two to seven generations; direct lists follow the
   full blood line. Both are single-file printable HTML with a print
   toolbar.
+- **Fan Chart** — **Tools > Fan Chart…** exports a radial ancestor chart
+  with a 90°, 180°, 270° or 360° span and any start angle with
+  Top/Right/Bottom/Left presets. Sectors show names and birth/death years;
+  unknown ancestors remain as blank sectors so research gaps stay visible.
 - **Individual Reports** — **Tools > Individual Summary…** exports one
   person as printable HTML with a portrait, vital data, all facts, parents,
   spouses with marriage details, children and optional notes.

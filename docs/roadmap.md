@@ -175,7 +175,7 @@ Goal: turn research into shareable output.
 | Timeline reports | done | P2 | Chronological person and group timelines with ages and undated facts |
 | Place, source, repository and statistics lists | done | P2 | Printable place, source, repository and statistics reports |
 | Duplicate and missing-information reports | done | P2 | Scored duplicate pairs and open problem reports |
-| Fan charts | planned | P1 | Any orientation |
+| Fan charts | done | P1 | Radial ancestor chart with configurable span and start angle |
 | Hourglass and bow-tie charts | planned | P2 | Combined ancestor and descendant |
 | Ancestor and descendant wall charts | planned | P2 | Large format and backgrounds |
 | Print customisation: headers, footers, margins, fonts | planned | P2 | Per report |
