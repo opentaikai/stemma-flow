@@ -13,6 +13,7 @@ use crate::db::search_replace::ReplaceSelection;
 use crate::db::sources::SourceDraft;
 use crate::db::tasks::TaskOwner;
 use crate::geocode::GazetteerHit;
+use crate::gui::administrative_lists as administrative_lists_ui;
 use crate::gui::advanced_search::{self as advanced_search_ui, AdvancedSearchEvent};
 use crate::gui::ahnentafel_list as ahnentafel_list_ui;
 use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
@@ -4346,6 +4347,239 @@ impl TreeWindow {
         entries
     }
 
+    pub(super) fn open_administrative_lists(&mut self) {
+        self.administrative_lists.open_with();
+    }
+
+    pub(super) fn show_administrative_lists_window(&mut self, ctx: &egui::Context) {
+        if !self.administrative_lists.open {
+            return;
+        }
+        if let Some(mode) = administrative_lists_ui::show(ctx, &mut self.administrative_lists) {
+            match self.build_administrative_report(mode) {
+                Ok(report) => self.app.begin_administrative_list_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_administrative_report(
+        &self,
+        mode: crate::report::administrative::AdministrativeMode,
+    ) -> Result<crate::report::administrative::AdministrativeReport, String> {
+        use crate::report::administrative::AdministrativeReport;
+        let tree_name = self.tree_name();
+        let generated_at =
+            crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string());
+        match mode {
+            crate::report::administrative::AdministrativeMode::Places => {
+                let rows = self
+                    .app
+                    .list_places()?
+                    .into_iter()
+                    .map(|place| crate::report::administrative::PlaceRow {
+                        name: place.name,
+                        events: place.event_count,
+                        coordinates: coordinates_text(place.latitude, place.longitude),
+                    })
+                    .collect();
+                Ok(AdministrativeReport::Places {
+                    tree_name,
+                    generated_at,
+                    rows,
+                })
+            }
+            crate::report::administrative::AdministrativeMode::Sources => {
+                let rows = self
+                    .app
+                    .list_source_overviews()?
+                    .into_iter()
+                    .map(|source| crate::report::administrative::SourceRow {
+                        title: source.title,
+                        author: source.author.unwrap_or_default(),
+                        publication: source.publication.unwrap_or_default(),
+                        citations: source.citation_count,
+                        repositories: source.repositories,
+                    })
+                    .collect();
+                Ok(AdministrativeReport::Sources {
+                    tree_name,
+                    generated_at,
+                    rows,
+                })
+            }
+            crate::report::administrative::AdministrativeMode::Repositories => {
+                let rows = self
+                    .app
+                    .list_repositories()?
+                    .into_iter()
+                    .map(|repository| crate::report::administrative::RepositoryRow {
+                        name: repository.name,
+                        address: repository.address.unwrap_or_default(),
+                        sources: repository.source_count,
+                    })
+                    .collect();
+                Ok(AdministrativeReport::Repositories {
+                    tree_name,
+                    generated_at,
+                    rows,
+                })
+            }
+            crate::report::administrative::AdministrativeMode::Statistics => {
+                let stats = self.app.tree_statistics()?;
+                Ok(AdministrativeReport::Statistics {
+                    tree_name,
+                    generated_at,
+                    sections: self.statistics_sections(&stats),
+                })
+            }
+        }
+    }
+
+    fn statistics_sections(
+        &self,
+        stats: &crate::db::statistics::TreeStatistics,
+    ) -> Vec<crate::report::administrative::StatisticSection> {
+        use crate::report::administrative::{StatisticRow, StatisticSection};
+        let metric = |label: &str, value: i64| StatisticRow {
+            label: label.to_string(),
+            value: value.to_string(),
+        };
+        let records = StatisticSection {
+            title: "Records".to_string(),
+            rows: vec![
+                metric("People", stats.people),
+                metric("Families", stats.families),
+                metric("Child links", stats.children),
+                metric("Events", stats.events),
+                metric("Places", stats.places),
+                metric("Sources", stats.sources),
+                metric("Citations", stats.citations),
+                metric("Repositories", stats.repositories),
+                metric("Media", stats.media),
+                metric("Notes", stats.notes),
+                metric("Tasks", stats.tasks),
+                metric("Groups", stats.groups),
+                metric("Labels", stats.labels),
+                metric("Albums", stats.albums),
+                metric("Associations", stats.associations),
+                metric("Bookmarks", stats.bookmarks),
+            ],
+        };
+
+        let mut males = 0i64;
+        let mut females = 0i64;
+        let mut unknown = 0i64;
+        let mut birth_date = 0i64;
+        let mut birth_place = 0i64;
+        let mut death_date = 0i64;
+        let mut death_place = 0i64;
+        let mut no_parents = 0i64;
+        let mut no_spouses = 0i64;
+        let mut no_children = 0i64;
+        let parented: std::collections::HashSet<&str> = self
+            .tree
+            .child_links
+            .iter()
+            .map(|(_, child)| child.as_str())
+            .collect();
+        let mut spoused: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut with_children: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for family in &self.tree.families {
+            for spouse in [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                spoused.insert(spouse);
+            }
+        }
+        for (family_id, _) in &self.tree.child_links {
+            let Some(family) = self
+                .tree
+                .families
+                .iter()
+                .find(|family| &family.id == family_id)
+            else {
+                continue;
+            };
+            for spouse in [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                with_children.insert(spouse);
+            }
+        }
+        for person in &self.tree.people {
+            match person.gender.as_str() {
+                "M" => males += 1,
+                "F" => females += 1,
+                _ => unknown += 1,
+            }
+            let dates = self.dates.get(&person.id);
+            if dates
+                .and_then(|dates| dates.birth.as_deref())
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                birth_date += 1;
+            }
+            if dates
+                .and_then(|dates| dates.birth_place.as_deref())
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                birth_place += 1;
+            }
+            if dates
+                .and_then(|dates| dates.death.as_deref())
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                death_date += 1;
+            }
+            if dates
+                .and_then(|dates| dates.death_place.as_deref())
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                death_place += 1;
+            }
+            if !parented.contains(person.id.as_str()) {
+                no_parents += 1;
+            }
+            if !spoused.contains(person.id.as_str()) {
+                no_spouses += 1;
+            }
+            if !with_children.contains(person.id.as_str()) {
+                no_children += 1;
+            }
+        }
+        let people = StatisticSection {
+            title: "People".to_string(),
+            rows: vec![
+                metric("Total people", stats.people),
+                metric("Male", males),
+                metric("Female", females),
+                metric("Unknown gender", unknown),
+                metric("With birth date", birth_date),
+                metric("With birth place", birth_place),
+                metric("With death date", death_date),
+                metric("With death place", death_place),
+                metric("Without parents", no_parents),
+                metric("Without spouse", no_spouses),
+                metric("Without children", no_children),
+            ],
+        };
+        let event_types = StatisticSection {
+            title: "Event types".to_string(),
+            rows: stats
+                .event_types
+                .iter()
+                .map(|(label, count)| StatisticRow {
+                    label: label.clone(),
+                    value: count.to_string(),
+                })
+                .collect(),
+        };
+        vec![records, people, event_types]
+    }
+
     fn tree_name(&self) -> String {
         self.app
             .active_db()
@@ -5200,4 +5434,13 @@ fn fact_detail(fact: &crate::db::facts::PersonFact) -> String {
         ));
     }
     parts.join(" \u{00b7} ")
+}
+
+fn coordinates_text(latitude: Option<f64>, longitude: Option<f64>) -> String {
+    match (latitude, longitude) {
+        (Some(latitude), Some(longitude)) => format!("{latitude:.4}, {longitude:.4}"),
+        (Some(latitude), None) => format!("{latitude:.4}"),
+        (None, Some(longitude)) => format!("{longitude:.4}"),
+        (None, None) => String::new(),
+    }
 }
