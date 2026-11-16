@@ -1,5 +1,6 @@
 //! Printable reports generated from tree data.
 
+pub mod administrative;
 pub mod ahnentafel_list;
 pub mod calendar;
 pub mod descendant_list;

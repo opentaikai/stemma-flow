@@ -28,6 +28,7 @@ pub mod schema;
 pub mod search_replace;
 pub mod settings;
 pub mod sources;
+pub mod statistics;
 pub mod tasks;
 
 pub use models::{Citation, Event, Family, Person};

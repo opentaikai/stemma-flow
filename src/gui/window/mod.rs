@@ -8,6 +8,7 @@ mod panels;
 
 use loading::{empty_scene, loadable};
 
+use super::administrative_lists;
 use super::advanced_search;
 use super::ahnentafel_list;
 use super::associations as associations_dialog;
@@ -135,6 +136,7 @@ pub struct TreeWindow {
     pub(super) kinship_report: kinship_report::KinshipReportState,
     pub(super) calendar_report: calendar_report::CalendarReportState,
     pub(super) timeline: timeline::TimelineState,
+    pub(super) administrative_lists: administrative_lists::AdministrativeListsState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -227,6 +229,7 @@ impl TreeWindow {
             kinship_report: kinship_report::KinshipReportState::default(),
             calendar_report: calendar_report::CalendarReportState::default(),
             timeline: timeline::TimelineState::default(),
+            administrative_lists: administrative_lists::AdministrativeListsState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -382,6 +385,7 @@ impl App for TreeWindow {
             self.show_kinship_report_window(ui.ctx());
             self.show_calendar_report_window(ui.ctx());
             self.show_timeline_window(ui.ctx());
+            self.show_administrative_lists_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2709,6 +2713,130 @@ mod tests {
             window
                 .build_timeline_report(TimelineMode::Group, None, Some("missing"))
                 .is_err()
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    fn import_administrative(db_file: &Path) {
+        import_people(
+            db_file,
+            "0 HEAD\n1 CHAR UTF-8\n\
+             0 @I1@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 12 JAN 1815\n2 PLAC London\n1 DEAT\n2 DATE 3 MAR 1852\n2 PLAC Bath\n1 SOUR @S1@\n\
+             0 @S1@ SOUR\n1 TITL Parish register\n1 AUTH St Mary\n1 PUBL 1900\n1 REPO @R1@\n\
+             0 @R1@ REPO\n1 NAME Archive\n1 ADDR 1 High St\n\
+             0 TRLR\n",
+        );
+    }
+
+    fn statistic_value(
+        report: &crate::report::administrative::AdministrativeReport,
+        section: &str,
+        label: &str,
+    ) -> Option<String> {
+        match report {
+            crate::report::administrative::AdministrativeReport::Statistics {
+                sections, ..
+            } => sections
+                .iter()
+                .find(|candidate| candidate.title == section)
+                .and_then(|section| {
+                    section
+                        .rows
+                        .iter()
+                        .find(|row| row.label == label)
+                        .map(|row| row.value.clone())
+                }),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn builds_administrative_lists_and_statistics() {
+        use crate::report::administrative::AdministrativeMode;
+        let db_file = temp_path("db");
+        import_administrative(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+
+        let places = window
+            .build_administrative_report(AdministrativeMode::Places)
+            .expect("place list");
+        match &places {
+            crate::report::administrative::AdministrativeReport::Places { rows, .. } => {
+                assert_eq!(rows.len(), 2);
+                assert!(
+                    rows.iter()
+                        .any(|row| row.name == "London" && row.events == 1)
+                );
+                assert!(rows.iter().any(|row| row.name == "Bath" && row.events == 1));
+                assert!(rows.iter().all(|row| row.coordinates.is_empty()));
+            }
+            _ => panic!("wrong report mode"),
+        }
+
+        let sources = window
+            .build_administrative_report(AdministrativeMode::Sources)
+            .expect("source list");
+        match &sources {
+            crate::report::administrative::AdministrativeReport::Sources { rows, .. } => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].title, "Parish register");
+                assert_eq!(rows[0].author, "St Mary");
+                assert_eq!(rows[0].publication, "1900");
+                assert!(rows[0].repositories.contains("Archive"));
+            }
+            _ => panic!("wrong report mode"),
+        }
+
+        let repositories = window
+            .build_administrative_report(AdministrativeMode::Repositories)
+            .expect("repository list");
+        match &repositories {
+            crate::report::administrative::AdministrativeReport::Repositories { rows, .. } => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].name, "Archive");
+                assert_eq!(rows[0].address, "1 High St");
+                assert_eq!(rows[0].sources, 1);
+            }
+            _ => panic!("wrong report mode"),
+        }
+
+        let statistics = window
+            .build_administrative_report(AdministrativeMode::Statistics)
+            .expect("statistics");
+        assert_eq!(
+            statistic_value(&statistics, "Records", "People").as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            statistic_value(&statistics, "Records", "Places").as_deref(),
+            Some("2")
+        );
+        assert_eq!(
+            statistic_value(&statistics, "Records", "Sources").as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            statistic_value(&statistics, "Records", "Repositories").as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            statistic_value(&statistics, "People", "Female").as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            statistic_value(&statistics, "People", "With birth date").as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            statistic_value(&statistics, "People", "Without parents").as_deref(),
+            Some("1")
+        );
+        assert!(
+            statistic_value(&statistics, "Event types", "Birth").is_some(),
+            "event type rows are present"
         );
 
         let _ = std::fs::remove_file(&db_file);

@@ -47,8 +47,10 @@ use crate::db::repositories::{
 use crate::db::search_replace::{self as replace_store, ReplaceReport, ReplaceSelection};
 use crate::db::settings::{self as settings_store, TreeSettings};
 use crate::db::sources::{
-    self as source_store, SourceDraft, SourceMergeReport, SourceRecord, SourceSummary,
+    self as source_store, SourceDraft, SourceMergeReport, SourceOverview, SourceRecord,
+    SourceSummary,
 };
+use crate::db::statistics::{self as statistics_store, TreeStatistics};
 use crate::db::tasks::{
     self as task_store, TaskDraft, TaskLinkSummary, TaskOwner, TaskRecord, TaskSummary,
 };
@@ -59,6 +61,7 @@ use crate::model::dataclean::{DataCleanPlan, build_plan};
 use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
+use crate::report::administrative::AdministrativeReport;
 use crate::report::ahnentafel_list::AhnentafelListReport;
 use crate::report::calendar::CalendarReport;
 use crate::report::descendant_list::DescendantListReport;
@@ -171,6 +174,11 @@ pub enum JobEvent {
         bytes: usize,
         entries: usize,
     },
+    AdministrativeListExported {
+        path: PathBuf,
+        bytes: usize,
+        rows: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -222,6 +230,7 @@ enum Job {
     RelationshipReport(Box<RelationshipReport>),
     CalendarReport(Box<CalendarReport>),
     Timeline(Box<TimelineReport>),
+    AdministrativeList(Box<AdministrativeReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -451,6 +460,14 @@ impl StemmaApp {
     /// Writes a print-ready timeline on a worker thread.
     pub fn begin_timeline_export(&mut self, report: TimelineReport) {
         self.begin(Job::Timeline(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready administrative list on a worker thread.
+    pub fn begin_administrative_list_export(&mut self, report: AdministrativeReport) {
+        self.begin(
+            Job::AdministrativeList(Box::new(report)),
+            self.active_db.clone(),
+        );
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -794,6 +811,20 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::list_sources(&conn)
+    }
+
+    /// Lists sources with author, publication, citations and repositories.
+    pub fn list_source_overviews(&self) -> Result<Vec<SourceOverview>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        source_store::list_source_overviews(&conn)
+    }
+
+    /// Counts the tree's records and event types.
+    pub fn tree_statistics(&self) -> Result<TreeStatistics, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        statistics_store::load(&conn)
     }
 
     /// Loads one source for editing.
@@ -1723,6 +1754,7 @@ impl StemmaApp {
             Job::RelationshipReport(_) => "Choosing relationship report destination\u{2026}",
             Job::CalendarReport(_) => "Choosing calendar report destination\u{2026}",
             Job::Timeline(_) => "Choosing timeline destination\u{2026}",
+            Job::AdministrativeList(_) => "Choosing list destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1927,6 +1959,12 @@ impl StemmaApp {
                 "Exported timeline with {entries} events ({bytes} bytes) to {}",
                 path.display()
             )),
+            JobEvent::AdministrativeListExported { path, bytes, rows } => {
+                UiStatus::Success(format!(
+                    "Exported list with {rows} rows ({bytes} bytes) to {}",
+                    path.display()
+                ))
+            }
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
                 UiStatus::Success(format!(
                     "Exported relationship report with {steps} steps ({bytes} bytes) to {}",
@@ -2453,6 +2491,28 @@ impl Job {
                                 path: dest,
                                 bytes,
                                 entries: report.entries.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::AdministrativeList(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name = report.file_name(&timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match report.write_html(&dest) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::AdministrativeListExported {
+                                path: dest,
+                                bytes,
+                                rows: report.row_count(),
                             }
                         }
                         Err(message) => JobEvent::Failed(message),

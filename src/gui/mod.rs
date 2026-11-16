@@ -1,5 +1,6 @@
 //! Native desktop integrations used by the future egui shell.
 
+pub mod administrative_lists;
 pub mod advanced_search;
 pub mod ahnentafel_list;
 pub mod associations;
