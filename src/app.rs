@@ -67,6 +67,7 @@ use crate::report::calendar::CalendarReport;
 use crate::report::cleanup::CleanupReport;
 use crate::report::descendant_list::DescendantListReport;
 use crate::report::family_group::FamilyGroupSheetReport;
+use crate::report::fan_chart::FanChartReport;
 use crate::report::group_roster::{self, GroupRosterReport};
 use crate::report::individual_list::IndividualListReport;
 use crate::report::individual_summary::IndividualSummaryReport;
@@ -185,6 +186,11 @@ pub enum JobEvent {
         bytes: usize,
         rows: usize,
     },
+    FanChartExported {
+        path: PathBuf,
+        bytes: usize,
+        people: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -238,6 +244,7 @@ enum Job {
     Timeline(Box<TimelineReport>),
     AdministrativeList(Box<AdministrativeReport>),
     CleanupReport(Box<CleanupReport>),
+    FanChart(Box<FanChartReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -480,6 +487,11 @@ impl StemmaApp {
     /// Writes a print-ready duplicate or missing-information report.
     pub fn begin_cleanup_report_export(&mut self, report: CleanupReport) {
         self.begin(Job::CleanupReport(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready fan chart on a worker thread.
+    pub fn begin_fan_chart_export(&mut self, report: FanChartReport) {
+        self.begin(Job::FanChart(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1768,6 +1780,7 @@ impl StemmaApp {
             Job::Timeline(_) => "Choosing timeline destination\u{2026}",
             Job::AdministrativeList(_) => "Choosing list destination\u{2026}",
             Job::CleanupReport(_) => "Choosing cleanup report destination\u{2026}",
+            Job::FanChart(_) => "Choosing fan chart destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1980,6 +1993,14 @@ impl StemmaApp {
             }
             JobEvent::CleanupReportExported { path, bytes, rows } => UiStatus::Success(format!(
                 "Exported cleanup report with {rows} rows ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::FanChartExported {
+                path,
+                bytes,
+                people,
+            } => UiStatus::Success(format!(
+                "Exported fan chart with {people} people ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2552,6 +2573,29 @@ impl Job {
                                 path: dest,
                                 bytes,
                                 rows: report.row_count(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::FanChart(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::fan_chart::file_name(&report.root_name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::fan_chart::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::FanChartExported {
+                                path: dest,
+                                bytes,
+                                people: report.people.len(),
                             }
                         }
                         Err(message) => JobEvent::Failed(message),

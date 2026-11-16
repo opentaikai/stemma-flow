@@ -26,6 +26,7 @@ use super::descendant_list;
 use super::event_editor;
 use super::fact_types;
 use super::family_sheet;
+use super::fan_chart;
 use super::find_everywhere;
 use super::gazetteer;
 use super::geocode;
@@ -139,6 +140,7 @@ pub struct TreeWindow {
     pub(super) timeline: timeline::TimelineState,
     pub(super) administrative_lists: administrative_lists::AdministrativeListsState,
     pub(super) cleanup_report: cleanup_report::CleanupReportState,
+    pub(super) fan_chart: fan_chart::FanChartState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -233,6 +235,7 @@ impl TreeWindow {
             timeline: timeline::TimelineState::default(),
             administrative_lists: administrative_lists::AdministrativeListsState::default(),
             cleanup_report: cleanup_report::CleanupReportState::default(),
+            fan_chart: fan_chart::FanChartState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -390,6 +393,7 @@ impl App for TreeWindow {
             self.show_timeline_window(ui.ctx());
             self.show_administrative_lists_window(ui.ctx());
             self.show_cleanup_report_window(ui.ctx());
+            self.show_fan_chart_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2918,6 +2922,66 @@ mod tests {
             }
             _ => panic!("wrong report mode"),
         }
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    fn import_fan(db_file: &Path) {
+        import_people(
+            db_file,
+            "0 HEAD\n1 CHAR UTF-8\n\
+             0 @I1@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 1815\n1 DEAT\n2 DATE 1852\n\
+             0 @I2@ INDI\n1 NAME John /Stone/\n1 SEX M\n1 BIRT\n2 DATE 1780\n\
+             0 @I3@ INDI\n1 NAME Mary /King/\n1 SEX F\n1 BIRT\n2 DATE 1785\n1 DEAT\n2 DATE 1860\n\
+             0 @F1@ FAM\n1 HUSB @I2@\n1 WIFE @I3@\n1 CHIL @I1@\n\
+             0 TRLR\n",
+        );
+    }
+
+    #[test]
+    fn builds_fan_chart_report() {
+        let db_file = temp_path("db");
+        import_fan(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let ada = person_id_by_given(&window, "Ada");
+
+        let report = window
+            .build_fan_chart_report(&ada, 3, 180.0, 180.0)
+            .expect("fan chart");
+        assert_eq!(report.root_name, "Ada King");
+        assert_eq!(report.generations, 3);
+        assert_eq!(report.span_degrees, 180.0);
+        assert_eq!(report.start_angle, 180.0);
+        assert_eq!(report.people.len(), 3);
+        let numbers: Vec<u32> = report.people.iter().map(|person| person.number).collect();
+        assert_eq!(numbers, vec![1, 2, 3]);
+        let john = report
+            .people
+            .iter()
+            .find(|person| person.number == 2)
+            .expect("father");
+        assert_eq!(john.name, "John Stone");
+        assert_eq!(john.birth_year, Some(1780));
+        let mary = report
+            .people
+            .iter()
+            .find(|person| person.number == 3)
+            .expect("mother");
+        assert_eq!(mary.death_year, Some(1860));
+
+        let deeper = window
+            .build_fan_chart_report(&ada, 6, 360.0, 0.0)
+            .expect("full fan chart");
+        assert_eq!(deeper.people.len(), 3, "unknown grandparents are omitted");
+        assert_eq!(deeper.span_degrees, 360.0);
+
+        assert!(
+            window
+                .build_fan_chart_report("missing", 3, 180.0, 180.0)
+                .is_err()
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }
