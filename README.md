@@ -681,6 +681,12 @@ views (the app always launches on Graph View):
   with a 90°, 180°, 270° or 360° span and any start angle with
   Top/Right/Bottom/Left presets. Sectors show names and birth/death years;
   unknown ancestors remain as blank sectors so research gaps stay visible.
+- **Hourglass & Bow-tie** — **Tools > Hourglass & Bow-tie…** exports a
+  combined ancestor/descendant chart around a chosen root. **Hourglass**
+  places ancestors above and descendants below; **Bow-tie** transposes the
+  same layout so ancestors sit left and descendants right. Ancestor and
+  descendant generations are chosen independently (2–6), and cards show
+  names with birth/death years.
 - **Individual Reports** — **Tools > Individual Summary…** exports one
   person as printable HTML with a portrait, vital data, all facts, parents,
   spouses with marriage details, children and optional notes.

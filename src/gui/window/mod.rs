@@ -30,6 +30,7 @@ use super::fan_chart;
 use super::find_everywhere;
 use super::gazetteer;
 use super::geocode;
+use super::hourglass_chart;
 use super::import_report;
 use super::individual_list;
 use super::individual_summary;
@@ -141,6 +142,7 @@ pub struct TreeWindow {
     pub(super) administrative_lists: administrative_lists::AdministrativeListsState,
     pub(super) cleanup_report: cleanup_report::CleanupReportState,
     pub(super) fan_chart: fan_chart::FanChartState,
+    pub(super) hourglass_chart: hourglass_chart::HourglassChartState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -236,6 +238,7 @@ impl TreeWindow {
             administrative_lists: administrative_lists::AdministrativeListsState::default(),
             cleanup_report: cleanup_report::CleanupReportState::default(),
             fan_chart: fan_chart::FanChartState::default(),
+            hourglass_chart: hourglass_chart::HourglassChartState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -394,6 +397,7 @@ impl App for TreeWindow {
             self.show_administrative_lists_window(ui.ctx());
             self.show_cleanup_report_window(ui.ctx());
             self.show_fan_chart_window(ui.ctx());
+            self.show_hourglass_chart_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2980,6 +2984,85 @@ mod tests {
         assert!(
             window
                 .build_fan_chart_report("missing", 3, 180.0, 180.0)
+                .is_err()
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    fn import_hourglass(db_file: &Path) {
+        import_people(
+            db_file,
+            "0 HEAD\n1 CHAR UTF-8\n\
+             0 @I1@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 1815\n\
+             0 @I2@ INDI\n1 NAME John /Stone/\n1 SEX M\n1 BIRT\n2 DATE 1780\n\
+             0 @I3@ INDI\n1 NAME Mary /King/\n1 SEX F\n1 BIRT\n2 DATE 1785\n\
+             0 @I4@ INDI\n1 NAME George /Stone/\n1 SEX M\n1 BIRT\n2 DATE 1750\n\
+             0 @I5@ INDI\n1 NAME Bo /Ward/\n1 SEX M\n1 BIRT\n2 DATE 1810\n\
+             0 @I6@ INDI\n1 NAME Bea /Stone/\n1 SEX F\n1 BIRT\n2 DATE 1840\n\
+             0 @F1@ FAM\n1 HUSB @I2@\n1 WIFE @I3@\n1 CHIL @I1@\n\
+             0 @F2@ FAM\n1 HUSB @I4@\n1 CHIL @I2@\n\
+             0 @F3@ FAM\n1 HUSB @I5@\n1 WIFE @I1@\n1 CHIL @I6@\n\
+             0 TRLR\n",
+        );
+    }
+
+    #[test]
+    fn builds_hourglass_and_bow_tie_charts() {
+        use crate::report::hourglass::CombinedChartMode;
+        let db_file = temp_path("db");
+        import_hourglass(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let ada = person_id_by_given(&window, "Ada");
+
+        let hourglass = window
+            .build_combined_chart_report(CombinedChartMode::Hourglass, &ada, 3, 3)
+            .expect("hourglass chart");
+        assert_eq!(hourglass.root_name, "Ada King");
+        assert_eq!(hourglass.root_id, ada);
+        assert_eq!(hourglass.ancestor_generations, 3);
+        assert_eq!(hourglass.descendant_generations, 3);
+        let ids: std::collections::HashSet<&str> = hourglass
+            .scene
+            .nodes
+            .iter()
+            .map(|node| node.person_id.as_str())
+            .collect();
+        for expected in ["Ada", "John", "Mary", "George", "Bo", "Bea"] {
+            let id = person_id_by_given(&window, expected);
+            assert!(ids.contains(id.as_str()), "missing {expected}");
+        }
+        assert_eq!(hourglass.people.len(), hourglass.scene.nodes.len());
+        let john = hourglass
+            .people
+            .iter()
+            .find(|person| person.name == "John Stone")
+            .expect("father");
+        assert_eq!(john.birth_year, Some(1780));
+
+        let shallow = window
+            .build_combined_chart_report(CombinedChartMode::Hourglass, &ada, 2, 3)
+            .expect("shallow ancestors");
+        assert!(
+            !shallow
+                .scene
+                .nodes
+                .iter()
+                .any(|node| node.person_id == person_id_by_given(&window, "George")),
+            "third ancestor generation is excluded"
+        );
+
+        let bow_tie = window
+            .build_combined_chart_report(CombinedChartMode::BowTie, &ada, 3, 3)
+            .expect("bow-tie chart");
+        assert_eq!(bow_tie.mode, CombinedChartMode::BowTie);
+        assert_eq!(bow_tie.people.len(), hourglass.people.len());
+
+        assert!(
+            window
+                .build_combined_chart_report(CombinedChartMode::Hourglass, "missing", 3, 3)
                 .is_err()
         );
 

@@ -14,6 +14,7 @@ pub mod family_view;
 pub mod fan_chart;
 pub mod geocode;
 pub mod graph;
+pub mod hourglass;
 pub mod map;
 pub mod media_repair;
 pub mod name;
