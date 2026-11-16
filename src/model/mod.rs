@@ -11,6 +11,7 @@ pub mod descendant_view;
 pub mod duplicates;
 pub mod fact;
 pub mod family_view;
+pub mod fan_chart;
 pub mod geocode;
 pub mod graph;
 pub mod map;
