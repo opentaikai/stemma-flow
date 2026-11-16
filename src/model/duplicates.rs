@@ -42,6 +42,20 @@ impl DuplicateQuery {
         }
     }
 
+    /// Builds a query from a loaded tree person and their vital dates.
+    pub fn from_person(person: &Person, dates: Option<&VitalDates>) -> Self {
+        Self {
+            given_name: person.given_name.clone(),
+            middle_name: person.middle_name.clone(),
+            surname: person.surname.clone(),
+            nickname: person.nickname.clone(),
+            gender: person.gender.clone(),
+            birth_year: dates.and_then(|dates| year_of(dates.birth.as_deref())),
+            birth_place: dates.and_then(|dates| dates.birth_place.clone()),
+            death_year: dates.and_then(|dates| year_of(dates.death.as_deref())),
+        }
+    }
+
     /// Whether there is enough of a name to compare.
     pub fn has_name(&self) -> bool {
         !normalize(&self.given_name).is_empty()
@@ -88,6 +102,15 @@ pub struct DuplicateMatch {
     pub reasons: Vec<DuplicateReason>,
 }
 
+/// One possible duplicate pair found across the whole tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DuplicatePair {
+    pub first_id: String,
+    pub second_id: String,
+    pub score: u8,
+    pub reasons: Vec<DuplicateReason>,
+}
+
 /// Finds possible duplicates in `tree`, skipping `exclude`.
 pub fn find_duplicates(
     tree: &FamilyTree,
@@ -100,6 +123,84 @@ pub fn find_duplicates(
         .iter()
         .filter(|person| !exclude.contains(&person.id.as_str()));
     score_candidates(query, dates, candidates)
+}
+
+/// Finds every possible duplicate pair in the tree.
+///
+/// People are blocked by surname Soundex (or given-name Soundex when the
+/// surname is empty), so only likely candidates are compared. Each pair is
+/// scored in both directions and returned once, best scores first.
+pub fn find_all_duplicates(
+    tree: &FamilyTree,
+    dates: &HashMap<String, VitalDates>,
+) -> Vec<DuplicatePair> {
+    let mut blocks: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut people: Vec<(&Person, DuplicateQuery)> = Vec::new();
+    for person in &tree.people {
+        let query = DuplicateQuery::from_person(person, dates.get(&person.id));
+        if !query.has_name() {
+            continue;
+        }
+        blocks
+            .entry(duplicate_block(person))
+            .or_default()
+            .push(people.len());
+        people.push((person, query));
+    }
+    let mut pairs = Vec::new();
+    for indices in blocks.values() {
+        for (position, &left) in indices.iter().enumerate() {
+            for &right in &indices[position + 1..] {
+                let (left_person, left_query) = &people[left];
+                let (right_person, right_query) = &people[right];
+                let forward = score_person(left_query, dates.get(&right_person.id), right_person);
+                let backward = score_person(right_query, dates.get(&left_person.id), left_person);
+                let best = match (forward, backward) {
+                    (Some(forward), Some(backward)) => {
+                        if forward.score >= backward.score {
+                            forward
+                        } else {
+                            backward
+                        }
+                    }
+                    (Some(forward), None) => forward,
+                    (None, Some(backward)) => backward,
+                    (None, None) => continue,
+                };
+                let (first_id, second_id) = if left_person.id <= right_person.id {
+                    (left_person.id.clone(), right_person.id.clone())
+                } else {
+                    (right_person.id.clone(), left_person.id.clone())
+                };
+                pairs.push(DuplicatePair {
+                    first_id,
+                    second_id,
+                    score: best.score,
+                    reasons: best.reasons,
+                });
+            }
+        }
+    }
+    pairs.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.first_id.cmp(&right.first_id))
+            .then_with(|| left.second_id.cmp(&right.second_id))
+    });
+    pairs
+}
+
+fn duplicate_block(person: &Person) -> String {
+    let surname = crate::model::phonetics::american_soundex(&person.surname);
+    if !person.surname.trim().is_empty() && !surname.is_empty() {
+        format!("surname:{surname}")
+    } else {
+        format!(
+            "given:{}",
+            crate::model::phonetics::american_soundex(&person.given_name)
+        )
+    }
 }
 
 /// Scores an arbitrary set of candidates, best matches first.
@@ -424,6 +525,88 @@ mod tests {
                 .is_empty()
         );
         assert!(find_duplicates(&tree, &HashMap::new(), &query("", ""), &[]).is_empty());
+    }
+
+    fn vitals(birth: &str, death: Option<&str>) -> VitalDates {
+        VitalDates {
+            birth: Some(birth.to_string()),
+            death: death.map(str::to_string),
+            ..VitalDates::default()
+        }
+    }
+
+    #[test]
+    fn finds_duplicate_pairs_once_with_vitals_and_reasons() {
+        let tree = family_tree(vec![
+            person("a", "Ada", "King", "F"),
+            person("b", "Ada", "King", "F"),
+            person("c", "Bo", "Tester", "M"),
+        ]);
+        let mut dates = HashMap::new();
+        dates.insert("a".to_string(), vitals("1815", Some("1852")));
+        dates.insert("b".to_string(), vitals("1815", Some("1852")));
+        let pairs = find_all_duplicates(&tree, &dates);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].first_id, "a");
+        assert_eq!(pairs[0].second_id, "b");
+        assert!(pairs[0].score >= 85);
+        assert!(pairs[0].reasons.contains(&DuplicateReason::ExactName));
+    }
+
+    #[test]
+    fn soundex_blocks_match_spelling_variants() {
+        let tree = family_tree(vec![
+            person("smith", "John", "Smith", "M"),
+            person("smyth", "John", "Smyth", "M"),
+            person("other", "Ada", "King", "F"),
+        ]);
+        let pairs = find_all_duplicates(&tree, &HashMap::new());
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].first_id, "smith");
+        assert_eq!(pairs[0].second_id, "smyth");
+        assert!(pairs[0].reasons.contains(&DuplicateReason::SimilarName));
+    }
+
+    #[test]
+    fn conflicting_vitals_stay_in_the_pair_with_reasons() {
+        let mut tree = family_tree(vec![
+            person("one", "Ada", "King", "F"),
+            person("two", "Ada", "King", "M"),
+        ]);
+        tree.people[1].gender = "M".to_string();
+        let mut dates = HashMap::new();
+        dates.insert("one".to_string(), vitals("1815", None));
+        dates.insert("two".to_string(), vitals("1820", None));
+        let pairs = find_all_duplicates(&tree, &dates);
+        assert_eq!(pairs.len(), 1);
+        assert!(
+            pairs[0]
+                .reasons
+                .contains(&DuplicateReason::ConflictingBirthYear)
+        );
+        assert!(
+            pairs[0]
+                .reasons
+                .contains(&DuplicateReason::ConflictingGender)
+        );
+    }
+
+    #[test]
+    fn queries_from_people_copy_names_and_vitals() {
+        let mut person = person("p1", "Ada", "King", "F");
+        person.nickname = "Addie".to_string();
+        let query = DuplicateQuery::from_person(&person, Some(&vitals("12 JAN 1815", None)));
+        assert_eq!(query.given_name, "Ada");
+        assert_eq!(query.surname, "King");
+        assert_eq!(query.nickname, "Addie");
+        assert_eq!(query.birth_year, Some(1815));
+        assert_eq!(query.gender, "F");
+    }
+
+    #[test]
+    fn all_duplicates_skip_unnamed_people() {
+        let tree = family_tree(vec![person("one", "", "", "U"), person("two", "", "", "U")]);
+        assert!(find_all_duplicates(&tree, &HashMap::new()).is_empty());
     }
 
     #[test]
