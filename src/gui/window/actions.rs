@@ -65,6 +65,7 @@ use crate::gui::soundex;
 use crate::gui::sources::{self, SourcesEvent};
 use crate::gui::tabs;
 use crate::gui::tasks::{self as task_ui, TaskAttachOutcome, TaskAttachState, TaskEvent};
+use crate::gui::timeline as timeline_ui;
 use crate::gui::watchlist;
 use crate::gui::watchlist::WatchEvent;
 use crate::gui::welcome;
@@ -4124,6 +4125,227 @@ impl TreeWindow {
         events
     }
 
+    pub(super) fn open_timeline(&mut self) {
+        let groups = self.app.list_groups().unwrap_or_else(|message| {
+            self.app.set_status(UiStatus::Error(message));
+            Vec::new()
+        });
+        let person = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.timeline.open_with(person, groups);
+    }
+
+    pub(super) fn show_timeline_window(&mut self, ctx: &egui::Context) {
+        if !self.timeline.open {
+            return;
+        }
+        if let Some(event) = timeline_ui::show(
+            ctx,
+            &mut self.timeline,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            match self.build_timeline_report(
+                event.mode,
+                event.person_id.as_deref(),
+                event.group_id.as_deref(),
+            ) {
+                Ok(report) => self.app.begin_timeline_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_timeline_report(
+        &self,
+        mode: crate::report::timeline::TimelineMode,
+        person_id: Option<&str>,
+        group_id: Option<&str>,
+    ) -> Result<crate::report::timeline::TimelineReport, String> {
+        use crate::report::timeline::TimelineMode;
+        let (subject_name, member_ids) = match mode {
+            TimelineMode::Person => {
+                let person_id = person_id.ok_or_else(|| "select a person".to_string())?;
+                let person = self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == person_id)
+                    .ok_or_else(|| "person not found".to_string())?;
+                (
+                    inspector::person_label(person, self.tree_settings.surname_first),
+                    vec![person.id.clone()],
+                )
+            }
+            TimelineMode::Group => {
+                let group_id = group_id.ok_or_else(|| "select a group".to_string())?;
+                let groups = self.app.list_groups()?;
+                let group = groups
+                    .iter()
+                    .find(|group| group.id == group_id)
+                    .ok_or_else(|| "group not found".to_string())?;
+                let member_ids = match &group.rule {
+                    Some(rule) => crate::gui::groups::rule_members(&self.rows, rule)
+                        .into_iter()
+                        .map(|member| member.person_id)
+                        .collect(),
+                    None => self
+                        .app
+                        .list_group_members(&group.id, self.tree_settings.surname_first)?
+                        .into_iter()
+                        .map(|member| member.person_id)
+                        .collect(),
+                };
+                (group.name.clone(), member_ids)
+            }
+        };
+        Ok(crate::report::timeline::TimelineReport {
+            mode,
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            subject_name,
+            entries: self.timeline_entries(&member_ids, mode),
+        })
+    }
+
+    fn timeline_entries(
+        &self,
+        member_ids: &[String],
+        mode: crate::report::timeline::TimelineMode,
+    ) -> Vec<crate::report::timeline::TimelineEntry> {
+        use crate::report::timeline::{TimelineEntry, TimelineMode};
+        let merge = mode == TimelineMode::Group;
+        let mut entries = Vec::new();
+        let mut index = HashMap::new();
+        for person_id in member_ids {
+            let Some(person) = self
+                .tree
+                .people
+                .iter()
+                .find(|person| person.id == *person_id)
+            else {
+                continue;
+            };
+            let name = inspector::person_label(person, self.tree_settings.surname_first);
+            let dates = self.dates.get(person_id);
+            let birth = dates.and_then(|dates| dates.birth.clone());
+            if let Some(date) = dates.and_then(|dates| dates.birth.clone()) {
+                push_timeline(
+                    &mut entries,
+                    &mut index,
+                    format!("birth:{person_id}"),
+                    TimelineEntry {
+                        date,
+                        person: name.clone(),
+                        event: "Birth".to_string(),
+                        detail: String::new(),
+                        place: dates
+                            .and_then(|dates| dates.birth_place.clone())
+                            .unwrap_or_default(),
+                        age: None,
+                    },
+                    merge,
+                );
+            }
+            if let Some(date) = dates.and_then(|dates| dates.death.clone()) {
+                push_timeline(
+                    &mut entries,
+                    &mut index,
+                    format!("death:{person_id}"),
+                    TimelineEntry {
+                        age: timeline_age(birth.as_deref(), &date),
+                        date,
+                        person: name.clone(),
+                        event: "Death".to_string(),
+                        detail: String::new(),
+                        place: dates
+                            .and_then(|dates| dates.death_place.clone())
+                            .unwrap_or_default(),
+                    },
+                    merge,
+                );
+            }
+            for family in &self.tree.families {
+                let is_spouse = family.husband_id.as_deref() == Some(person_id.as_str())
+                    || family.wife_id.as_deref() == Some(person_id.as_str());
+                if !is_spouse {
+                    continue;
+                }
+                let other_id = if family.husband_id.as_deref() == Some(person_id.as_str()) {
+                    family.wife_id.as_deref()
+                } else {
+                    family.husband_id.as_deref()
+                };
+                let spouse = other_id
+                    .and_then(|id| {
+                        self.tree
+                            .people
+                            .iter()
+                            .find(|person| person.id == id)
+                            .map(|person| {
+                                inspector::person_label(person, self.tree_settings.surname_first)
+                            })
+                    })
+                    .unwrap_or_default();
+                let info = self.marriages.get(&family.id);
+                let date = info.and_then(|info| info.date.clone()).unwrap_or_default();
+                let detail = if spouse.is_empty() {
+                    String::new()
+                } else {
+                    format!("Spouse: {spouse}")
+                };
+                push_timeline(
+                    &mut entries,
+                    &mut index,
+                    format!("family:{}", family.id),
+                    TimelineEntry {
+                        age: timeline_age(birth.as_deref(), &date),
+                        date,
+                        person: name.clone(),
+                        event: "Marriage".to_string(),
+                        detail,
+                        place: info.and_then(|info| info.place.clone()).unwrap_or_default(),
+                    },
+                    merge,
+                );
+            }
+            for fact in self.person_facts.get(person_id).into_iter().flatten() {
+                let date = fact.date.clone().unwrap_or_default();
+                push_timeline(
+                    &mut entries,
+                    &mut index,
+                    format!("event:{}", fact.event_id),
+                    TimelineEntry {
+                        age: timeline_age(birth.as_deref(), &date),
+                        date,
+                        person: name.clone(),
+                        event: fact.label.clone(),
+                        detail: fact_detail(fact),
+                        place: fact.place.clone().unwrap_or_default(),
+                    },
+                    merge,
+                );
+            }
+        }
+        entries.sort_by(|left, right| {
+            let left_key = crate::model::timeline::date_sort_key(&left.date);
+            let right_key = crate::model::timeline::date_sort_key(&right.date);
+            match (left_key, right_key) {
+                (Some(left_key), Some(right_key)) => left_key.cmp(&right_key),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+            .then_with(|| left.event.to_lowercase().cmp(&right.event.to_lowercase()))
+            .then_with(|| left.person.to_lowercase().cmp(&right.person.to_lowercase()))
+        });
+        entries
+    }
+
     fn tree_name(&self) -> String {
         self.app
             .active_db()
@@ -4908,4 +5130,74 @@ fn exact_calendar_date(value: &str) -> Option<crate::model::date::DateParts> {
     let canonical = crate::model::date::canonicalize(value).ok()?;
     crate::model::date::exact_parts(&canonical)
         .filter(|parts| parts.month.is_some() && parts.day.is_some())
+}
+
+fn push_timeline(
+    entries: &mut Vec<crate::report::timeline::TimelineEntry>,
+    index: &mut HashMap<String, usize>,
+    key: String,
+    entry: crate::report::timeline::TimelineEntry,
+    merge: bool,
+) {
+    if merge {
+        if let Some(&existing) = index.get(&key) {
+            let current = &mut entries[existing];
+            if !current.person.split(" & ").any(|name| name == entry.person) {
+                current.person = format!("{} & {}", current.person, entry.person);
+            }
+            current.age = None;
+            return;
+        }
+        index.insert(key, entries.len());
+    }
+    entries.push(entry);
+}
+
+fn timeline_age(birth: Option<&str>, date: &str) -> Option<String> {
+    if date.trim().is_empty() {
+        return None;
+    }
+    crate::model::age::age_at(birth, Some(date)).map(|age| age.to_string())
+}
+
+fn fact_detail(fact: &crate::db::facts::PersonFact) -> String {
+    let mut parts = Vec::new();
+    if let Some(value) = fact
+        .value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        parts.push(value.to_string());
+    }
+    if let Some(role) = fact
+        .role
+        .as_deref()
+        .map(str::trim)
+        .filter(|role| !role.is_empty())
+    {
+        parts.push(format!("Role: {role}"));
+    }
+    if let Some(principal) = fact
+        .principal
+        .as_deref()
+        .map(str::trim)
+        .filter(|principal| !principal.is_empty())
+    {
+        parts.push(format!("Principal: {principal}"));
+    }
+    if !fact.participants.is_empty() {
+        parts.push(format!(
+            "Participants: {}",
+            fact.participants
+                .iter()
+                .map(|participant| format!(
+                    "{} ({})",
+                    participant.person_name, participant.role_label
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    parts.join(" \u{00b7} ")
 }

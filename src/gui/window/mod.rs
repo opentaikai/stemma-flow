@@ -57,6 +57,7 @@ use super::soundex;
 use super::sources;
 use super::tabs;
 use super::tasks;
+use super::timeline;
 use super::watchlist;
 use super::watchlist::PersonRow;
 use crate::app::StemmaApp;
@@ -133,6 +134,7 @@ pub struct TreeWindow {
     pub(super) descendant_list: descendant_list::DescendantListState,
     pub(super) kinship_report: kinship_report::KinshipReportState,
     pub(super) calendar_report: calendar_report::CalendarReportState,
+    pub(super) timeline: timeline::TimelineState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -224,6 +226,7 @@ impl TreeWindow {
             descendant_list: descendant_list::DescendantListState::default(),
             kinship_report: kinship_report::KinshipReportState::default(),
             calendar_report: calendar_report::CalendarReportState::default(),
+            timeline: timeline::TimelineState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -378,6 +381,7 @@ impl App for TreeWindow {
             self.show_descendant_list_window(ui.ctx());
             self.show_kinship_report_window(ui.ctx());
             self.show_calendar_report_window(ui.ctx());
+            self.show_timeline_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2570,6 +2574,141 @@ mod tests {
                 .iter()
                 .all(|event| event.kind != CalendarEventKind::Death),
             "deaths after the selected year are omitted"
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    fn import_timeline(db_file: &Path) {
+        import_people(
+            db_file,
+            "0 HEAD\n1 CHAR UTF-8\n\
+             0 @I1@ INDI\n1 NAME John /Stone/\n1 SEX M\n1 BIRT\n2 DATE 12 JAN 1810\n2 PLAC London\n1 DEAT\n2 DATE 3 MAR 1880\n2 PLAC Bath\n1 OCCU Teacher\n2 DATE 1840\n2 PLAC London\n1 OCCU Farmer\n\
+             0 @I2@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 20 DEC 1815\n2 PLAC London\n\
+             0 @I3@ INDI\n1 NAME Bea /Stone/\n1 SEX F\n1 BIRT\n2 DATE 15 MAR 1840\n2 PLAC London\n\
+             0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I3@\n1 MARR\n2 DATE 5 JUN 1838\n2 PLAC Bath\n\
+             0 TRLR\n",
+        );
+    }
+
+    #[test]
+    fn builds_person_timeline_with_ages_and_undated_facts() {
+        use crate::report::timeline::TimelineMode;
+        let db_file = temp_path("db");
+        import_timeline(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let john = person_id_by_given(&window, "John");
+
+        let report = window
+            .build_timeline_report(TimelineMode::Person, Some(&john), None)
+            .expect("timeline report");
+        assert_eq!(report.subject_name, "John Stone");
+        let rows: Vec<(&str, &str)> = report
+            .entries
+            .iter()
+            .map(|entry| (entry.date.as_str(), entry.event.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("12 JAN 1810", "Birth"),
+                ("5 JUN 1838", "Marriage"),
+                ("1840", "Occupation"),
+                ("3 MAR 1880", "Death"),
+                ("", "Occupation"),
+            ]
+        );
+        assert_eq!(report.entries[1].detail, "Spouse: Ada King");
+        assert_eq!(report.entries[2].age.as_deref(), Some("about 30"));
+        assert_eq!(report.entries[3].age.as_deref(), Some("70"));
+        assert!(report.entries[4].age.is_none());
+
+        assert!(
+            window
+                .build_timeline_report(TimelineMode::Person, Some("missing"), None)
+                .is_err()
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_group_timelines_and_dedupes_shared_events() {
+        use crate::db::groups::GroupDraft;
+        use crate::model::person_search::PersonSearchCriteria;
+        use crate::report::timeline::TimelineMode;
+        let db_file = temp_path("db");
+        import_timeline(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let john = person_id_by_given(&window, "John");
+        let ada = person_id_by_given(&window, "Ada");
+
+        let group = window
+            .app
+            .save_group(&GroupDraft {
+                name: "Stone family".to_string(),
+                ..GroupDraft::default()
+            })
+            .expect("group");
+        window.app.add_group_member(&group, &john).expect("john");
+        window.app.add_group_member(&group, &ada).expect("ada");
+        let report = window
+            .build_timeline_report(TimelineMode::Group, None, Some(&group))
+            .expect("group timeline");
+        assert_eq!(report.subject_name, "Stone family");
+        assert_eq!(
+            report
+                .entries
+                .iter()
+                .filter(|entry| entry.event == "Birth")
+                .count(),
+            2
+        );
+        let marriages: Vec<_> = report
+            .entries
+            .iter()
+            .filter(|entry| entry.event == "Marriage")
+            .collect();
+        assert_eq!(marriages.len(), 1, "the shared marriage appears once");
+        assert!(marriages[0].person.contains("Ada"));
+        assert!(marriages[0].person.contains("John"));
+        assert!(marriages[0].age.is_none());
+
+        let rule_group = window
+            .app
+            .save_group(&GroupDraft {
+                name: "Stones".to_string(),
+                rule: Some(PersonSearchCriteria {
+                    name: "Stone".to_string(),
+                    ..PersonSearchCriteria::default()
+                }),
+                ..GroupDraft::default()
+            })
+            .expect("rule group");
+        let report = window
+            .build_timeline_report(TimelineMode::Group, None, Some(&rule_group))
+            .expect("rule group timeline");
+        assert!(
+            report
+                .entries
+                .iter()
+                .any(|entry| entry.person.contains("John"))
+        );
+        assert!(
+            report
+                .entries
+                .iter()
+                .any(|entry| entry.person.contains("Bea"))
+        );
+
+        assert!(
+            window
+                .build_timeline_report(TimelineMode::Group, None, Some("missing"))
+                .is_err()
         );
 
         let _ = std::fs::remove_file(&db_file);
