@@ -708,6 +708,11 @@ views (the app always launches on Graph View):
   and source counts, or a statistics report with record totals, people
   completeness and event-type counts. Every list is single-file printable
   HTML with a print toolbar.
+- **Cleanup Reports** — **Tools > Cleanup Reports…** exports possible
+  duplicates with both people's vitals, score and match reasons, or all
+  open missing-information and chronology problems while excluding
+  dismissed alerts. Duplicate scanning blocks by surname Soundex so only
+  likely pairs are compared.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,

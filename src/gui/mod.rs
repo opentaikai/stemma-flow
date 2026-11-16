@@ -8,6 +8,7 @@ pub mod associations_view;
 pub mod calendar_report;
 pub mod canvas;
 pub mod citations;
+pub mod cleanup_report;
 pub mod connectors;
 pub mod couples;
 pub mod database_tools;

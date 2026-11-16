@@ -64,6 +64,7 @@ use crate::model::source_template::SourceTemplate;
 use crate::report::administrative::AdministrativeReport;
 use crate::report::ahnentafel_list::AhnentafelListReport;
 use crate::report::calendar::CalendarReport;
+use crate::report::cleanup::CleanupReport;
 use crate::report::descendant_list::DescendantListReport;
 use crate::report::family_group::FamilyGroupSheetReport;
 use crate::report::group_roster::{self, GroupRosterReport};
@@ -179,6 +180,11 @@ pub enum JobEvent {
         bytes: usize,
         rows: usize,
     },
+    CleanupReportExported {
+        path: PathBuf,
+        bytes: usize,
+        rows: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -231,6 +237,7 @@ enum Job {
     CalendarReport(Box<CalendarReport>),
     Timeline(Box<TimelineReport>),
     AdministrativeList(Box<AdministrativeReport>),
+    CleanupReport(Box<CleanupReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -468,6 +475,11 @@ impl StemmaApp {
             Job::AdministrativeList(Box::new(report)),
             self.active_db.clone(),
         );
+    }
+
+    /// Writes a print-ready duplicate or missing-information report.
+    pub fn begin_cleanup_report_export(&mut self, report: CleanupReport) {
+        self.begin(Job::CleanupReport(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1755,6 +1767,7 @@ impl StemmaApp {
             Job::CalendarReport(_) => "Choosing calendar report destination\u{2026}",
             Job::Timeline(_) => "Choosing timeline destination\u{2026}",
             Job::AdministrativeList(_) => "Choosing list destination\u{2026}",
+            Job::CleanupReport(_) => "Choosing cleanup report destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1965,6 +1978,10 @@ impl StemmaApp {
                     path.display()
                 ))
             }
+            JobEvent::CleanupReportExported { path, bytes, rows } => UiStatus::Success(format!(
+                "Exported cleanup report with {rows} rows ({bytes} bytes) to {}",
+                path.display()
+            )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
                 UiStatus::Success(format!(
                     "Exported relationship report with {steps} steps ({bytes} bytes) to {}",
@@ -2510,6 +2527,28 @@ impl Job {
                         Ok(bytes) => {
                             let _ = open::that(&dest);
                             JobEvent::AdministrativeListExported {
+                                path: dest,
+                                bytes,
+                                rows: report.row_count(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::CleanupReport(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name = report.file_name(&timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match report.write_html(&dest) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::CleanupReportExported {
                                 path: dest,
                                 bytes,
                                 rows: report.row_count(),

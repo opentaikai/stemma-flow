@@ -20,6 +20,7 @@ use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
 use crate::gui::associations_view::{self as association_view_ui, AssociationViewEvent};
 use crate::gui::calendar_report as calendar_report_ui;
 use crate::gui::citations::CitationDraft;
+use crate::gui::cleanup_report as cleanup_report_ui;
 use crate::gui::couples::{self as couples_ui, CouplesEvent};
 use crate::gui::database_tools::{self as database_tools_ui, DatabaseToolsEvent};
 use crate::gui::dataclean::{self as dataclean_ui, DataCleanEvent};
@@ -4578,6 +4579,148 @@ impl TreeWindow {
                 .collect(),
         };
         vec![records, people, event_types]
+    }
+
+    pub(super) fn open_cleanup_reports(&mut self) {
+        self.cleanup_report.open_with();
+    }
+
+    pub(super) fn show_cleanup_report_window(&mut self, ctx: &egui::Context) {
+        if !self.cleanup_report.open {
+            return;
+        }
+        if let Some(mode) = cleanup_report_ui::show(ctx, &mut self.cleanup_report) {
+            match self.build_cleanup_report(mode) {
+                Ok(report) => self.app.begin_cleanup_report_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_cleanup_report(
+        &self,
+        mode: crate::report::cleanup::CleanupMode,
+    ) -> Result<crate::report::cleanup::CleanupReport, String> {
+        use crate::report::cleanup::{CleanupMode, CleanupReport};
+        let tree_name = self.tree_name();
+        let generated_at =
+            crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string());
+        match mode {
+            CleanupMode::Duplicates => {
+                let rows = crate::model::duplicates::find_all_duplicates(&self.tree, &self.dates)
+                    .into_iter()
+                    .map(|pair| {
+                        let (first_name, first_vitals) = self.cleanup_person(&pair.first_id);
+                        let (second_name, second_vitals) = self.cleanup_person(&pair.second_id);
+                        crate::report::cleanup::DuplicateRow {
+                            first_name,
+                            first_vitals,
+                            second_name,
+                            second_vitals,
+                            score: pair.score,
+                            reasons: pair
+                                .reasons
+                                .iter()
+                                .map(|reason| reason.label())
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        }
+                    })
+                    .collect();
+                Ok(CleanupReport::Duplicates {
+                    tree_name,
+                    generated_at,
+                    rows,
+                })
+            }
+            CleanupMode::MissingInformation => {
+                let dismissed = self.app.list_problem_dismissals()?;
+                let alerts =
+                    crate::model::problems::detect(&self.tree, &self.dates, &self.marriages);
+                let mut rows: Vec<(
+                    crate::model::problems::ProblemSeverity,
+                    String,
+                    crate::report::cleanup::MissingRow,
+                )> = alerts
+                    .into_iter()
+                    .filter(|alert| !dismissed.contains(&alert.key))
+                    .map(|alert| {
+                        let person = self
+                            .tree
+                            .people
+                            .iter()
+                            .find(|person| person.id == alert.person_id)
+                            .map(|person| {
+                                inspector::person_label(person, self.tree_settings.surname_first)
+                            })
+                            .unwrap_or_default();
+                        let related = alert
+                            .related_person_id
+                            .as_deref()
+                            .and_then(|id| self.tree.people.iter().find(|person| person.id == id))
+                            .map(|person| {
+                                inspector::person_label(person, self.tree_settings.surname_first)
+                            })
+                            .unwrap_or_default();
+                        (
+                            alert.severity,
+                            person.to_lowercase(),
+                            crate::report::cleanup::MissingRow {
+                                person,
+                                problem: crate::i18n::tr(alert.kind.label_key()),
+                                severity: crate::i18n::tr(alert.severity.label_key()),
+                                details: alert.details.join(" \u{00b7} "),
+                                related,
+                            },
+                        )
+                    })
+                    .collect();
+                rows.sort_by(|left, right| {
+                    left.0
+                        .cmp(&right.0)
+                        .then_with(|| left.1.cmp(&right.1))
+                        .then_with(|| left.2.problem.cmp(&right.2.problem))
+                });
+                Ok(CleanupReport::MissingInformation {
+                    tree_name,
+                    generated_at,
+                    rows: rows.into_iter().map(|(_, _, row)| row).collect(),
+                })
+            }
+        }
+    }
+
+    fn cleanup_person(&self, person_id: &str) -> (String, String) {
+        let Some(person) = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == person_id)
+        else {
+            return (String::new(), String::new());
+        };
+        let name = inspector::person_label(person, self.tree_settings.surname_first);
+        let dates = self.dates.get(person_id);
+        let mut parts = Vec::new();
+        if let Some(date) = dates.and_then(|dates| dates.birth.as_deref()) {
+            let place = dates
+                .and_then(|dates| dates.birth_place.as_deref())
+                .unwrap_or_default();
+            parts.push(format!(
+                "b. {}",
+                crate::report::list_entry::event_cell(date, place)
+            ));
+        }
+        if let Some(date) = dates.and_then(|dates| dates.death.as_deref()) {
+            let place = dates
+                .and_then(|dates| dates.death_place.as_deref())
+                .unwrap_or_default();
+            parts.push(format!(
+                "d. {}",
+                crate::report::list_entry::event_cell(date, place)
+            ));
+        }
+        (name, parts.join(" \u{00b7} "))
     }
 
     fn tree_name(&self) -> String {

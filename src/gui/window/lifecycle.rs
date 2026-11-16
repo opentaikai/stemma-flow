@@ -190,6 +190,7 @@ impl TreeWindow {
             self.timeline = crate::gui::timeline::TimelineState::default();
             self.administrative_lists =
                 crate::gui::administrative_lists::AdministrativeListsState::default();
+            self.cleanup_report = crate::gui::cleanup_report::CleanupReportState::default();
             self.associations.clear();
             self.associations_owner = None;
             self.pending_association = None;
