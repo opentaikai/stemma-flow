@@ -171,7 +171,7 @@ Goal: turn research into shareable output.
 | Individual summary and individual list reports | done | P1 | Printable summary with facts and relatives; list matches People filters and columns |
 | Ahnentafel and descendant lists (indented and direct) | done | P1 | Ahnentafel and indented/direct descendant HTML with d'Aboville and Henry numbering |
 | Kinship and relationship reports | done | P2 | Printable kinship list and calculator relationship report |
-| Birthday, anniversary and calendar reports | planned | P2 | Home page can reuse the data |
+| Birthday, anniversary and calendar reports | done | P2 | Upcoming birthday/anniversary lists and a year calendar from shared event dates |
 | Timeline reports | planned | P2 | Per person or group |
 | Place, source, repository and statistics lists | planned | P2 | Administrative reports |
 | Duplicate and missing-information reports | planned | P2 | Supports cleanup |

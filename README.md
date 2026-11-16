@@ -690,6 +690,13 @@ views (the app always launches on Graph View):
   **Tools > Relationship Calculator…** now includes **Print report…**,
   which exports the current pair as printable HTML with the relationship
   label, nearest common ancestor and shortest parent/child/spouse path.
+- **Calendar Reports** — **Tools > Calendar Reports…** exports
+  **Birthdays** or **Anniversaries** for the next twelve months, or a
+  **Year calendar** with twelve month grids. Lists show the occurrence
+  date, person or couple, the age or years reached and the place; the
+  calendar marks births, marriages and deaths in each day cell. Only
+  exact day/month dates are included, and leap-day events fall back to
+  28 February in non-leap years.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,

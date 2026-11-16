@@ -4,6 +4,7 @@ pub mod advanced_search;
 pub mod ahnentafel_list;
 pub mod associations;
 pub mod associations_view;
+pub mod calendar_report;
 pub mod canvas;
 pub mod citations;
 pub mod connectors;
