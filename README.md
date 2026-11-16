@@ -702,6 +702,12 @@ views (the app always launches on Graph View):
   with the age reached, or the same timeline for all members of a research
   group. Shared marriages and events appear once; facts without a usable
   date are listed in a final **Undated** section.
+- **Lists & Statistics** — **Tools > Lists & Statistics…** exports all
+  stored places with event counts and coordinates, all sources with author,
+  publication, citations and repositories, all repositories with address
+  and source counts, or a statistics report with record totals, people
+  completeness and event-type counts. Every list is single-file printable
+  HTML with a print toolbar.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,

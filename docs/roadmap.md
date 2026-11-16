@@ -173,7 +173,7 @@ Goal: turn research into shareable output.
 | Kinship and relationship reports | done | P2 | Printable kinship list and calculator relationship report |
 | Birthday, anniversary and calendar reports | done | P2 | Upcoming birthday/anniversary lists and a year calendar from shared event dates |
 | Timeline reports | done | P2 | Chronological person and group timelines with ages and undated facts |
-| Place, source, repository and statistics lists | planned | P2 | Administrative reports |
+| Place, source, repository and statistics lists | done | P2 | Printable place, source, repository and statistics reports |
 | Duplicate and missing-information reports | planned | P2 | Supports cleanup |
 | Fan charts | planned | P1 | Any orientation |
 | Hourglass and bow-tie charts | planned | P2 | Combined ancestor and descendant |
