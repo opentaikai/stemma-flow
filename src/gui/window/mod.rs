@@ -16,6 +16,7 @@ use super::associations_view;
 use super::calendar_report;
 use super::canvas::ViewportState;
 use super::citations;
+use super::cleanup_report;
 use super::connectors::ConnectorCache;
 use super::couples;
 use super::database_tools;
@@ -137,6 +138,7 @@ pub struct TreeWindow {
     pub(super) calendar_report: calendar_report::CalendarReportState,
     pub(super) timeline: timeline::TimelineState,
     pub(super) administrative_lists: administrative_lists::AdministrativeListsState,
+    pub(super) cleanup_report: cleanup_report::CleanupReportState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -230,6 +232,7 @@ impl TreeWindow {
             calendar_report: calendar_report::CalendarReportState::default(),
             timeline: timeline::TimelineState::default(),
             administrative_lists: administrative_lists::AdministrativeListsState::default(),
+            cleanup_report: cleanup_report::CleanupReportState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -386,6 +389,7 @@ impl App for TreeWindow {
             self.show_calendar_report_window(ui.ctx());
             self.show_timeline_window(ui.ctx());
             self.show_administrative_lists_window(ui.ctx());
+            self.show_cleanup_report_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2838,6 +2842,82 @@ mod tests {
             statistic_value(&statistics, "Event types", "Birth").is_some(),
             "event type rows are present"
         );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    fn import_cleanup(db_file: &Path) {
+        import_people(
+            db_file,
+            "0 HEAD\n1 CHAR UTF-8\n\
+             0 @I1@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 1815\n2 PLAC London\n\
+             0 @I2@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 1815\n2 PLAC London\n\
+             0 @I3@ INDI\n1 NAME Bo /Tester/\n1 SEX M\n\
+             0 TRLR\n",
+        );
+    }
+
+    #[test]
+    fn builds_duplicate_and_missing_information_reports() {
+        use crate::report::cleanup::CleanupMode;
+        let db_file = temp_path("db");
+        import_cleanup(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+
+        let duplicates = window
+            .build_cleanup_report(CleanupMode::Duplicates)
+            .expect("duplicate report");
+        match &duplicates {
+            crate::report::cleanup::CleanupReport::Duplicates { rows, .. } => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].first_name, "Ada King");
+                assert_eq!(rows[0].second_name, "Ada King");
+                assert!(rows[0].first_vitals.contains("b. 1815"));
+                assert!(rows[0].first_vitals.contains("London"));
+                assert!(rows[0].score >= 85);
+                assert!(rows[0].reasons.contains("Exact"));
+            }
+            _ => panic!("wrong report mode"),
+        }
+
+        let missing = window
+            .build_cleanup_report(CleanupMode::MissingInformation)
+            .expect("missing-information report");
+        match &missing {
+            crate::report::cleanup::CleanupReport::MissingInformation { rows, .. } => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].person, "Bo Tester");
+                assert_eq!(rows[0].problem, "Birth date is missing");
+                assert_eq!(rows[0].severity, "Warning");
+            }
+            _ => panic!("wrong report mode"),
+        }
+
+        let alerts = crate::model::problems::detect(&window.tree, &window.dates, &window.marriages);
+        let key = alerts
+            .iter()
+            .find(|alert| {
+                window
+                    .tree
+                    .people
+                    .iter()
+                    .any(|person| person.id == alert.person_id && person.given_name == "Bo")
+            })
+            .expect("Bo problem")
+            .key
+            .clone();
+        window.app.dismiss_problem(&key).expect("dismiss problem");
+        let dismissed = window
+            .build_cleanup_report(CleanupMode::MissingInformation)
+            .expect("missing-information report");
+        match &dismissed {
+            crate::report::cleanup::CleanupReport::MissingInformation { rows, .. } => {
+                assert!(rows.is_empty(), "dismissed alerts are excluded");
+            }
+            _ => panic!("wrong report mode"),
+        }
 
         let _ = std::fs::remove_file(&db_file);
     }
