@@ -21,6 +21,7 @@ pub mod event_editor;
 pub mod export_dialog;
 pub mod fact_types;
 pub mod family_sheet;
+pub mod fan_chart;
 pub mod find_everywhere;
 pub mod gazetteer;
 pub mod geocode;
