@@ -6,6 +6,7 @@ pub mod calendar;
 pub mod cleanup;
 pub mod descendant_list;
 pub mod family_group;
+pub mod fan_chart;
 pub mod group_roster;
 pub mod html;
 pub mod individual_list;
