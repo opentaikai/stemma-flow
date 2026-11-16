@@ -18,6 +18,18 @@ pub struct SourceSummary {
     pub citation_count: i64,
 }
 
+/// One source row for administrative lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceOverview {
+    pub id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub publication: Option<String>,
+    pub citation_count: i64,
+    /// Comma-separated repository names, empty when unlinked.
+    pub repositories: String,
+}
+
 /// Counts of the records moved by a source merge.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceMergeReport {
@@ -191,6 +203,40 @@ pub fn list_sources(conn: &Connection) -> Result<Vec<SourceSummary>, String> {
                 title: row.get(1)?,
                 template_key: row.get(2)?,
                 citation_count: row.get(3)?,
+            })
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    Ok(rows)
+}
+
+/// Lists sources with author, publication, citations and linked repositories.
+pub fn list_source_overviews(conn: &Connection) -> Result<Vec<SourceOverview>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT s.id, s.title, s.author, s.publication,
+                    (SELECT COUNT(*) FROM citations c WHERE c.source_id = s.id),
+                    (SELECT group_concat(name, ', ') FROM (
+                        SELECT r.name
+                        FROM source_repositories sr
+                        JOIN repositories r ON r.id = sr.repository_id
+                        WHERE sr.source_id = s.id
+                        ORDER BY r.name COLLATE NOCASE
+                    ))
+             FROM sources s
+             ORDER BY s.title COLLATE NOCASE, s.rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(SourceOverview {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                author: row.get(2)?,
+                publication: row.get(3)?,
+                citation_count: row.get(4)?,
+                repositories: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
             })
         })
         .map_err(|error| error.to_string())?
@@ -618,6 +664,7 @@ mod tests {
     use super::*;
     use crate::db::citations::{self as citation_store, CitationEdit};
     use crate::db::init_db;
+    use crate::db::repositories::{self as repository_store, RepositoryDraft, RepositoryLinkDraft};
     use crate::model::quality::SourceQuality;
 
     fn connection() -> Connection {
@@ -676,6 +723,42 @@ mod tests {
             source.fields.get("publisher").map(String::as_str),
             Some("Archive Press")
         );
+    }
+
+    #[test]
+    fn overview_lists_author_publication_citations_and_repositories() {
+        let mut conn = connection();
+        let source = save_source(
+            &mut conn,
+            &SourceDraft {
+                title: "Parish register".to_string(),
+                author: "St Mary".to_string(),
+                publication: "1900".to_string(),
+                ..SourceDraft::default()
+            },
+        )
+        .expect("source saves");
+        repository_store::save_repository(
+            &mut conn,
+            &RepositoryDraft {
+                name: "Archive".to_string(),
+                address: "1 High St".to_string(),
+                links: vec![RepositoryLinkDraft {
+                    source_id: source.clone(),
+                    call_number: "A1".to_string(),
+                    media_type: String::new(),
+                }],
+                ..RepositoryDraft::default()
+            },
+        )
+        .expect("repository saves");
+        let overview = list_source_overviews(&conn).expect("overview loads");
+        assert_eq!(overview.len(), 1);
+        assert_eq!(overview[0].title, "Parish register");
+        assert_eq!(overview[0].author.as_deref(), Some("St Mary"));
+        assert_eq!(overview[0].publication.as_deref(), Some("1900"));
+        assert_eq!(overview[0].citation_count, 0);
+        assert!(overview[0].repositories.contains("Archive"));
     }
 
     #[test]
