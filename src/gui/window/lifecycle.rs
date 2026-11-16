@@ -187,6 +187,7 @@ impl TreeWindow {
             self.descendant_list = crate::gui::descendant_list::DescendantListState::default();
             self.kinship_report = crate::gui::kinship_report::KinshipReportState::default();
             self.calendar_report = crate::gui::calendar_report::CalendarReportState::default();
+            self.timeline = crate::gui::timeline::TimelineState::default();
             self.associations.clear();
             self.associations_owner = None;
             self.pending_association = None;

@@ -15,3 +15,4 @@ pub mod photo_tree;
 pub mod relationship;
 pub mod research_log;
 pub mod scrapbook;
+pub mod timeline;

@@ -57,6 +57,7 @@ pub mod symbols;
 pub mod tabs;
 pub mod tasks;
 pub mod theme;
+pub mod timeline;
 pub mod watchlist;
 pub mod welcome;
 pub mod window;

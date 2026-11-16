@@ -72,6 +72,7 @@ use crate::report::photo_tree::PhotoTreeReport;
 use crate::report::relationship::RelationshipReport;
 use crate::report::research_log::{self, ResearchLogReport};
 use crate::report::scrapbook::ScrapbookReport;
+use crate::report::timeline::TimelineReport;
 
 /// Outcome of a background import/export job.
 #[derive(Debug)]
@@ -165,6 +166,11 @@ pub enum JobEvent {
         bytes: usize,
         events: usize,
     },
+    TimelineExported {
+        path: PathBuf,
+        bytes: usize,
+        entries: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -215,6 +221,7 @@ enum Job {
     KinshipReport(Box<KinshipReport>),
     RelationshipReport(Box<RelationshipReport>),
     CalendarReport(Box<CalendarReport>),
+    Timeline(Box<TimelineReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -439,6 +446,11 @@ impl StemmaApp {
             Job::CalendarReport(Box::new(report)),
             self.active_db.clone(),
         );
+    }
+
+    /// Writes a print-ready timeline on a worker thread.
+    pub fn begin_timeline_export(&mut self, report: TimelineReport) {
+        self.begin(Job::Timeline(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1710,6 +1722,7 @@ impl StemmaApp {
             Job::KinshipReport(_) => "Choosing kinship report destination\u{2026}",
             Job::RelationshipReport(_) => "Choosing relationship report destination\u{2026}",
             Job::CalendarReport(_) => "Choosing calendar report destination\u{2026}",
+            Job::Timeline(_) => "Choosing timeline destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1904,6 +1917,14 @@ impl StemmaApp {
                 events,
             } => UiStatus::Success(format!(
                 "Exported calendar report with {events} events ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::TimelineExported {
+                path,
+                bytes,
+                entries,
+            } => UiStatus::Success(format!(
+                "Exported timeline with {entries} events ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2409,6 +2430,29 @@ impl Job {
                                 path: dest,
                                 bytes,
                                 events,
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::Timeline(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::timeline::file_name(&report.subject_name, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::timeline::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::TimelineExported {
+                                path: dest,
+                                bytes,
+                                entries: report.entries.len(),
                             }
                         }
                         Err(message) => JobEvent::Failed(message),

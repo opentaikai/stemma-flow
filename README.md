@@ -697,6 +697,11 @@ views (the app always launches on Graph View):
   calendar marks births, marriages and deaths in each day cell. Only
   exact day/month dates are included, and leap-day events fall back to
   28 February in non-leap years.
+- **Timeline Report** — **Tools > Timeline Report…** exports one person's
+  birth, death, marriages and every recorded fact in chronological order,
+  with the age reached, or the same timeline for all members of a research
+  group. Shared marriages and events appear once; facts without a usable
+  date are listed in a final **Undated** section.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,
