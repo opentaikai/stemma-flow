@@ -35,6 +35,7 @@ use crate::gui::fan_chart as fan_chart_ui;
 use crate::gui::find_everywhere::{self as find_ui, FindEvent};
 use crate::gui::gazetteer::{self as gazetteer_ui, GazetteerEvent};
 use crate::gui::geocode::{self as geocode_ui, GeocodeEvent};
+use crate::gui::hourglass_chart as hourglass_chart_ui;
 use crate::gui::individual_list as individual_list_ui;
 use crate::gui::individual_summary::{self as individual_summary_ui, IndividualSummaryEvent};
 use crate::gui::inspector;
@@ -4801,6 +4802,94 @@ impl TreeWindow {
             generations,
             span_degrees,
             start_angle,
+            people,
+        })
+    }
+
+    pub(super) fn open_hourglass_chart(&mut self) {
+        let root = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.hourglass_chart.open_with(root);
+    }
+
+    pub(super) fn show_hourglass_chart_window(&mut self, ctx: &egui::Context) {
+        if !self.hourglass_chart.open {
+            return;
+        }
+        if let Some(event) = hourglass_chart_ui::show(
+            ctx,
+            &mut self.hourglass_chart,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            match self.build_combined_chart_report(
+                event.mode,
+                &event.root_id,
+                event.ancestor_generations,
+                event.descendant_generations,
+            ) {
+                Ok(report) => self.app.begin_combined_chart_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_combined_chart_report(
+        &self,
+        mode: crate::report::hourglass::CombinedChartMode,
+        root_id: &str,
+        ancestor_generations: usize,
+        descendant_generations: usize,
+    ) -> Result<crate::report::hourglass::CombinedChartReport, String> {
+        use crate::report::hourglass::{CombinedChartReport, CombinedPerson};
+        let root = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == root_id)
+            .ok_or_else(|| "root person not found".to_string())?;
+        let combined = crate::model::hourglass::combined_tree(
+            &self.tree,
+            root_id,
+            ancestor_generations,
+            descendant_generations,
+        );
+        let scene = crate::gui::layout::build_scene(&combined, self.tree_settings.surname_first);
+        let people = scene
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let person = self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == node.person_id)?;
+                let dates = self.dates.get(&person.id);
+                Some(CombinedPerson {
+                    person_id: person.id.clone(),
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                    birth_year: crate::model::person_search::year_of(
+                        dates.and_then(|dates| dates.birth.as_deref()),
+                    ),
+                    death_year: crate::model::person_search::year_of(
+                        dates.and_then(|dates| dates.death.as_deref()),
+                    ),
+                })
+            })
+            .collect();
+        Ok(CombinedChartReport {
+            mode,
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            root_id: root.id.clone(),
+            root_name: inspector::person_label(root, self.tree_settings.surname_first),
+            ancestor_generations,
+            descendant_generations,
+            scene,
             people,
         })
     }

@@ -26,6 +26,7 @@ pub mod find_everywhere;
 pub mod gazetteer;
 pub mod geocode;
 pub mod groups;
+pub mod hourglass_chart;
 pub mod import_report;
 pub mod individual_list;
 pub mod individual_summary;

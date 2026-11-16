@@ -192,6 +192,7 @@ impl TreeWindow {
                 crate::gui::administrative_lists::AdministrativeListsState::default();
             self.cleanup_report = crate::gui::cleanup_report::CleanupReportState::default();
             self.fan_chart = crate::gui::fan_chart::FanChartState::default();
+            self.hourglass_chart = crate::gui::hourglass_chart::HourglassChartState::default();
             self.associations.clear();
             self.associations_owner = None;
             self.pending_association = None;
