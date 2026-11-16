@@ -174,7 +174,7 @@ Goal: turn research into shareable output.
 | Birthday, anniversary and calendar reports | done | P2 | Upcoming birthday/anniversary lists and a year calendar from shared event dates |
 | Timeline reports | done | P2 | Chronological person and group timelines with ages and undated facts |
 | Place, source, repository and statistics lists | done | P2 | Printable place, source, repository and statistics reports |
-| Duplicate and missing-information reports | planned | P2 | Supports cleanup |
+| Duplicate and missing-information reports | done | P2 | Scored duplicate pairs and open problem reports |
 | Fan charts | planned | P1 | Any orientation |
 | Hourglass and bow-tie charts | planned | P2 | Combined ancestor and descendant |
 | Ancestor and descendant wall charts | planned | P2 | Large format and backgrounds |
