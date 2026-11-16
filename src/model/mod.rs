@@ -28,5 +28,6 @@ pub mod quality;
 pub mod relationship;
 pub mod search_replace;
 pub mod source_template;
+pub mod timeline;
 
 pub use graph::{GenealogyDb, PersonNode, Relationship};
