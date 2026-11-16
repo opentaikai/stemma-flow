@@ -5,7 +5,7 @@ use std::path::Path;
 
 use chrono::{Datelike, Months, NaiveDate};
 
-use crate::model::calendar::{CalendarEvent, CalendarEventKind};
+use crate::model::calendar::CalendarEvent;
 use crate::report::html::escape_html;
 
 /// Which calendar report is being rendered.
@@ -274,6 +274,7 @@ td.name { font-weight: 600; }
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::calendar::CalendarEventKind;
 
     fn list_report(mode: CalendarMode) -> CalendarReport {
         CalendarReport {

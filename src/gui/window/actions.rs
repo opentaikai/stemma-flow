@@ -17,6 +17,7 @@ use crate::gui::advanced_search::{self as advanced_search_ui, AdvancedSearchEven
 use crate::gui::ahnentafel_list as ahnentafel_list_ui;
 use crate::gui::associations::{self as associations_dialog, AssociationOutcome};
 use crate::gui::associations_view::{self as association_view_ui, AssociationViewEvent};
+use crate::gui::calendar_report as calendar_report_ui;
 use crate::gui::citations::CitationDraft;
 use crate::gui::couples::{self as couples_ui, CouplesEvent};
 use crate::gui::database_tools::{self as database_tools_ui, DatabaseToolsEvent};
@@ -3959,6 +3960,170 @@ impl TreeWindow {
         })
     }
 
+    pub(super) fn open_calendar_report(&mut self) {
+        self.calendar_report.open_with();
+    }
+
+    pub(super) fn show_calendar_report_window(&mut self, ctx: &egui::Context) {
+        if !self.calendar_report.open {
+            return;
+        }
+        if let Some(event) = calendar_report_ui::show(ctx, &mut self.calendar_report) {
+            match self.build_calendar_report(event.mode, event.year) {
+                Ok(report) => self.app.begin_calendar_report_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_calendar_report(
+        &self,
+        mode: crate::report::calendar::CalendarMode,
+        year: i32,
+    ) -> Result<crate::report::calendar::CalendarReport, String> {
+        let today = crate::model::date_calc::to_naive(&crate::model::date_calc::today())
+            .ok_or_else(|| "today is out of range".to_string())?;
+        self.build_calendar_report_at(mode, year, today)
+    }
+
+    pub(super) fn build_calendar_report_at(
+        &self,
+        mode: crate::report::calendar::CalendarMode,
+        year: i32,
+        today: chrono::NaiveDate,
+    ) -> Result<crate::report::calendar::CalendarReport, String> {
+        use crate::model::calendar::{CalendarEventKind, upcoming};
+        use crate::report::calendar::{CalendarEntry, CalendarMode};
+        let events = self.calendar_events();
+        let range_label = match mode {
+            CalendarMode::Year => format!("Year {year}"),
+            _ => format!(
+                "Upcoming 12 months from {}",
+                crate::model::date::format_parts(crate::model::date_calc::from_naive(today))
+            ),
+        };
+        let (entries, year_events) = match mode {
+            CalendarMode::Birthdays | CalendarMode::Anniversaries => {
+                let kind = match mode {
+                    CalendarMode::Birthdays => CalendarEventKind::Birth,
+                    _ => CalendarEventKind::Marriage,
+                };
+                let filtered: Vec<_> = events
+                    .into_iter()
+                    .filter(|event| event.kind == kind)
+                    .collect();
+                let entries = upcoming(&filtered, today, 12)
+                    .into_iter()
+                    .filter_map(|(occurrence, index)| {
+                        let event = filtered.get(index)?;
+                        Some(CalendarEntry {
+                            date: crate::model::date::format_parts(
+                                crate::model::date_calc::from_naive(occurrence),
+                            ),
+                            names: event.people.join(" & "),
+                            years: Some(event.years_at(occurrence)),
+                            place: event.place.clone(),
+                        })
+                    })
+                    .collect();
+                (entries, Vec::new())
+            }
+            CalendarMode::Year => {
+                let mut year_events: Vec<_> = events
+                    .into_iter()
+                    .filter(|event| event.year <= year)
+                    .collect();
+                year_events.sort_by(|left, right| {
+                    left.month
+                        .cmp(&right.month)
+                        .then_with(|| left.day.cmp(&right.day))
+                        .then_with(|| left.kind.rank().cmp(&right.kind.rank()))
+                        .then_with(|| {
+                            left.people
+                                .join(" ")
+                                .to_lowercase()
+                                .cmp(&right.people.join(" ").to_lowercase())
+                        })
+                });
+                (Vec::new(), year_events)
+            }
+        };
+        Ok(crate::report::calendar::CalendarReport {
+            mode,
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            range_label,
+            year: (mode == CalendarMode::Year).then_some(year),
+            entries,
+            events: year_events,
+        })
+    }
+
+    fn calendar_events(&self) -> Vec<crate::model::calendar::CalendarEvent> {
+        use crate::model::calendar::{CalendarEvent, CalendarEventKind};
+        let mut events = Vec::new();
+        for person in &self.tree.people {
+            let name = inspector::person_label(person, self.tree_settings.surname_first);
+            let dates = self.dates.get(&person.id);
+            if let Some(parts) = dates
+                .and_then(|dates| dates.birth.as_deref())
+                .and_then(exact_calendar_date)
+            {
+                events.push(CalendarEvent {
+                    kind: CalendarEventKind::Birth,
+                    month: parts.month.unwrap_or(1),
+                    day: parts.day.unwrap_or(1),
+                    year: parts.year,
+                    people: vec![name.clone()],
+                    place: dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default(),
+                });
+            }
+            if let Some(parts) = dates
+                .and_then(|dates| dates.death.as_deref())
+                .and_then(exact_calendar_date)
+            {
+                events.push(CalendarEvent {
+                    kind: CalendarEventKind::Death,
+                    month: parts.month.unwrap_or(1),
+                    day: parts.day.unwrap_or(1),
+                    year: parts.year,
+                    people: vec![name],
+                    place: dates
+                        .and_then(|dates| dates.death_place.clone())
+                        .unwrap_or_default(),
+                });
+            }
+        }
+        for family in &self.tree.families {
+            let Some(info) = self.marriages.get(&family.id) else {
+                continue;
+            };
+            let Some(parts) = info.date.as_deref().and_then(exact_calendar_date) else {
+                continue;
+            };
+            let people: Vec<String> = [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                .into_iter()
+                .flatten()
+                .filter_map(|id| self.tree.people.iter().find(|person| person.id == id))
+                .map(|person| inspector::person_label(person, self.tree_settings.surname_first))
+                .collect();
+            if people.is_empty() {
+                continue;
+            }
+            events.push(CalendarEvent {
+                kind: CalendarEventKind::Marriage,
+                month: parts.month.unwrap_or(1),
+                day: parts.day.unwrap_or(1),
+                year: parts.year,
+                people,
+                place: info.place.clone().unwrap_or_default(),
+            });
+        }
+        events
+    }
+
     fn tree_name(&self) -> String {
         self.app
             .active_db()
@@ -4736,4 +4901,11 @@ fn task_owner(owner_type: &str, id: &str) -> Option<TaskOwner> {
 
 fn task_ui_group_edit(record: &crate::db::groups::GroupRecord) -> crate::gui::groups::GroupEdit {
     crate::gui::groups::GroupEdit::from_record(record)
+}
+
+/// Parses a full day/month/year date for calendar events.
+fn exact_calendar_date(value: &str) -> Option<crate::model::date::DateParts> {
+    let canonical = crate::model::date::canonicalize(value).ok()?;
+    crate::model::date::exact_parts(&canonical)
+        .filter(|parts| parts.month.is_some() && parts.day.is_some())
 }

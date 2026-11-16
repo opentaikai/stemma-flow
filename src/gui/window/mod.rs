@@ -12,6 +12,7 @@ use super::advanced_search;
 use super::ahnentafel_list;
 use super::associations as associations_dialog;
 use super::associations_view;
+use super::calendar_report;
 use super::canvas::ViewportState;
 use super::citations;
 use super::connectors::ConnectorCache;
@@ -131,6 +132,7 @@ pub struct TreeWindow {
     pub(super) ahnentafel_list: ahnentafel_list::AhnentafelListState,
     pub(super) descendant_list: descendant_list::DescendantListState,
     pub(super) kinship_report: kinship_report::KinshipReportState,
+    pub(super) calendar_report: calendar_report::CalendarReportState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -221,6 +223,7 @@ impl TreeWindow {
             ahnentafel_list: ahnentafel_list::AhnentafelListState::default(),
             descendant_list: descendant_list::DescendantListState::default(),
             kinship_report: kinship_report::KinshipReportState::default(),
+            calendar_report: calendar_report::CalendarReportState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -374,6 +377,7 @@ impl App for TreeWindow {
             self.show_ahnentafel_list_window(ui.ctx());
             self.show_descendant_list_window(ui.ctx());
             self.show_kinship_report_window(ui.ctx());
+            self.show_calendar_report_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -2438,6 +2442,135 @@ mod tests {
 
         assert!(window.build_relationship_report(&john, "missing").is_err());
         assert!(window.build_relationship_report("missing", &eve).is_err());
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    fn import_calendar(db_file: &Path) {
+        import_people(
+            db_file,
+            "0 HEAD\n1 CHAR UTF-8\n\
+             0 @I1@ INDI\n1 NAME John /Stone/\n1 SEX M\n1 BIRT\n2 DATE 12 JAN 1810\n2 PLAC London\n1 DEAT\n2 DATE 3 MAR 1880\n2 PLAC Bath\n\
+             0 @I2@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 20 DEC 1815\n2 PLAC London\n\
+             0 @I3@ INDI\n1 NAME Bea /Stone/\n1 SEX F\n1 BIRT\n2 DATE 15 MAR 1840\n2 PLAC London\n\
+             0 @I4@ INDI\n1 NAME Carl /Stone/\n1 SEX M\n1 BIRT\n2 DATE 29 FEB 1844\n2 PLAC London\n\
+             0 @I5@ INDI\n1 NAME Year /Only/\n1 SEX U\n1 BIRT\n2 DATE 1850\n\
+             0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I3@\n1 CHIL @I4@\n1 MARR\n2 DATE 5 JUN 1838\n2 PLAC Bath\n\
+             0 TRLR\n",
+        );
+    }
+
+    #[test]
+    fn builds_upcoming_birthday_report() {
+        use crate::report::calendar::CalendarMode;
+        let db_file = temp_path("db");
+        import_calendar(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).expect("date");
+
+        let report = window
+            .build_calendar_report_at(CalendarMode::Birthdays, 2026, today)
+            .expect("birthday report");
+        assert_eq!(report.mode, CalendarMode::Birthdays);
+        assert!(report.year.is_none());
+        assert!(
+            report.range_label.contains("1 JAN 2026"),
+            "{}",
+            report.range_label
+        );
+        let rows: Vec<(&str, &str, Option<u32>)> = report
+            .entries
+            .iter()
+            .map(|entry| (entry.date.as_str(), entry.names.as_str(), entry.years))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("12 JAN 2026", "John Stone", Some(216)),
+                ("28 FEB 2026", "Carl Stone", Some(182)),
+                ("15 MAR 2026", "Bea Stone", Some(186)),
+                ("20 DEC 2026", "Ada King", Some(211)),
+            ]
+        );
+        assert_eq!(report.entries[0].place, "London");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_upcoming_anniversary_report() {
+        use crate::report::calendar::CalendarMode;
+        let db_file = temp_path("db");
+        import_calendar(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).expect("date");
+
+        let report = window
+            .build_calendar_report_at(CalendarMode::Anniversaries, 2026, today)
+            .expect("anniversary report");
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].date, "5 JUN 2026");
+        assert_eq!(report.entries[0].names, "John Stone & Ada King");
+        assert_eq!(report.entries[0].years, Some(188));
+        assert_eq!(report.entries[0].place, "Bath");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_year_calendar_and_skips_undated_events() {
+        use crate::model::calendar::CalendarEventKind;
+        use crate::report::calendar::CalendarMode;
+        let db_file = temp_path("db");
+        import_calendar(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).expect("date");
+
+        let report = window
+            .build_calendar_report_at(CalendarMode::Year, 2026, today)
+            .expect("calendar report");
+        assert_eq!(report.year, Some(2026));
+        assert_eq!(
+            report.events.len(),
+            6,
+            "four births, one death, one marriage"
+        );
+        assert!(
+            report
+                .events
+                .iter()
+                .all(|event| event.people[0] != "Year Only"),
+            "year-only dates are skipped"
+        );
+        assert!(
+            report
+                .events
+                .iter()
+                .any(|event| event.kind == CalendarEventKind::Marriage
+                    && event.month == 6
+                    && event.day == 5)
+        );
+
+        let past = window
+            .build_calendar_report_at(CalendarMode::Year, 1800, today)
+            .expect("calendar report");
+        assert!(past.events.is_empty(), "future events are omitted");
+
+        let mid = window
+            .build_calendar_report_at(CalendarMode::Year, 1850, today)
+            .expect("calendar report");
+        assert!(
+            mid.events
+                .iter()
+                .all(|event| event.kind != CalendarEventKind::Death),
+            "deaths after the selected year are omitted"
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }

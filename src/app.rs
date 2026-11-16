@@ -60,6 +60,7 @@ use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::ahnentafel_list::AhnentafelListReport;
+use crate::report::calendar::CalendarReport;
 use crate::report::descendant_list::DescendantListReport;
 use crate::report::family_group::FamilyGroupSheetReport;
 use crate::report::group_roster::{self, GroupRosterReport};
@@ -159,6 +160,11 @@ pub enum JobEvent {
         bytes: usize,
         steps: usize,
     },
+    CalendarReportExported {
+        path: PathBuf,
+        bytes: usize,
+        events: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -208,6 +214,7 @@ enum Job {
     DescendantList(Box<DescendantListReport>),
     KinshipReport(Box<KinshipReport>),
     RelationshipReport(Box<RelationshipReport>),
+    CalendarReport(Box<CalendarReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -422,6 +429,14 @@ impl StemmaApp {
     pub fn begin_relationship_report_export(&mut self, report: RelationshipReport) {
         self.begin(
             Job::RelationshipReport(Box::new(report)),
+            self.active_db.clone(),
+        );
+    }
+
+    /// Writes a print-ready calendar report on a worker thread.
+    pub fn begin_calendar_report_export(&mut self, report: CalendarReport) {
+        self.begin(
+            Job::CalendarReport(Box::new(report)),
             self.active_db.clone(),
         );
     }
@@ -1694,6 +1709,7 @@ impl StemmaApp {
             Job::DescendantList(_) => "Choosing descendant list destination\u{2026}",
             Job::KinshipReport(_) => "Choosing kinship report destination\u{2026}",
             Job::RelationshipReport(_) => "Choosing relationship report destination\u{2026}",
+            Job::CalendarReport(_) => "Choosing calendar report destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -1880,6 +1896,14 @@ impl StemmaApp {
                 people,
             } => UiStatus::Success(format!(
                 "Exported kinship report for {people} people ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::CalendarReportExported {
+                path,
+                bytes,
+                events,
+            } => UiStatus::Success(format!(
+                "Exported calendar report with {events} events ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2358,6 +2382,33 @@ impl Job {
                                 path: dest,
                                 bytes,
                                 steps: report.hops.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::CalendarReport(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name =
+                    crate::report::calendar::file_name(report.mode, report.year, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::calendar::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            let events = match report.mode {
+                                crate::report::calendar::CalendarMode::Year => report.events.len(),
+                                _ => report.entries.len(),
+                            };
+                            JobEvent::CalendarReportExported {
+                                path: dest,
+                                bytes,
+                                events,
                             }
                         }
                         Err(message) => JobEvent::Failed(message),
