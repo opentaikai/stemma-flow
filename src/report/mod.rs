@@ -2,6 +2,7 @@
 
 pub mod administrative;
 pub mod ahnentafel_list;
+pub mod book;
 pub mod calendar;
 pub mod cleanup;
 pub mod descendant_list;

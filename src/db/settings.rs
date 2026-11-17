@@ -125,6 +125,22 @@ mod tests {
     }
 
     #[test]
+    fn books_round_trip_and_clear() {
+        let conn = connection();
+        assert!(load_books(&conn).expect("empty books").is_empty());
+        let mut book = BookDefinition::new("King family");
+        book.chapters
+            .push(BookChapter::text("Intro", "Parish records"));
+        save_books(&conn, std::slice::from_ref(&book)).expect("save books");
+        let loaded = load_books(&conn).expect("load books");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].title, "King family");
+        assert_eq!(loaded[0].chapters[0].title(), "Intro");
+        save_books(&conn, &[]).expect("clear books");
+        assert!(load_books(&conn).expect("empty books").is_empty());
+    }
+
+    #[test]
     fn settings_are_per_tree() {
         let first = connection();
         let second = connection();
