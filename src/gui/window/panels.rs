@@ -311,6 +311,13 @@ impl TreeWindow {
                 }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
+                    && ui.button(tr("tools.share_bundle")).clicked()
+                {
+                    ui.close();
+                    self.open_share_bundle();
+                }
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
                     && ui.button(tr("tools.individual_list")).clicked()
                 {
                     ui.close();

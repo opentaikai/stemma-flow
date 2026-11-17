@@ -59,6 +59,7 @@ use super::research;
 use super::scrapbook;
 use super::search_replace;
 use super::settings;
+use super::share_bundle;
 use super::soundex;
 use super::sources;
 use super::tabs;
@@ -138,6 +139,7 @@ pub struct TreeWindow {
     pub(super) family_sheet: family_sheet::FamilySheetState,
     pub(super) family_book: family_book::FamilyBookState,
     pub(super) website_export: website_export::WebsiteExportState,
+    pub(super) share_bundle: share_bundle::ShareBundleState,
     pub(super) individual_summary: individual_summary::IndividualSummaryState,
     pub(super) individual_list: individual_list::IndividualListState,
     pub(super) ahnentafel_list: ahnentafel_list::AhnentafelListState,
@@ -238,6 +240,7 @@ impl TreeWindow {
             family_sheet: family_sheet::FamilySheetState::default(),
             family_book: family_book::FamilyBookState::default(),
             website_export: website_export::WebsiteExportState::default(),
+            share_bundle: share_bundle::ShareBundleState::default(),
             individual_summary: individual_summary::IndividualSummaryState::default(),
             individual_list: individual_list::IndividualListState::default(),
             ahnentafel_list: ahnentafel_list::AhnentafelListState::default(),
@@ -405,6 +408,7 @@ impl App for TreeWindow {
             self.show_family_sheet_window(ui.ctx());
             self.show_family_book_window(ui.ctx());
             self.show_website_export_window(ui.ctx());
+            self.show_share_bundle_window(ui.ctx());
             self.show_individual_summary_window(ui.ctx());
             self.show_individual_list_window(ui.ctx());
             self.show_ahnentafel_list_window(ui.ctx());

@@ -57,6 +57,7 @@ pub mod research;
 pub mod scrapbook;
 pub mod search_replace;
 pub mod settings;
+pub mod share_bundle;
 pub mod soundex;
 pub mod sources;
 pub mod symbols;
