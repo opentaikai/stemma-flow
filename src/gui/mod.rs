@@ -48,6 +48,7 @@ pub mod person_editor;
 pub mod photo_tree;
 pub mod place_clean;
 pub mod places;
+pub mod print_settings;
 pub mod problems;
 pub mod relationship_calculator;
 pub mod repositories;

@@ -727,6 +727,12 @@ views (the app always launches on Graph View):
   open missing-information and chronology problems while excluding
   dismissed alerts. Duplicate scanning blocks by surname Soundex so only
   likely pairs are compared.
+- **Print Settings** — **Tools > Print Settings…** customises each report
+  independently with print-only header and footer text (`{report}`,
+  `{tree}` and `{date}` placeholders), an optional 8–40 mm page margin,
+  a font family and a base body size from 6–24 pt. Settings persist in the
+  application config and apply to every HTML export; empty fields keep the
+  report's designed defaults.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,

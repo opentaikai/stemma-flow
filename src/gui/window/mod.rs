@@ -51,6 +51,7 @@ use super::person_editor;
 use super::photo_tree;
 use super::place_clean;
 use super::places;
+use super::print_settings;
 use super::relationship_calculator;
 use super::repositories;
 use super::research;
@@ -145,6 +146,7 @@ pub struct TreeWindow {
     pub(super) fan_chart: fan_chart::FanChartState,
     pub(super) hourglass_chart: hourglass_chart::HourglassChartState,
     pub(super) wall_chart: wall_chart::WallChartState,
+    pub(super) print_settings: print_settings::PrintSettingsState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -242,6 +244,7 @@ impl TreeWindow {
             fan_chart: fan_chart::FanChartState::default(),
             hourglass_chart: hourglass_chart::HourglassChartState::default(),
             wall_chart: wall_chart::WallChartState::default(),
+            print_settings: print_settings::PrintSettingsState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -277,6 +280,9 @@ impl TreeWindow {
             show_import_report: false,
         };
         i18n::set_language(&window.config.language);
+        window
+            .app
+            .set_print_profiles(window.config.print_profiles.clone());
         if let Some(last) = window.recent.first().cloned() {
             if loadable(&last) {
                 window.app.activate_tree(last);
@@ -402,6 +408,7 @@ impl App for TreeWindow {
             self.show_fan_chart_window(ui.ctx());
             self.show_hourglass_chart_window(ui.ctx());
             self.show_wall_chart_window(ui.ctx());
+            self.show_print_settings_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());

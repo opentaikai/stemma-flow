@@ -59,6 +59,7 @@ use crate::geocode;
 use crate::gui::dialogs;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
 use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
+use crate::model::print_profile::PrintProfiles;
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::administrative::AdministrativeReport;
@@ -283,6 +284,7 @@ pub struct StemmaApp {
     geocode_progress: Option<(usize, usize)>,
     geocode_cancel: Option<Arc<AtomicBool>>,
     geocode_report: Option<GeocodeReport>,
+    print_profiles: PrintProfiles,
 }
 
 impl StemmaApp {
@@ -304,7 +306,13 @@ impl StemmaApp {
             geocode_progress: None,
             geocode_cancel: None,
             geocode_report: None,
+            print_profiles: PrintProfiles::default(),
         }
+    }
+
+    /// Updates the per-report print profiles used by background writers.
+    pub fn set_print_profiles(&mut self, profiles: PrintProfiles) {
+        self.print_profiles = profiles;
     }
 
     pub fn is_busy(&self) -> bool {
@@ -1811,7 +1819,8 @@ impl StemmaApp {
         });
         let (tx, rx) = channel();
         self.rx = Some(rx);
-        thread::spawn(move || job.run(db_path, &tx));
+        let print_profiles = self.print_profiles.clone();
+        thread::spawn(move || job.run(db_path, &tx, &print_profiles));
     }
 
     /// Applies every job event that arrived since the last frame.
@@ -2132,7 +2141,8 @@ impl Default for StemmaApp {
 }
 
 impl Job {
-    fn run(self, db_path: Option<PathBuf>, tx: &Sender<JobEvent>) {
+    fn run(self, db_path: Option<PathBuf>, tx: &Sender<JobEvent>, print_profiles: &PrintProfiles) {
+        crate::report::print::set_profiles(print_profiles.clone());
         let event = self.run_with(db_path, tx);
         let _ = tx.send(event);
     }

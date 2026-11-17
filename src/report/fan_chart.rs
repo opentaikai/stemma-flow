@@ -162,6 +162,12 @@ pub fn render_html(report: &FanChartReport) -> String {
 /// Writes the rendered chart to `path`.
 pub fn write_html(path: &Path, report: &FanChartReport) -> Result<usize, String> {
     let html = render_html(report);
+    let html = crate::report::print::decorate(
+        html,
+        crate::model::print_profile::ReportKind::FanChart,
+        &report.tree_name,
+        &report.generated_at,
+    );
     std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
     Ok(html.len())
 }

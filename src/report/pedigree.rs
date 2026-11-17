@@ -32,7 +32,15 @@ pub fn render_html(report: &PedigreeReport) -> String {
 
 /// Writes the rendered chart to `path`.
 pub fn write_html(path: &Path, report: &PedigreeReport) -> Result<usize, String> {
-    photo_tree::write_html(path, report)
+    let html = render_html(report);
+    let html = crate::report::print::decorate(
+        html,
+        crate::model::print_profile::ReportKind::PedigreeChart,
+        &report.tree_name,
+        &report.generated_at,
+    );
+    std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
+    Ok(html.len())
 }
 
 #[cfg(test)]

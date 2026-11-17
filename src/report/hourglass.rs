@@ -170,6 +170,12 @@ pub fn render_html(report: &CombinedChartReport) -> String {
 /// Writes the rendered chart to `path`.
 pub fn write_html(path: &Path, report: &CombinedChartReport) -> Result<usize, String> {
     let html = render_html(report);
+    let html = crate::report::print::decorate(
+        html,
+        crate::model::print_profile::ReportKind::HourglassChart,
+        &report.tree_name,
+        &report.generated_at,
+    );
     std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
     Ok(html.len())
 }

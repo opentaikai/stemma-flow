@@ -25,6 +25,7 @@ pub mod person_badge;
 pub mod person_search;
 pub mod phonetics;
 pub mod place_clean;
+pub mod print_profile;
 pub mod problems;
 pub mod quality;
 pub mod relationship;
