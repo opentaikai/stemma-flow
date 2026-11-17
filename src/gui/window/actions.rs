@@ -67,6 +67,7 @@ use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::research::{self as research_ui, ResearchEvent};
 use crate::gui::scrapbook as scrapbook_ui;
 use crate::gui::search_replace::{self as search_replace_ui, SearchReplaceEvent};
+use crate::gui::share_bundle as share_bundle_ui;
 use crate::gui::soundex;
 use crate::gui::sources::{self, SourcesEvent};
 use crate::gui::tabs;
@@ -5705,6 +5706,26 @@ impl TreeWindow {
             media,
             chart_svg,
         })
+    }
+
+    pub(super) fn open_share_bundle(&mut self) {
+        let name = self
+            .app
+            .active_db()
+            .and_then(Path::file_stem)
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("family_tree")
+            .to_string();
+        self.share_bundle.open_with(name);
+    }
+
+    pub(super) fn show_share_bundle_window(&mut self, ctx: &egui::Context) {
+        if !self.share_bundle.open {
+            return;
+        }
+        if let Some(name) = share_bundle_ui::show(ctx, &mut self.share_bundle) {
+            self.app.begin_share_bundle(name);
+        }
     }
 
     fn tree_name(&self) -> String {

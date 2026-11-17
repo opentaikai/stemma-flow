@@ -225,6 +225,11 @@ pub enum JobEvent {
         media: usize,
         bytes: usize,
     },
+    ShareBundleExported {
+        path: PathBuf,
+        media: usize,
+        bytes: u64,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -283,6 +288,9 @@ enum Job {
     WallChart(Box<WallChartReport>),
     Book(Box<BookReport>),
     Website(Box<WebsiteReport>),
+    ShareBundle {
+        name: String,
+    },
     Svg {
         default_name: String,
         svg: String,
@@ -573,6 +581,11 @@ impl StemmaApp {
     /// Writes a static family website on a worker thread.
     pub fn begin_website_export(&mut self, report: WebsiteReport) {
         self.begin(Job::Website(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a portable folder share bundle on a worker thread.
+    pub fn begin_share_bundle(&mut self, name: String) {
+        self.begin(Job::ShareBundle { name }, self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1891,6 +1904,7 @@ impl StemmaApp {
             Job::Svg { .. } => "Choosing SVG destination\u{2026}",
             Job::Book(_) => "Choosing book destination\u{2026}",
             Job::Website(_) => "Choosing website destination\u{2026}",
+            Job::ShareBundle { .. } => "Choosing share bundle destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -2150,6 +2164,10 @@ impl StemmaApp {
                 bytes,
             } => UiStatus::Success(format!(
                 "Exported {pages} pages and {media} media files ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::ShareBundleExported { path, media, bytes } => UiStatus::Success(format!(
+                "Shared tree with {media} media files ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2810,6 +2828,29 @@ impl Job {
                         }
                         Err(message) => JobEvent::Failed(message),
                     },
+                }
+            }
+            Job::ShareBundle { name } => {
+                let Some(db_path) = db_path else {
+                    return JobEvent::Failed("No tree is open".to_string());
+                };
+                let Some(parent) = dialogs::pick_folder() else {
+                    return JobEvent::Cancelled;
+                };
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                match backup::share_folder(&db_path, &parent, &name, &timestamp) {
+                    Ok(report) => {
+                        let _ = open::that(&report.path);
+                        JobEvent::ShareBundleExported {
+                            path: report.path,
+                            media: report.media_included,
+                            bytes: report.database_bytes,
+                        }
+                    }
+                    Err(message) => JobEvent::Failed(message),
                 }
             }
             Job::Website(report) => {

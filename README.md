@@ -708,6 +708,11 @@ views (the app always launches on Graph View):
   pedigree chart. Media files are copied into the site. Private people are
   omitted; living people keep their names but their dates, places, facts,
   notes and media are hidden. Publishing is left to the user.
+- **Share Bundle** — **Tools > Share Bundle…** writes a portable folder
+  containing a database snapshot, copied media with relative paths, a
+  README and a manifest. The folder can be copied to USB or another
+  machine; the complete tree, including private and living people, is
+  included, so share it only with trusted recipients.
 - **Individual Reports** — **Tools > Individual Summary…** exports one
   person as printable HTML with a portrait, vital data, all facts, parents,
   spouses with marriage details, children and optional notes.

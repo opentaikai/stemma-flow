@@ -182,6 +182,7 @@ impl TreeWindow {
             self.family_sheet = crate::gui::family_sheet::FamilySheetState::default();
             self.family_book = crate::gui::family_book::FamilyBookState::default();
             self.website_export = crate::gui::website_export::WebsiteExportState::default();
+            self.share_bundle = crate::gui::share_bundle::ShareBundleState::default();
             self.individual_summary =
                 crate::gui::individual_summary::IndividualSummaryState::default();
             self.individual_list = crate::gui::individual_list::IndividualListState::default();
