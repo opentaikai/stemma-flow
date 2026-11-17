@@ -23,6 +23,11 @@ pub const BACKUP_VERSION: u32 = 1;
 const MANIFEST_ENTRY: &str = "manifest.toml";
 const DATABASE_ENTRY: &str = "tree.db";
 
+/// Marker stored in share-bundle manifests.
+pub const SHARE_FORMAT: &str = "stemma-flow-share";
+/// Current share-bundle manifest version.
+pub const SHARE_VERSION: u32 = 1;
+
 /// Summary of a completed backup.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BackupReport {
@@ -38,6 +43,15 @@ pub struct RestoreReport {
     pub media_missing: usize,
 }
 
+/// Summary of a portable folder share bundle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShareReport {
+    pub path: PathBuf,
+    pub database_bytes: u64,
+    pub media_included: usize,
+    pub media_missing: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BackupManifest {
     format: String,
@@ -48,6 +62,26 @@ struct BackupManifest {
     database: String,
     #[serde(default)]
     media: Vec<MediaEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ShareMediaEntry {
+    id: String,
+    original_path: String,
+    #[serde(default)]
+    bundle_path: Option<String>,
+    missing: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ShareManifest {
+    format: String,
+    version: u32,
+    created_at: String,
+    app_version: String,
+    schema_version: i64,
+    database: String,
+    media: Vec<ShareMediaEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -255,6 +289,161 @@ fn media_rows(db_path: &Path) -> Result<Vec<(String, String)>, String> {
 
 fn resolve_media_path(db_path: &Path, stored: &str) -> PathBuf {
     crate::media_path::resolve(db_path.parent(), stored)
+}
+
+/// Writes a portable folder bundle containing a tree snapshot and its media.
+///
+/// Media paths in the bundled database are rewritten relative to the bundle,
+/// so the folder can be copied to removable media or another machine.
+pub fn share_folder(
+    db_path: &Path,
+    parent: &Path,
+    name: &str,
+    timestamp: &str,
+) -> Result<ShareReport, String> {
+    if !db_path.is_file() {
+        return Err(format!("no tree database at {}", db_path.display()));
+    }
+    let safe_name = sanitize_filename(name);
+    let safe_name = if safe_name.is_empty() {
+        file_stem(db_path)
+    } else {
+        safe_name
+    };
+    let directory = parent.join(format!("{safe_name}-share-{timestamp}"));
+    if directory.exists() {
+        return Err(format!(
+            "share bundle already exists: {}",
+            directory.display()
+        ));
+    }
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let result = write_share_folder(db_path, &directory, &safe_name);
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&directory);
+    }
+    result
+}
+
+fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<ShareReport, String> {
+    let database_name = format!("{name}.db");
+    let snapshot_path = directory.join(&database_name);
+    snapshot_database(db_path, &snapshot_path)?;
+    let schema_version: i64 = {
+        let conn = Connection::open(&snapshot_path).map_err(|error| error.to_string())?;
+        conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|error| error.to_string())?
+    };
+    let media = media_rows(&snapshot_path)?;
+    let media_dir = directory.join("media");
+    fs::create_dir_all(&media_dir).map_err(|error| error.to_string())?;
+    let mut archive_paths: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
+    let mut entries = Vec::with_capacity(media.len());
+    let mut missing = BTreeSet::new();
+    let mut updated_paths: Vec<(String, String)> = Vec::new();
+    for (id, stored_path) in media {
+        let resolved = resolve_media_path(db_path, &stored_path);
+        let exists = resolved.is_file();
+        let key = if exists {
+            fs::canonicalize(&resolved).unwrap_or_else(|_| resolved.clone())
+        } else {
+            resolved.clone()
+        };
+        if !exists {
+            missing.insert(resolved.to_string_lossy().to_string());
+        }
+        let bundle_path = match archive_paths.get(&key) {
+            Some(path) => path.clone(),
+            None => {
+                if exists {
+                    let file_name = resolved
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("media");
+                    let stored = format!(
+                        "media/{}_{}",
+                        sanitize_filename(&id),
+                        sanitize_filename(file_name)
+                    );
+                    fs::copy(&resolved, directory.join(&stored))
+                        .map_err(|error| error.to_string())?;
+                    archive_paths.insert(key, Some(stored.clone()));
+                    Some(stored)
+                } else {
+                    archive_paths.insert(key, None);
+                    None
+                }
+            }
+        };
+        if let Some(path) = &bundle_path {
+            updated_paths.push((id.clone(), path.clone()));
+        }
+        entries.push(ShareMediaEntry {
+            id,
+            original_path: stored_path,
+            bundle_path,
+            missing: !exists,
+        });
+    }
+    if !updated_paths.is_empty() {
+        let mut conn = Connection::open(&snapshot_path).map_err(|error| error.to_string())?;
+        let tx = conn.transaction().map_err(|error| error.to_string())?;
+        for (id, path) in &updated_paths {
+            tx.execute(
+                "UPDATE media SET file_path = ?1 WHERE id = ?2",
+                params![path, id],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        tx.commit().map_err(|error| error.to_string())?;
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(|error| error.to_string())?;
+    }
+    let manifest = ShareManifest {
+        format: SHARE_FORMAT.to_string(),
+        version: SHARE_VERSION,
+        created_at: timestamp_text()?,
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        schema_version,
+        database: database_name.clone(),
+        media: entries,
+    };
+    let manifest_text = toml::to_string_pretty(&manifest).map_err(|error| error.to_string())?;
+    fs::write(directory.join("share-manifest.toml"), manifest_text)
+        .map_err(|error| error.to_string())?;
+    let missing_paths = missing.into_iter().collect::<Vec<_>>();
+    let readme = format!(
+        "Stemma Flow family tree share\n=============================\n\nOpen \"{database_name}\" in Stemma Flow.\nKeep the \"media\" folder next to the database; its paths are relative.\n\nGenerated: {}\nMedia included: {}\nMedia missing: {}\n",
+        timestamp_text()?,
+        archive_paths.values().filter(|path| path.is_some()).count(),
+        missing_paths.len()
+    );
+    fs::write(directory.join("README.txt"), readme).map_err(|error| error.to_string())?;
+    let database_bytes = fs::metadata(&snapshot_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    Ok(ShareReport {
+        path: directory.to_path_buf(),
+        database_bytes,
+        media_included: archive_paths.values().filter(|path| path.is_some()).count(),
+        media_missing: missing_paths,
+    })
+}
+
+fn snapshot_database(db_path: &Path, dest: &Path) -> Result<(), String> {
+    let source = db::open_connection(db_path).map_err(|error| error.to_string())?;
+    let mut snapshot = Connection::open(dest).map_err(|error| error.to_string())?;
+    {
+        let backup = rusqlite::backup::Backup::new(&source, &mut snapshot)
+            .map_err(|error| error.to_string())?;
+        backup
+            .run_to_completion(128, Duration::from_millis(1), None)
+            .map_err(|error| error.to_string())?;
+    }
+    snapshot
+        .execute_batch("PRAGMA journal_mode = DELETE;")
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 /// Restores `archive` into a new database at `dest_db`.
@@ -545,6 +734,81 @@ mod tests {
         assert!(
             restored_media_dir(&restored).is_dir(),
             "media folder is next to the restored database"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn share_bundle_copies_media_and_rewrites_relative_paths() {
+        let dir = temp_dir();
+        let db_path = dir.join("tree.db");
+        let media_path = seed(&db_path);
+        let conn = Connection::open(&db_path).expect("db");
+        conn.execute(
+            "INSERT INTO media (id, file_path) VALUES ('m2', ?1)",
+            params![media_path.to_string_lossy().to_string()],
+        )
+        .expect("shared media row");
+        drop(conn);
+        let parent = dir.join("usb");
+        fs::create_dir_all(&parent).expect("usb dir");
+        let report = share_folder(&db_path, &parent, "Family Tree", "20260101").expect("share");
+        assert!(report.path.is_dir());
+        assert_eq!(report.media_included, 1, "shared media copied once");
+        assert!(report.media_missing.is_empty());
+        assert!(report.database_bytes > 0);
+        let bundled_db = report.path.join("Family_Tree.db");
+        assert!(bundled_db.is_file());
+        let conn = Connection::open(&bundled_db).expect("bundled db");
+        let paths: Vec<String> = conn
+            .prepare("SELECT file_path FROM media ORDER BY id")
+            .expect("query")
+            .query_map([], |row| row.get(0))
+            .expect("rows")
+            .collect::<rusqlite::Result<_>>()
+            .expect("paths");
+        assert_eq!(paths.len(), 2);
+        assert_eq!(paths[0], paths[1]);
+        assert!(Path::new(&paths[0]).is_relative());
+        assert!(
+            crate::media_path::resolve(Some(report.path.as_path()), &paths[0]).is_file(),
+            "bundled media resolves next to the database"
+        );
+        let readme = fs::read_to_string(report.path.join("README.txt")).expect("readme");
+        assert!(readme.contains("Family_Tree.db"));
+        assert!(readme.contains("Media included: 1"));
+        let manifest =
+            fs::read_to_string(report.path.join("share-manifest.toml")).expect("manifest");
+        assert!(manifest.contains(SHARE_FORMAT));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn share_bundles_report_missing_media_and_refuse_overwrites() {
+        let dir = temp_dir();
+        let db_path = dir.join("tree.db");
+        let conn = connection(&db_path);
+        conn.execute(
+            "INSERT INTO media (id, file_path) VALUES ('m1', '/definitely/missing.jpg')",
+            [],
+        )
+        .expect("media row");
+        drop(conn);
+        let parent = dir.join("usb");
+        fs::create_dir_all(&parent).expect("usb dir");
+        let report = share_folder(&db_path, &parent, "Tree", "20260101").expect("share");
+        assert_eq!(report.media_included, 0);
+        assert_eq!(report.media_missing.len(), 1);
+        let conn = Connection::open(report.path.join("Tree.db")).expect("db");
+        let stored: String = conn
+            .query_row("SELECT file_path FROM media WHERE id = 'm1'", [], |row| {
+                row.get(0)
+            })
+            .expect("media");
+        assert_eq!(stored, "/definitely/missing.jpg");
+        assert!(
+            share_folder(&db_path, &parent, "Tree", "20260101").is_err(),
+            "existing bundle is not overwritten"
         );
         let _ = fs::remove_dir_all(dir);
     }
