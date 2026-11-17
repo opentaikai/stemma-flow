@@ -414,9 +414,12 @@ No schema change is required.
 
 ## Bookmarks and navigation
 
-The top bar provides **←**/*Back*, **→**/*Forward*, a bookmark star and a
-**Bookmarks** menu. The same star is available in the person inspector and
-pinned editor.
+Navigation uses two rows. The system bar keeps the global menus
+(**File**, **View**, **Tools**, **Reports**, **Bookmarks**). The workspace
+toolbar below it starts with chevron **Back**/**Forward** buttons and a star
+bookmark toggle, followed by a separator and the view tabs
+(**Graph View**, **People**, **Couples**, **Associations**, and so on). The
+same star is available in the person inspector and pinned editor.
 
 - **History** keeps the last 50 selected people for the current session.
   Back/Forward selects and centres the person on the graph; tabs and graph
@@ -652,42 +655,42 @@ views (the app always launches on Graph View):
   unique filename matches as old → new paths, and applies only checked rows;
   ambiguous and unmatched files remain listed. The media editor also offers a
   **Locate…** button when its current path is missing.
-- **Photo Tree and Scrapbook** — **Tools > Photo Tree…** exports a
+- **Photo Tree and Scrapbook** — **Reports > Photo Tree…** exports a
   printable ancestor chart as one HTML file with embedded portraits, names,
   dates and family connectors. Choose a root person and two to six
-  generations. **Tools > Scrapbook…** exports selected general or per-person
+  generations. **Reports > Scrapbook…** exports selected general or per-person
   albums as printable album pages with photos, captions and descriptions.
   Both documents open in the browser and include a print toolbar; missing or
   unsupported images render as placeholders.
-- **Pedigree Charts and Family Group Sheets** — **Tools > Pedigree Chart…**
+- **Pedigree Charts and Family Group Sheets** — **Reports > Pedigree Chart…**
   exports a numbered ancestor chart where each box carries its Ahnentafel
   number (root `1`, father `2n`, mother `2n + 1`), name, birth and death
-  dates and places, with optional portraits. **Tools > Family Group Sheet…**
+  dates and places, with optional portraits. **Reports > Family Group Sheet…**
   exports one family as a printable page with spouses, their parents,
   marriage details, non-vital facts and a children table with birth and
   death dates and places. Single-parent families and families without a
   recorded marriage are supported. Both reports are single-file HTML with a
   print toolbar, like the photo tree and scrapbook.
-- **Genealogy Lists** — **Tools > Ahnentafel List…** exports numbered
+- **Genealogy Lists** — **Reports > Ahnentafel List…** exports numbered
   ancestors grouped by generation, with birth and death dates and places
-  plus every spouse and marriage. **Tools > Descendant List…** exports an
+  plus every spouse and marriage. **Reports > Descendant List…** exports an
   **Indented** full descendancy with one indentation level per generation,
   or a **Direct line** to a chosen descendant. Descendant numbering can be
   **d'Aboville** (`1.1`, `1.2`, `1.1.1`) or **Henry** (`11`, `12`, `111`).
   Indented lists cover two to seven generations; direct lists follow the
   full blood line. Both are single-file printable HTML with a print
   toolbar.
-- **Fan Chart** — **Tools > Fan Chart…** exports a radial ancestor chart
+- **Fan Chart** — **Reports > Fan Chart…** exports a radial ancestor chart
   with a 90°, 180°, 270° or 360° span and any start angle with
   Top/Right/Bottom/Left presets. Sectors show names and birth/death years;
   unknown ancestors remain as blank sectors so research gaps stay visible.
-- **Hourglass & Bow-tie** — **Tools > Hourglass & Bow-tie…** exports a
+- **Hourglass & Bow-tie** — **Reports > Hourglass & Bow-tie…** exports a
   combined ancestor/descendant chart around a chosen root. **Hourglass**
   places ancestors above and descendants below; **Bow-tie** transposes the
   same layout so ancestors sit left and descendants right. Ancestor and
   descendant generations are chosen independently (2–6), and cards show
   names with birth/death years.
-- **Wall Charts** — **Tools > Wall Charts…** exports a large-format
+- **Wall Charts** — **Reports > Wall Charts…** exports a large-format
   ancestor or descendant chart with names and birth/death years. Choose
   A3–A0 paper with landscape or portrait printing, and embed any image
   from the tree's media library behind the chart with adjustable opacity.
@@ -696,13 +699,13 @@ views (the app always launches on Graph View):
   **SVG…** button that saves the inline chart as a standalone SVG with its
   styles and embedded images. The main **Export…** button keeps using the
   global HTML/PDF format from Print Settings.
-- **Family History Books** — **Tools > Family History Book…** composes
+- **Family History Books** — **Reports > Family History Book…** composes
   multiple books per tree from text chapters, individual summaries, family
   group sheets, person timelines, photo albums and group rosters. Chapters
   can be reordered and exported as one cover-and-contents document in the
   global HTML/PDF format, with duplicate report headers and page rules
   trimmed for a unified book layout.
-- **Static Website** — **Tools > Static Website…** writes a folder of
+- **Static Website** — **Reports > Static Website…** writes a folder of
   linked HTML pages with an index and search, surnames, people, families,
   places, sources, repositories, a media gallery and an optional SVG
   pedigree chart. Media files are copied into the site. Private people are
@@ -713,49 +716,49 @@ views (the app always launches on Graph View):
   README and a manifest. The folder can be copied to USB or another
   machine; the complete tree, including private and living people, is
   included, so share it only with trusted recipients.
-- **Individual Reports** — **Tools > Individual Summary…** exports one
+- **Individual Reports** — **Reports > Individual Summary…** exports one
   person as printable HTML with a portrait, vital data, all facts, parents,
   spouses with marriage details, children and optional notes.
-  **Tools > Individual List…** exports the current People list exactly as
+  **Reports > Individual List…** exports the current People list exactly as
   filtered, sorted and configured, using its visible columns in landscape
   layout. Both are single-file documents with a print toolbar.
-- **Kinship and Relationship Reports** — **Tools > Kinship Report…**
+- **Kinship and Relationship Reports** — **Reports > Kinship Report…**
   lists every other person with their relationship to a chosen subject,
   birth and death dates and places, sorted by relationship with unrelated
   people last. **Only relatives** hides unrelated people.
   **Tools > Relationship Calculator…** now includes **Print report…**,
   which exports the current pair as printable HTML with the relationship
   label, nearest common ancestor and shortest parent/child/spouse path.
-- **Calendar Reports** — **Tools > Calendar Reports…** exports
+- **Calendar Reports** — **Reports > Calendar Reports…** exports
   **Birthdays** or **Anniversaries** for the next twelve months, or a
   **Year calendar** with twelve month grids. Lists show the occurrence
   date, person or couple, the age or years reached and the place; the
   calendar marks births, marriages and deaths in each day cell. Only
   exact day/month dates are included, and leap-day events fall back to
   28 February in non-leap years.
-- **Timeline Report** — **Tools > Timeline Report…** exports one person's
+- **Timeline Report** — **Reports > Timeline Report…** exports one person's
   birth, death, marriages and every recorded fact in chronological order,
   with the age reached, or the same timeline for all members of a research
   group. Shared marriages and events appear once; facts without a usable
   date are listed in a final **Undated** section.
-- **Lists & Statistics** — **Tools > Lists & Statistics…** exports all
+- **Lists & Statistics** — **Reports > Lists & Statistics…** exports all
   stored places with event counts and coordinates, all sources with author,
   publication, citations and repositories, all repositories with address
   and source counts, or a statistics report with record totals, people
   completeness and event-type counts. Every list is single-file printable
   HTML with a print toolbar.
-- **Cleanup Reports** — **Tools > Cleanup Reports…** exports possible
+- **Cleanup Reports** — **Reports > Cleanup Reports…** exports possible
   duplicates with both people's vitals, score and match reasons, or all
   open missing-information and chronology problems while excluding
   dismissed alerts. Duplicate scanning blocks by surname Soundex so only
   likely pairs are compared.
-- **Print Settings** — **Tools > Print Settings…** customises each report
+- **Print Settings** — **Reports > Print Settings…** customises each report
   independently with print-only header and footer text (`{report}`,
   `{tree}` and `{date}` placeholders), an optional 8–40 mm page margin,
   a font family and a base body size from 6–24 pt. Settings persist in the
   application config and apply to every HTML export; empty fields keep the
   report's designed defaults.
-- **Report formats** — **Tools > Print Settings…** also chooses a global
+- **Report formats** — **Reports > Print Settings…** also chooses a global
   **HTML** or **PDF** save format. Report buttons read **Export…** and the
   native save dialog uses the matching extension. PDF is rendered from the
   same decorated HTML through an installed Chromium, Chrome, Edge or

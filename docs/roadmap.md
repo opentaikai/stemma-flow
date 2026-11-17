@@ -139,7 +139,7 @@ Goal: keep research organised beside the people it concerns.
 | Search and replace for names, places, notes and filenames | done | P2 | Previewed literal replacement with explicit confirmation |
 | Named groups (static and rule-based) | done | P1 | Manual membership plus dynamic person-search rules and printable HTML rosters |
 | Colour-code sets and labels | done | P2 | Coloured groups, independent person labels and graph/table badges |
-| Bookmarks, history and back/forward navigation | done | P2 | 50-person session history plus persistent per-tree bookmarks |
+| Bookmarks, history and back/forward navigation | done | P2 | Workspace toolbar navigation with 50-person session history and persistent per-tree bookmarks |
 | Date calculator and pop-up calendar | done | P2 | Difference/arithmetic calculator and reusable calendar for vital and task dates |
 | Soundex calculator | done | P2 | American Soundex, Daitch–Mokotoff and Cologne with optional name comparison |
 

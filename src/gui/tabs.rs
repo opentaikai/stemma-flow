@@ -23,19 +23,22 @@ pub enum AppTab {
 
 /// Renders the tab row and updates `active` when a tab is clicked.
 pub fn show(ui: &mut Ui, active: &mut AppTab) {
-    ui.horizontal(|ui| {
-        ui.selectable_value(active, AppTab::Graph, tr("tabs.graph"));
-        ui.selectable_value(active, AppTab::WatchList, tr("tabs.people"));
-        ui.selectable_value(active, AppTab::Couples, tr("tabs.couples"));
-        ui.selectable_value(active, AppTab::Associations, tr("tabs.associations"));
-        ui.selectable_value(active, AppTab::Places, tr("tabs.places"));
-        ui.selectable_value(active, AppTab::Map, tr("tabs.map"));
-        ui.selectable_value(active, AppTab::Media, tr("tabs.media"));
-        ui.selectable_value(active, AppTab::Research, tr("tabs.research"));
-        ui.selectable_value(active, AppTab::FactTypes, tr("tabs.fact_types"));
-        ui.selectable_value(active, AppTab::Sources, tr("tabs.sources"));
-        ui.selectable_value(active, AppTab::Repositories, tr("tabs.repositories"));
-    });
+    ui.horizontal(|ui| buttons(ui, active));
+}
+
+/// Draws only the tab buttons, for embedding in an existing toolbar row.
+pub fn buttons(ui: &mut Ui, active: &mut AppTab) {
+    ui.selectable_value(active, AppTab::Graph, tr("tabs.graph"));
+    ui.selectable_value(active, AppTab::WatchList, tr("tabs.people"));
+    ui.selectable_value(active, AppTab::Couples, tr("tabs.couples"));
+    ui.selectable_value(active, AppTab::Associations, tr("tabs.associations"));
+    ui.selectable_value(active, AppTab::Places, tr("tabs.places"));
+    ui.selectable_value(active, AppTab::Map, tr("tabs.map"));
+    ui.selectable_value(active, AppTab::Media, tr("tabs.media"));
+    ui.selectable_value(active, AppTab::Research, tr("tabs.research"));
+    ui.selectable_value(active, AppTab::FactTypes, tr("tabs.fact_types"));
+    ui.selectable_value(active, AppTab::Sources, tr("tabs.sources"));
+    ui.selectable_value(active, AppTab::Repositories, tr("tabs.repositories"));
 }
 
 #[cfg(test)]
@@ -56,5 +59,17 @@ mod tests {
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the tab row paints");
         assert_eq!(active, AppTab::Graph, "no input keeps the active tab");
+    }
+
+    #[test]
+    fn tab_buttons_render_inside_a_parent_row() {
+        let ctx = Context::default();
+        let mut active = AppTab::Sources;
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            ui.horizontal(|ui| buttons(ui, &mut active));
+        });
+        output.textures_delta.clear();
+        assert!(!output.shapes.is_empty(), "the tab buttons paint");
+        assert_eq!(active, AppTab::Sources, "no input keeps the active tab");
     }
 }
