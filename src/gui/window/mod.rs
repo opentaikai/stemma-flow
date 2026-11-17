@@ -25,6 +25,7 @@ use super::date_calculator;
 use super::descendant_list;
 use super::event_editor;
 use super::fact_types;
+use super::family_book;
 use super::family_sheet;
 use super::fan_chart;
 use super::find_everywhere;
@@ -134,6 +135,7 @@ pub struct TreeWindow {
     pub(super) scrapbook: scrapbook::ScrapbookState,
     pub(super) pedigree_chart: pedigree_chart::PedigreeChartState,
     pub(super) family_sheet: family_sheet::FamilySheetState,
+    pub(super) family_book: family_book::FamilyBookState,
     pub(super) individual_summary: individual_summary::IndividualSummaryState,
     pub(super) individual_list: individual_list::IndividualListState,
     pub(super) ahnentafel_list: ahnentafel_list::AhnentafelListState,
@@ -232,6 +234,7 @@ impl TreeWindow {
             scrapbook: scrapbook::ScrapbookState::default(),
             pedigree_chart: pedigree_chart::PedigreeChartState::default(),
             family_sheet: family_sheet::FamilySheetState::default(),
+            family_book: family_book::FamilyBookState::default(),
             individual_summary: individual_summary::IndividualSummaryState::default(),
             individual_list: individual_list::IndividualListState::default(),
             ahnentafel_list: ahnentafel_list::AhnentafelListState::default(),
@@ -397,6 +400,7 @@ impl App for TreeWindow {
             self.show_scrapbook_window(ui.ctx());
             self.show_pedigree_chart_window(ui.ctx());
             self.show_family_sheet_window(ui.ctx());
+            self.show_family_book_window(ui.ctx());
             self.show_individual_summary_window(ui.ctx());
             self.show_individual_list_window(ui.ctx());
             self.show_ahnentafel_list_window(ui.ctx());
@@ -3251,6 +3255,94 @@ mod tests {
             .expect("wall svg");
         assert!(svg.contains("Ada King"));
         assert!(svg.contains("<style type=\"text/css\">"));
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_family_history_books_from_text_and_reports() {
+        use crate::db::albums::AlbumDraft;
+        use crate::db::groups::GroupDraft;
+        use crate::db::media::MediaDraft;
+        use crate::model::book::{BookChapter, BookDefinition};
+        let db_file = temp_path("db");
+        import_family(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let john = person_id_by_given(&window, "John");
+        let family = window.tree.families.first().expect("family").id.clone();
+        let media = window
+            .app
+            .save_media(&MediaDraft {
+                file_path: "/tmp/book-photo.jpg".to_string(),
+                caption: "Photo".to_string(),
+                ..MediaDraft::default()
+            })
+            .expect("media");
+        let album = window
+            .app
+            .save_album(&AlbumDraft {
+                name: "Album".to_string(),
+                ..AlbumDraft::default()
+            })
+            .expect("album");
+        window
+            .app
+            .add_media_to_album(&album, &media)
+            .expect("album media");
+        let group = window
+            .app
+            .save_group(&GroupDraft {
+                name: "Group".to_string(),
+                ..GroupDraft::default()
+            })
+            .expect("group");
+        window.app.add_group_member(&group, &john).expect("member");
+
+        let mut book = BookDefinition::new("King family");
+        book.subtitle = "A history".to_string();
+        book.author = "Ada".to_string();
+        book.chapters
+            .push(BookChapter::text("Intro", "First paragraph\n\nSecond"));
+        book.chapters.push(BookChapter::person("", &john));
+        book.chapters.push(BookChapter::family("", &family));
+        book.chapters.push(BookChapter::timeline("", &john));
+        book.chapters.push(BookChapter::album("", &album));
+        book.chapters.push(BookChapter::group("", &group));
+
+        let report = window.build_book_report(&book).expect("book report");
+        assert_eq!(report.title, "King family");
+        assert_eq!(report.subtitle, "A history");
+        assert_eq!(report.chapters.len(), 6);
+        assert_eq!(report.chapters[0].title, "Intro");
+        assert!(report.chapters[0].body.contains("<p>First paragraph</p>"));
+        assert_eq!(report.chapters[1].title, "John Stone");
+        assert!(report.chapters[1].styles.contains("vitals"));
+        assert!(report.chapters[2].title.contains("John Stone"));
+        assert_eq!(report.chapters[3].title, "John Stone");
+        assert_eq!(report.chapters[4].title, "Album");
+        assert!(report.chapters[4].body.contains("Photo"));
+        assert_eq!(report.chapters[5].title, "Group");
+        assert!(report.chapters[5].body.contains("John Stone"));
+
+        let html = crate::report::book::render_html(&report);
+        assert!(html.contains("King family"));
+        assert!(html.contains("Contents"));
+        assert!(html.contains("Intro"));
+        assert!(html.contains("Album"));
+
+        window
+            .app
+            .save_books(std::slice::from_ref(&book))
+            .expect("save books");
+        assert_eq!(window.app.list_books().expect("list books").len(), 1);
+
+        let mut broken = book.clone();
+        broken
+            .chapters
+            .push(BookChapter::album("Missing", "missing"));
+        assert!(window.build_book_report(&broken).is_err());
 
         let _ = std::fs::remove_file(&db_file);
     }
