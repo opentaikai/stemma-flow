@@ -115,6 +115,15 @@ pub fn file_name(mode: WallChartMode, root_name: &str, timestamp: &str) -> Strin
     )
 }
 
+/// Default timestamped standalone SVG file name.
+pub fn svg_file_name(mode: WallChartMode, root_name: &str, timestamp: &str) -> String {
+    let prefix = match mode {
+        WallChartMode::Ancestors => "wall-chart-ancestors",
+        WallChartMode::Descendants => "wall-chart-descendants",
+    };
+    format!("{prefix}-{}-{timestamp}.svg", sanitize_file_stem(root_name))
+}
+
 /// Renders the chart as a standalone, printable HTML document.
 pub fn render_html(report: &WallChartReport) -> String {
     let mut html = String::with_capacity(8192 + report.scene.nodes.len() * 384);

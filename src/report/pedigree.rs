@@ -25,6 +25,14 @@ pub fn file_name(root_name: &str, timestamp: &str) -> String {
     )
 }
 
+/// Default timestamped standalone SVG file name.
+pub fn svg_file_name(root_name: &str, timestamp: &str) -> String {
+    format!(
+        "pedigree-{}-{timestamp}.svg",
+        photo_tree::sanitize_file_stem(root_name)
+    )
+}
+
 /// Renders the chart as a standalone, printable HTML document.
 pub fn render_html(report: &PedigreeReport) -> String {
     photo_tree::render_html(report)

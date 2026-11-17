@@ -62,6 +62,15 @@ pub fn file_name(mode: CombinedChartMode, root_name: &str, timestamp: &str) -> S
     )
 }
 
+/// Default timestamped standalone SVG file name.
+pub fn svg_file_name(mode: CombinedChartMode, root_name: &str, timestamp: &str) -> String {
+    let prefix = match mode {
+        CombinedChartMode::Hourglass => "hourglass",
+        CombinedChartMode::BowTie => "bow-tie",
+    };
+    format!("{prefix}-{}-{timestamp}.svg", sanitize_file_stem(root_name))
+}
+
 /// Renders the chart as a standalone, printable HTML document.
 pub fn render_html(report: &CombinedChartReport) -> String {
     let mut html = String::with_capacity(8192 + report.scene.nodes.len() * 384);
