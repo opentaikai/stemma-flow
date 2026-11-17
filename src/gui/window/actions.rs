@@ -2897,6 +2897,21 @@ impl TreeWindow {
         self.photo_tree.open_with(root);
     }
 
+    fn export_chart_svg(&mut self, html: String, name: impl FnOnce(&str) -> String) {
+        let timestamp = match crate::backup::timestamp_suffix() {
+            Ok(timestamp) => timestamp,
+            Err(message) => {
+                self.app.set_status(UiStatus::Error(message));
+                return;
+            }
+        };
+        let default_name = name(&timestamp);
+        match crate::report::svg::standalone(&html) {
+            Ok(svg) => self.app.begin_svg_export(default_name, svg),
+            Err(message) => self.app.set_status(UiStatus::Error(message)),
+        }
+    }
+
     pub(super) fn show_photo_tree_window(&mut self, ctx: &egui::Context) {
         if !self.photo_tree.open {
             return;
@@ -2910,9 +2925,24 @@ impl TreeWindow {
             let PhotoTreeEvent {
                 root_id,
                 generations,
+                svg,
             } = event;
             match self.build_photo_tree_report(&root_id, generations) {
-                Ok(report) => self.app.begin_photo_tree_export(report),
+                Ok(report) => {
+                    if svg {
+                        self.export_chart_svg(
+                            crate::report::photo_tree::render_html(&report),
+                            |timestamp| {
+                                crate::report::photo_tree::svg_file_name(
+                                    &report.root_name,
+                                    timestamp,
+                                )
+                            },
+                        );
+                    } else {
+                        self.app.begin_photo_tree_export(report);
+                    }
+                }
                 Err(message) => self.app.set_status(UiStatus::Error(message)),
             }
         }
@@ -3061,9 +3091,21 @@ impl TreeWindow {
                 root_id,
                 generations,
                 include_photos,
+                svg,
             } = event;
             match self.build_pedigree_report(&root_id, generations, include_photos) {
-                Ok(report) => self.app.begin_pedigree_export(report),
+                Ok(report) => {
+                    if svg {
+                        self.export_chart_svg(
+                            crate::report::pedigree::render_html(&report),
+                            |timestamp| {
+                                crate::report::pedigree::svg_file_name(&report.root_name, timestamp)
+                            },
+                        );
+                    } else {
+                        self.app.begin_pedigree_export(report);
+                    }
+                }
                 Err(message) => self.app.set_status(UiStatus::Error(message)),
             }
         }
@@ -4753,7 +4795,21 @@ impl TreeWindow {
                 event.span_degrees,
                 event.start_angle,
             ) {
-                Ok(report) => self.app.begin_fan_chart_export(report),
+                Ok(report) => {
+                    if event.svg {
+                        self.export_chart_svg(
+                            crate::report::fan_chart::render_html(&report),
+                            |timestamp| {
+                                crate::report::fan_chart::svg_file_name(
+                                    &report.root_name,
+                                    timestamp,
+                                )
+                            },
+                        );
+                    } else {
+                        self.app.begin_fan_chart_export(report);
+                    }
+                }
                 Err(message) => self.app.set_status(UiStatus::Error(message)),
             }
         }
@@ -4834,7 +4890,22 @@ impl TreeWindow {
                 event.ancestor_generations,
                 event.descendant_generations,
             ) {
-                Ok(report) => self.app.begin_combined_chart_export(report),
+                Ok(report) => {
+                    if event.svg {
+                        self.export_chart_svg(
+                            crate::report::hourglass::render_html(&report),
+                            |timestamp| {
+                                crate::report::hourglass::svg_file_name(
+                                    report.mode,
+                                    &report.root_name,
+                                    timestamp,
+                                )
+                            },
+                        );
+                    } else {
+                        self.app.begin_combined_chart_export(report);
+                    }
+                }
                 Err(message) => self.app.set_status(UiStatus::Error(message)),
             }
         }
@@ -4952,7 +5023,22 @@ impl TreeWindow {
                 event.background,
                 event.background_opacity,
             ) {
-                Ok(report) => self.app.begin_wall_chart_export(report),
+                Ok(report) => {
+                    if event.svg {
+                        self.export_chart_svg(
+                            crate::report::wall_chart::render_html(&report),
+                            |timestamp| {
+                                crate::report::wall_chart::svg_file_name(
+                                    report.mode,
+                                    &report.root_name,
+                                    timestamp,
+                                )
+                            },
+                        );
+                    } else {
+                        self.app.begin_wall_chart_export(report);
+                    }
+                }
                 Err(message) => self.app.set_status(UiStatus::Error(message)),
             }
         }

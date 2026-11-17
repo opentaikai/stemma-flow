@@ -124,6 +124,17 @@ pub fn prompt_report_path(
         .map(|path| ensure_extension(path, format.extension()))
 }
 
+/// Opens the save dialog for a standalone SVG chart.
+pub fn prompt_svg_path(default_name: &str, directory: Option<&Path>) -> Option<PathBuf> {
+    let mut dialog = FileDialog::new()
+        .add_filter("SVG Image", &["svg"])
+        .set_file_name(default_name);
+    if let Some(directory) = directory {
+        dialog = dialog.set_directory(directory);
+    }
+    dialog.save_file().map(|path| ensure_extension(path, "svg"))
+}
+
 fn report_file_name(default_name: &str, format: ReportFormat) -> String {
     let mut path = PathBuf::from(default_name);
     path.set_extension(format.extension());

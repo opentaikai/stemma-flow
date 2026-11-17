@@ -44,6 +44,7 @@ pub struct FanChartEvent {
     pub generations: usize,
     pub span_degrees: f64,
     pub start_angle: f64,
+    pub svg: bool,
 }
 
 /// Draws the fan chart options window.
@@ -157,6 +158,25 @@ pub fn show(
                         } else {
                             state.start_angle
                         },
+                        svg: false,
+                    });
+                }
+                if ui
+                    .add_enabled(state.root_id.is_some(), egui::Button::new("SVG\u{2026}"))
+                    .clicked()
+                    && let Some(root_id) = state.root_id.clone()
+                {
+                    state.open = false;
+                    event = Some(FanChartEvent {
+                        root_id,
+                        generations: state.generations,
+                        span_degrees: state.span_degrees,
+                        start_angle: if state.span_degrees >= 360.0 {
+                            0.0
+                        } else {
+                            state.start_angle
+                        },
+                        svg: true,
                     });
                 }
                 if ui.button("Cancel").clicked() {

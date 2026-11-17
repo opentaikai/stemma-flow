@@ -71,6 +71,7 @@ pub struct WallChartEvent {
     pub orientation: WallOrientation,
     pub background: Option<PathBuf>,
     pub background_opacity: f64,
+    pub svg: bool,
 }
 
 /// Draws the wall chart options window.
@@ -226,6 +227,28 @@ pub fn show(
                         orientation: state.orientation,
                         background: state.background.clone(),
                         background_opacity: state.background_opacity / 100.0,
+                        svg: false,
+                    });
+                }
+                if ui
+                    .add_enabled(
+                        state.root_id.is_some(),
+                        egui::Button::new("SVG\u{2026}"),
+                    )
+                    .clicked()
+                    && let Some(root_id) = state.root_id.clone()
+                {
+                    state.open = false;
+                    event = Some(WallChartEvent {
+                        mode: state.mode,
+                        root_id,
+                        ancestor_generations: state.ancestor_generations,
+                        descendant_generations: state.descendant_generations,
+                        page_size: state.page_size,
+                        orientation: state.orientation,
+                        background: state.background.clone(),
+                        background_opacity: state.background_opacity / 100.0,
+                        svg: true,
                     });
                 }
                 if ui.button("Cancel").clicked() {

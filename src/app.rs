@@ -205,6 +205,10 @@ pub enum JobEvent {
         bytes: usize,
         people: usize,
     },
+    SvgExported {
+        path: PathBuf,
+        bytes: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -261,6 +265,10 @@ enum Job {
     FanChart(Box<FanChartReport>),
     CombinedChart(Box<CombinedChartReport>),
     WallChart(Box<WallChartReport>),
+    Svg {
+        default_name: String,
+        svg: String,
+    },
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -532,6 +540,11 @@ impl StemmaApp {
     /// Writes a print-ready ancestor or descendant wall chart.
     pub fn begin_wall_chart_export(&mut self, report: WallChartReport) {
         self.begin(Job::WallChart(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a standalone SVG chart on a worker thread.
+    pub fn begin_svg_export(&mut self, default_name: String, svg: String) {
+        self.begin(Job::Svg { default_name, svg }, self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1823,6 +1836,7 @@ impl StemmaApp {
             Job::FanChart(_) => "Choosing fan chart destination\u{2026}",
             Job::CombinedChart(_) => "Choosing combined chart destination\u{2026}",
             Job::WallChart(_) => "Choosing wall chart destination\u{2026}",
+            Job::Svg { .. } => "Choosing SVG destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -2061,6 +2075,10 @@ impl StemmaApp {
                 people,
             } => UiStatus::Success(format!(
                 "Exported wall chart with {people} people ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::SvgExported { path, bytes } => UiStatus::Success(format!(
+                "Exported SVG chart ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2720,6 +2738,22 @@ impl Job {
                             }
                         }
                         Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::Svg { default_name, svg } => {
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_svg_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match std::fs::write(&dest, svg.as_bytes()) {
+                        Ok(()) => {
+                            let _ = open::that(&dest);
+                            JobEvent::SvgExported {
+                                path: dest,
+                                bytes: svg.len(),
+                            }
+                        }
+                        Err(error) => JobEvent::Failed(error.to_string()),
                     },
                 }
             }

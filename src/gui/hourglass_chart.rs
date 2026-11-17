@@ -44,6 +44,7 @@ pub struct HourglassChartEvent {
     pub root_id: String,
     pub ancestor_generations: usize,
     pub descendant_generations: usize,
+    pub svg: bool,
 }
 
 /// Draws the hourglass/bow-tie options window.
@@ -130,6 +131,21 @@ pub fn show(
                         root_id,
                         ancestor_generations: state.ancestor_generations,
                         descendant_generations: state.descendant_generations,
+                        svg: false,
+                    });
+                }
+                if ui
+                    .add_enabled(state.root_id.is_some(), egui::Button::new("SVG\u{2026}"))
+                    .clicked()
+                    && let Some(root_id) = state.root_id.clone()
+                {
+                    state.open = false;
+                    event = Some(HourglassChartEvent {
+                        mode: state.mode,
+                        root_id,
+                        ancestor_generations: state.ancestor_generations,
+                        descendant_generations: state.descendant_generations,
+                        svg: true,
                     });
                 }
                 if ui.button("Cancel").clicked() {
