@@ -178,7 +178,7 @@ Goal: turn research into shareable output.
 | Fan charts | done | P1 | Radial ancestor chart with configurable span and start angle |
 | Hourglass and bow-tie charts | done | P2 | Vertical and horizontal combined ancestor/descendant charts |
 | Ancestor and descendant wall charts | done | P2 | A3–A0 wall charts with media backgrounds and dimming |
-| Print customisation: headers, footers, margins, fonts | planned | P2 | Per report |
+| Print customisation: headers, footers, margins, fonts | done | P2 | Per-report profiles for all printable HTML reports |
 | Save reports as PDF, DOCX, XLSX, RTF, HTML, EPUB, Markdown | planned | P1 | Start with PDF and HTML |
 | Save charts as PDF or SVG | planned | P2 | Vector output |
 | Family history books | planned | P2 | Chapter-based composition |
