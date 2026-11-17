@@ -91,6 +91,24 @@ pub enum AdministrativeReport {
 }
 
 impl AdministrativeReport {
+    pub fn tree_name(&self) -> &str {
+        match self {
+            Self::Places { tree_name, .. }
+            | Self::Sources { tree_name, .. }
+            | Self::Repositories { tree_name, .. }
+            | Self::Statistics { tree_name, .. } => tree_name,
+        }
+    }
+
+    pub fn generated_at(&self) -> &str {
+        match self {
+            Self::Places { generated_at, .. }
+            | Self::Sources { generated_at, .. }
+            | Self::Repositories { generated_at, .. }
+            | Self::Statistics { generated_at, .. } => generated_at,
+        }
+    }
+
     pub fn mode(&self) -> AdministrativeMode {
         match self {
             Self::Places { .. } => AdministrativeMode::Places,
@@ -268,6 +286,12 @@ impl AdministrativeReport {
     /// Writes the rendered report to `path`.
     pub fn write_html(&self, path: &Path) -> Result<usize, String> {
         let html = self.render_html();
+        let html = crate::report::print::decorate(
+            html,
+            crate::model::print_profile::ReportKind::AdministrativeLists,
+            self.tree_name(),
+            self.generated_at(),
+        );
         std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
         Ok(html.len())
     }

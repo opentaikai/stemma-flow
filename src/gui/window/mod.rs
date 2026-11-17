@@ -277,6 +277,9 @@ impl TreeWindow {
             show_import_report: false,
         };
         i18n::set_language(&window.config.language);
+        window
+            .app
+            .set_print_profiles(window.config.print_profiles.clone());
         if let Some(last) = window.recent.first().cloned() {
             if loadable(&last) {
                 window.app.activate_tree(last);

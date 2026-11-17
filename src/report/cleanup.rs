@@ -60,6 +60,21 @@ pub enum CleanupReport {
 }
 
 impl CleanupReport {
+    pub fn tree_name(&self) -> &str {
+        match self {
+            Self::Duplicates { tree_name, .. } | Self::MissingInformation { tree_name, .. } => {
+                tree_name
+            }
+        }
+    }
+
+    pub fn generated_at(&self) -> &str {
+        match self {
+            Self::Duplicates { generated_at, .. }
+            | Self::MissingInformation { generated_at, .. } => generated_at,
+        }
+    }
+
     pub fn mode(&self) -> CleanupMode {
         match self {
             Self::Duplicates { .. } => CleanupMode::Duplicates,
@@ -173,6 +188,12 @@ impl CleanupReport {
     /// Writes the rendered report to `path`.
     pub fn write_html(&self, path: &Path) -> Result<usize, String> {
         let html = self.render_html();
+        let html = crate::report::print::decorate(
+            html,
+            crate::model::print_profile::ReportKind::CleanupReports,
+            self.tree_name(),
+            self.generated_at(),
+        );
         std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
         Ok(html.len())
     }
