@@ -39,7 +39,9 @@ use crate::db::notes::{self as note_store, Note, NoteOwner};
 use crate::db::participants::{self as participant_store, EventContext, ParticipantDraft};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
-use crate::db::privacy::{self as privacy_store, DEFAULT_LIVING_AGE, PersonPrivacy};
+use crate::db::privacy::{
+    self as privacy_store, DEFAULT_LIVING_AGE, PersonPrivacy, PrivacySnapshot,
+};
 use crate::db::problems as problem_store;
 use crate::db::repositories::{
     self as repository_store, RepositoryDraft, RepositoryRecord, RepositorySummary,
@@ -1638,6 +1640,16 @@ impl StemmaApp {
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let year = privacy_store::current_year(&conn)?;
         privacy_store::load_person_privacy(&conn, person_id, year, DEFAULT_LIVING_AGE)
+    }
+
+    /// Loads privacy and living state for every person in one pass.
+    pub fn privacy_snapshot(
+        &self,
+    ) -> Result<std::collections::HashMap<String, PrivacySnapshot>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let year = privacy_store::current_year(&conn)?;
+        privacy_store::load_privacy_snapshot(&conn, year, DEFAULT_LIVING_AGE)
     }
 
     /// Updates a person's private flag.
