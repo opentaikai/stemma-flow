@@ -86,6 +86,7 @@ use crate::report::research_log::{self, ResearchLogReport};
 use crate::report::scrapbook::ScrapbookReport;
 use crate::report::timeline::TimelineReport;
 use crate::report::wall_chart::WallChartReport;
+use crate::report::website::WebsiteReport;
 
 /// Outcome of a background import/export job.
 #[derive(Debug)]
@@ -218,6 +219,12 @@ pub enum JobEvent {
         bytes: usize,
         chapters: usize,
     },
+    WebsiteExported {
+        path: PathBuf,
+        pages: usize,
+        media: usize,
+        bytes: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -275,6 +282,7 @@ enum Job {
     CombinedChart(Box<CombinedChartReport>),
     WallChart(Box<WallChartReport>),
     Book(Box<BookReport>),
+    Website(Box<WebsiteReport>),
     Svg {
         default_name: String,
         svg: String,
@@ -560,6 +568,11 @@ impl StemmaApp {
     /// Writes a print-ready family history book on a worker thread.
     pub fn begin_book_export(&mut self, report: BookReport) {
         self.begin(Job::Book(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a static family website on a worker thread.
+    pub fn begin_website_export(&mut self, report: WebsiteReport) {
+        self.begin(Job::Website(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1877,6 +1890,7 @@ impl StemmaApp {
             Job::WallChart(_) => "Choosing wall chart destination\u{2026}",
             Job::Svg { .. } => "Choosing SVG destination\u{2026}",
             Job::Book(_) => "Choosing book destination\u{2026}",
+            Job::Website(_) => "Choosing website destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -2127,6 +2141,15 @@ impl StemmaApp {
                 chapters,
             } => UiStatus::Success(format!(
                 "Exported book with {chapters} chapters ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::WebsiteExported {
+                path,
+                pages,
+                media,
+                bytes,
+            } => UiStatus::Success(format!(
+                "Exported {pages} pages and {media} media files ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2787,6 +2810,28 @@ impl Job {
                         }
                         Err(message) => JobEvent::Failed(message),
                     },
+                }
+            }
+            Job::Website(report) => {
+                let Some(folder) = dialogs::pick_folder() else {
+                    return JobEvent::Cancelled;
+                };
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let directory = folder.join(format!("family-website-{timestamp}"));
+                match crate::report::website::write_site(&directory, &report) {
+                    Ok(stats) => {
+                        let _ = open::that(directory.join("index.html"));
+                        JobEvent::WebsiteExported {
+                            path: directory,
+                            pages: stats.pages,
+                            media: stats.media,
+                            bytes: stats.bytes,
+                        }
+                    }
+                    Err(message) => JobEvent::Failed(message),
                 }
             }
             Job::Book(report) => {

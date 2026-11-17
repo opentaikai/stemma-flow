@@ -304,6 +304,13 @@ impl TreeWindow {
                 }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
+                    && ui.button(tr("tools.website")).clicked()
+                {
+                    ui.close();
+                    self.open_website_export();
+                }
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
                     && ui.button(tr("tools.individual_list")).clicked()
                 {
                     ui.close();

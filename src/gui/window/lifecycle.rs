@@ -181,6 +181,7 @@ impl TreeWindow {
             self.pedigree_chart = crate::gui::pedigree_chart::PedigreeChartState::default();
             self.family_sheet = crate::gui::family_sheet::FamilySheetState::default();
             self.family_book = crate::gui::family_book::FamilyBookState::default();
+            self.website_export = crate::gui::website_export::WebsiteExportState::default();
             self.individual_summary =
                 crate::gui::individual_summary::IndividualSummaryState::default();
             self.individual_list = crate::gui::individual_list::IndividualListState::default();
