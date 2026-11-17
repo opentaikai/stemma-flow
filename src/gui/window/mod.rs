@@ -385,7 +385,7 @@ impl App for TreeWindow {
             )
             .show(ui, |ui| self.top_panel(ui, frame));
         if self.app.active_db().is_some() {
-            egui::Panel::top("tab_bar").show(ui, |ui| tabs::show(ui, &mut self.tab));
+            egui::Panel::top("tab_bar").show(ui, |ui| self.workspace_toolbar(ui));
         }
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         if self.app.active_db().is_some() && self.app.selected_person_id().is_some() {

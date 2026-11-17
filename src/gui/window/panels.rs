@@ -1,6 +1,7 @@
 //! Menu bar, status bar and welcome dashboard.
 
 use crate::app::UiStatus;
+use crate::gui::tabs;
 use crate::gui::welcome;
 use crate::gui::welcome::WelcomeAction;
 use crate::i18n::{tr, tr_args};
@@ -95,46 +96,6 @@ impl TreeWindow {
                 });
                 if let Some(value) = changed {
                     self.set_surname_first(value);
-                }
-                let back = ui
-                    .add_enabled(
-                        self.history.can_back(),
-                        egui::Button::new(ICON_CHEVRON_LEFT.rich_text().size(18.0)),
-                    )
-                    .on_hover_text(tr("nav.back"));
-                if back.clicked() {
-                    self.navigate_back();
-                }
-                let forward = ui
-                    .add_enabled(
-                        self.history.can_forward(),
-                        egui::Button::new(ICON_CHEVRON_RIGHT.rich_text().size(18.0)),
-                    )
-                    .on_hover_text(tr("nav.forward"));
-                if forward.clicked() {
-                    self.navigate_forward();
-                }
-                let selected = self.app.selected_person_id().is_some();
-                let bookmarked = self.selected_is_bookmarked();
-                let mark = if bookmarked {
-                    ICON_STAR
-                        .rich_text()
-                        .size(18.0)
-                        .color(Color32::from_rgb(245, 158, 11))
-                } else {
-                    ICON_STAR.rich_text().size(18.0)
-                };
-                let tooltip = if bookmarked {
-                    tr("bookmarks.remove_current")
-                } else {
-                    tr("bookmarks.add_current")
-                };
-                if ui
-                    .add_enabled(selected, egui::Button::new(mark))
-                    .on_hover_text(tooltip)
-                    .clicked()
-                {
-                    self.toggle_selected_bookmark();
                 }
                 let items = self.bookmarks.clone();
                 let mut chosen = None;
@@ -390,6 +351,53 @@ impl TreeWindow {
             rect.bottom(),
             egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
         );
+    }
+
+    pub(super) fn workspace_toolbar(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            let back = ui
+                .add_enabled(
+                    self.history.can_back(),
+                    egui::Button::new(ICON_CHEVRON_LEFT.rich_text().size(18.0)),
+                )
+                .on_hover_text(tr("nav.back"));
+            if back.clicked() {
+                self.navigate_back();
+            }
+            let forward = ui
+                .add_enabled(
+                    self.history.can_forward(),
+                    egui::Button::new(ICON_CHEVRON_RIGHT.rich_text().size(18.0)),
+                )
+                .on_hover_text(tr("nav.forward"));
+            if forward.clicked() {
+                self.navigate_forward();
+            }
+            let selected = self.app.selected_person_id().is_some();
+            let bookmarked = self.selected_is_bookmarked();
+            let mark = if bookmarked {
+                ICON_STAR
+                    .rich_text()
+                    .size(18.0)
+                    .color(Color32::from_rgb(245, 158, 11))
+            } else {
+                ICON_STAR.rich_text().size(18.0)
+            };
+            let tooltip = if bookmarked {
+                tr("bookmarks.remove_current")
+            } else {
+                tr("bookmarks.add_current")
+            };
+            if ui
+                .add_enabled(selected, egui::Button::new(mark))
+                .on_hover_text(tooltip)
+                .clicked()
+            {
+                self.toggle_selected_bookmark();
+            }
+            ui.separator();
+            tabs::buttons(ui, &mut self.tab);
+        });
     }
 
     pub(super) fn recent_menu(&mut self, ui: &mut Ui, frame: &mut Frame) {
