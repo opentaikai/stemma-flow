@@ -337,6 +337,10 @@ impl TreeWindow {
                     ui.close();
                     self.open_cleanup_reports();
                 }
+                if ui.button(tr("tools.print_settings")).clicked() {
+                    ui.close();
+                    self.open_print_settings();
+                }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
                     && ui.button(tr("tools.replace")).clicked()

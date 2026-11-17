@@ -60,6 +60,7 @@ use crate::gui::person_editor::{EditorPrompt, PersonEditor};
 use crate::gui::photo_tree::{self as photo_tree_ui, PhotoTreeEvent};
 use crate::gui::place_clean as place_clean_ui;
 use crate::gui::places::{self, PlacesEvent};
+use crate::gui::print_settings as print_settings_ui;
 use crate::gui::problems::ProblemsEvent;
 use crate::gui::repositories::{self, RepositoriesEvent};
 use crate::gui::research::{self as research_ui, ResearchEvent};
@@ -5034,6 +5035,25 @@ impl TreeWindow {
             page_size,
             orientation,
         })
+    }
+
+    pub(super) fn open_print_settings(&mut self) {
+        self.print_settings
+            .open_with(self.config.print_profiles.clone());
+    }
+
+    pub(super) fn show_print_settings_window(&mut self, ctx: &egui::Context) {
+        if !self.print_settings.open {
+            return;
+        }
+        if let Some(profiles) = print_settings_ui::show(ctx, &mut self.print_settings) {
+            self.config.print_profiles = profiles;
+            self.app
+                .set_print_profiles(self.config.print_profiles.clone());
+            if let Err(error) = self.config.save() {
+                self.app.set_status(UiStatus::Error(error));
+            }
+        }
     }
 
     fn tree_name(&self) -> String {
