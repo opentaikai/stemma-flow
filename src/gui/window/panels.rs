@@ -262,6 +262,13 @@ impl TreeWindow {
                 }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
+                    && ui.button(tr("tools.wall_chart")).clicked()
+                {
+                    ui.close();
+                    self.open_wall_chart();
+                }
+                if self.app.active_db().is_some()
+                    && !self.app.is_busy()
                     && ui.button(tr("tools.ahnentafel_list")).clicked()
                 {
                     ui.close();

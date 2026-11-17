@@ -79,6 +79,7 @@ use crate::report::relationship::RelationshipReport;
 use crate::report::research_log::{self, ResearchLogReport};
 use crate::report::scrapbook::ScrapbookReport;
 use crate::report::timeline::TimelineReport;
+use crate::report::wall_chart::WallChartReport;
 
 /// Outcome of a background import/export job.
 #[derive(Debug)]
@@ -197,6 +198,11 @@ pub enum JobEvent {
         bytes: usize,
         people: usize,
     },
+    WallChartExported {
+        path: PathBuf,
+        bytes: usize,
+        people: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -252,6 +258,7 @@ enum Job {
     CleanupReport(Box<CleanupReport>),
     FanChart(Box<FanChartReport>),
     CombinedChart(Box<CombinedChartReport>),
+    WallChart(Box<WallChartReport>),
     Geocode {
         requests: Vec<GeocodeRequest>,
         cancel: Arc<AtomicBool>,
@@ -504,6 +511,11 @@ impl StemmaApp {
     /// Writes a print-ready hourglass or bow-tie chart on a worker thread.
     pub fn begin_combined_chart_export(&mut self, report: CombinedChartReport) {
         self.begin(Job::CombinedChart(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a print-ready ancestor or descendant wall chart.
+    pub fn begin_wall_chart_export(&mut self, report: WallChartReport) {
+        self.begin(Job::WallChart(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1794,6 +1806,7 @@ impl StemmaApp {
             Job::CleanupReport(_) => "Choosing cleanup report destination\u{2026}",
             Job::FanChart(_) => "Choosing fan chart destination\u{2026}",
             Job::CombinedChart(_) => "Choosing combined chart destination\u{2026}",
+            Job::WallChart(_) => "Choosing wall chart destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -2022,6 +2035,14 @@ impl StemmaApp {
                 people,
             } => UiStatus::Success(format!(
                 "Exported combined chart with {people} people ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::WallChartExported {
+                path,
+                bytes,
+                people,
+            } => UiStatus::Success(format!(
+                "Exported wall chart with {people} people ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2637,6 +2658,32 @@ impl Job {
                         Ok(bytes) => {
                             let _ = open::that(&dest);
                             JobEvent::CombinedChartExported {
+                                path: dest,
+                                bytes,
+                                people: report.people.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::WallChart(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name = crate::report::wall_chart::file_name(
+                    report.mode,
+                    &report.root_name,
+                    &timestamp,
+                );
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::wall_chart::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::WallChartExported {
                                 path: dest,
                                 bytes,
                                 people: report.people.len(),

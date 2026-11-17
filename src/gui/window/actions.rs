@@ -70,6 +70,7 @@ use crate::gui::sources::{self, SourcesEvent};
 use crate::gui::tabs;
 use crate::gui::tasks::{self as task_ui, TaskAttachOutcome, TaskAttachState, TaskEvent};
 use crate::gui::timeline as timeline_ui;
+use crate::gui::wall_chart as wall_chart_ui;
 use crate::gui::watchlist;
 use crate::gui::watchlist::WatchEvent;
 use crate::gui::welcome;
@@ -4891,6 +4892,147 @@ impl TreeWindow {
             descendant_generations,
             scene,
             people,
+        })
+    }
+
+    pub(super) fn open_wall_chart(&mut self) {
+        let media = match self.app.list_media() {
+            Ok(media) => media
+                .into_iter()
+                .filter(|media| {
+                    !media.missing
+                        && crate::db::media::is_image_path(
+                            &media.file_path,
+                            media.format.as_deref(),
+                        )
+                })
+                .map(|media| wall_chart_ui::WallMediaChoice {
+                    label: media
+                        .caption
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|caption| !caption.is_empty())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| crate::report::html::display_name(&media.resolved_path)),
+                    path: media.resolved_path,
+                })
+                .collect(),
+            Err(message) => {
+                self.app.set_status(UiStatus::Error(message));
+                Vec::new()
+            }
+        };
+        let root = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.wall_chart.open_with(root, media);
+    }
+
+    pub(super) fn show_wall_chart_window(&mut self, ctx: &egui::Context) {
+        if !self.wall_chart.open {
+            return;
+        }
+        if let Some(event) = wall_chart_ui::show(
+            ctx,
+            &mut self.wall_chart,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            match self.build_wall_chart_report(
+                event.mode,
+                &event.root_id,
+                event.ancestor_generations,
+                event.descendant_generations,
+                event.page_size,
+                event.orientation,
+                event.background,
+                event.background_opacity,
+            ) {
+                Ok(report) => self.app.begin_wall_chart_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn build_wall_chart_report(
+        &self,
+        mode: crate::report::wall_chart::WallChartMode,
+        root_id: &str,
+        ancestor_generations: usize,
+        descendant_generations: usize,
+        page_size: crate::report::wall_chart::WallPageSize,
+        orientation: crate::report::wall_chart::WallOrientation,
+        background: Option<PathBuf>,
+        background_opacity: f64,
+    ) -> Result<crate::report::wall_chart::WallChartReport, String> {
+        use crate::report::wall_chart::{WallChartMode, WallChartPerson, WallChartReport};
+        let root = self
+            .tree
+            .people
+            .iter()
+            .find(|person| person.id == root_id)
+            .ok_or_else(|| "root person not found".to_string())?;
+        let (scene, generations) = match mode {
+            WallChartMode::Ancestors => (
+                crate::gui::layout::build_pedigree_scene(
+                    &self.tree,
+                    root_id,
+                    ancestor_generations,
+                    self.tree_settings.surname_first,
+                ),
+                ancestor_generations,
+            ),
+            WallChartMode::Descendants => {
+                let filtered = crate::model::descendant_view::descendant_tree(
+                    &self.tree,
+                    root_id,
+                    descendant_generations,
+                );
+                (
+                    crate::gui::layout::build_scene(&filtered, self.tree_settings.surname_first),
+                    descendant_generations,
+                )
+            }
+        };
+        let people = scene
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let person = self
+                    .tree
+                    .people
+                    .iter()
+                    .find(|person| person.id == node.person_id)?;
+                let dates = self.dates.get(&person.id);
+                Some(WallChartPerson {
+                    person_id: person.id.clone(),
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                    birth_year: crate::model::person_search::year_of(
+                        dates.and_then(|dates| dates.birth.as_deref()),
+                    ),
+                    death_year: crate::model::person_search::year_of(
+                        dates.and_then(|dates| dates.death.as_deref()),
+                    ),
+                })
+            })
+            .collect();
+        Ok(WallChartReport {
+            mode,
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            root_id: root.id.clone(),
+            root_name: inspector::person_label(root, self.tree_settings.surname_first),
+            generations,
+            scene,
+            people,
+            background,
+            background_opacity,
+            page_size,
+            orientation,
         })
     }
 
