@@ -57,6 +57,7 @@ use crate::db::tasks::{
 use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_bases};
 use crate::geocode;
 use crate::gui::dialogs;
+use crate::model::book::BookDefinition;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
 use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::print_profile::PrintProfiles;
@@ -987,6 +988,20 @@ impl StemmaApp {
         group_store::delete_group(&conn, id)?;
         self.set_status(UiStatus::Success("Group deleted".to_string()));
         Ok(())
+    }
+
+    /// Lists the tree's saved family history books.
+    pub fn list_books(&self) -> Result<Vec<BookDefinition>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        settings_store::load_books(&conn)
+    }
+
+    /// Stores the tree's family history books.
+    pub fn save_books(&mut self, books: &[BookDefinition]) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        settings_store::save_books(&conn, books)
     }
 
     /// Lists bookmarked people in insertion order.
