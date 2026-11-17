@@ -182,7 +182,7 @@ Goal: turn research into shareable output.
 | Save reports as PDF, DOCX, XLSX, RTF, HTML, EPUB, Markdown | partial | P1 | HTML and PDF done; DOCX, XLSX, RTF, EPUB and Markdown pending |
 | Save charts as PDF or SVG | done | P2 | Standalone SVG export for all chart reports; PDF via the global format |
 | Family history books | done | P2 | Per-tree books with text and report chapters, cover and contents |
-| Static family website export | planned | P2 | Hosted publishing is a non-goal |
+| Static family website export | done | P2 | Folder site with search, pages, media and privacy; publishing left to the user |
 | USB or folder share bundle | planned | P2 | Tree plus media |
 | AI prompt builder | deferred | P2 | Optional, local prompt generation |
 
