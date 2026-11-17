@@ -39,6 +39,7 @@ pub struct PedigreeChartEvent {
     pub root_id: String,
     pub generations: usize,
     pub include_photos: bool,
+    pub svg: bool,
 }
 
 /// Draws the pedigree chart options window.
@@ -113,6 +114,20 @@ pub fn show(
                         root_id,
                         generations: state.generations,
                         include_photos: state.include_photos,
+                        svg: false,
+                    });
+                }
+                if ui
+                    .add_enabled(state.root_id.is_some(), egui::Button::new("SVG\u{2026}"))
+                    .clicked()
+                    && let Some(root_id) = state.root_id.clone()
+                {
+                    state.open = false;
+                    event = Some(PedigreeChartEvent {
+                        root_id,
+                        generations: state.generations,
+                        include_photos: state.include_photos,
+                        svg: true,
                     });
                 }
                 if ui.button("Cancel").clicked() {

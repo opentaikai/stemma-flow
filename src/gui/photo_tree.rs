@@ -36,6 +36,7 @@ impl PhotoTreeState {
 pub struct PhotoTreeEvent {
     pub root_id: String,
     pub generations: usize,
+    pub svg: bool,
 }
 
 /// Draws the photo tree options window.
@@ -101,6 +102,19 @@ pub fn show(
                     event = Some(PhotoTreeEvent {
                         root_id,
                         generations: state.generations,
+                        svg: false,
+                    });
+                }
+                if ui
+                    .add_enabled(state.root_id.is_some(), egui::Button::new("SVG\u{2026}"))
+                    .clicked()
+                    && let Some(root_id) = state.root_id.clone()
+                {
+                    state.open = false;
+                    event = Some(PhotoTreeEvent {
+                        root_id,
+                        generations: state.generations,
+                        svg: true,
                     });
                 }
                 if ui.button("Cancel").clicked() {

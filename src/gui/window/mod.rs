@@ -3204,6 +3204,58 @@ mod tests {
     }
 
     #[test]
+    fn extracts_standalone_svgs_from_chart_reports() {
+        use crate::report::hourglass::CombinedChartMode;
+        use crate::report::wall_chart::{WallChartMode, WallOrientation, WallPageSize};
+        let db_file = temp_path("db");
+        import_fan(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let window = TreeWindow::new(app, None);
+        let ada = person_id_by_given(&window, "Ada");
+
+        let fan = window
+            .build_fan_chart_report(&ada, 3, 180.0, 180.0)
+            .expect("fan chart");
+        let svg = crate::report::svg::standalone(&crate::report::fan_chart::render_html(&fan))
+            .expect("fan svg");
+        assert!(svg.starts_with("<?xml version=\"1.0\""));
+        assert!(svg.contains("<svg xmlns=\"http://www.w3.org/2000/svg\""));
+        assert!(svg.contains("John Stone"));
+        assert!(!svg.contains("<html"));
+        let fan_name = crate::report::fan_chart::svg_file_name(&fan.root_name, "20260101");
+        assert!(fan_name.ends_with(".svg"));
+
+        let hourglass = window
+            .build_combined_chart_report(CombinedChartMode::Hourglass, &ada, 3, 3)
+            .expect("hourglass chart");
+        let svg =
+            crate::report::svg::standalone(&crate::report::hourglass::render_html(&hourglass))
+                .expect("hourglass svg");
+        assert!(svg.contains("Ada King"));
+        assert!(svg.ends_with("</svg>"));
+
+        let wall = window
+            .build_wall_chart_report(
+                WallChartMode::Ancestors,
+                &ada,
+                3,
+                3,
+                WallPageSize::A2,
+                WallOrientation::Landscape,
+                None,
+                0.2,
+            )
+            .expect("wall chart");
+        let svg = crate::report::svg::standalone(&crate::report::wall_chart::render_html(&wall))
+            .expect("wall svg");
+        assert!(svg.contains("Ada King"));
+        assert!(svg.contains("<style type=\"text/css\">"));
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn builds_pedigree_report() {
         let db_file = temp_path("db");
         import_family(&db_file);

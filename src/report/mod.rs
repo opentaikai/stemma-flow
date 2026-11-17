@@ -22,5 +22,6 @@ pub mod print;
 pub mod relationship;
 pub mod research_log;
 pub mod scrapbook;
+pub mod svg;
 pub mod timeline;
 pub mod wall_chart;

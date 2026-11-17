@@ -691,6 +691,11 @@ views (the app always launches on Graph View):
   ancestor or descendant chart with names and birth/death years. Choose
   A3–A0 paper with landscape or portrait printing, and embed any image
   from the tree's media library behind the chart with adjustable opacity.
+- **Vector chart export** — **Photo Tree**, **Pedigree Chart**, **Fan
+  Chart**, **Hourglass & Bow-tie** and **Wall Charts** dialogs include an
+  **SVG…** button that saves the inline chart as a standalone SVG with its
+  styles and embedded images. The main **Export…** button keeps using the
+  global HTML/PDF format from Print Settings.
 - **Individual Reports** — **Tools > Individual Summary…** exports one
   person as printable HTML with a portrait, vital data, all facts, parents,
   spouses with marriage details, children and optional notes.

@@ -180,7 +180,7 @@ Goal: turn research into shareable output.
 | Ancestor and descendant wall charts | done | P2 | A3–A0 wall charts with media backgrounds and dimming |
 | Print customisation: headers, footers, margins, fonts | done | P2 | Per-report profiles for all printable HTML reports |
 | Save reports as PDF, DOCX, XLSX, RTF, HTML, EPUB, Markdown | partial | P1 | HTML and PDF done; DOCX, XLSX, RTF, EPUB and Markdown pending |
-| Save charts as PDF or SVG | planned | P2 | Vector output |
+| Save charts as PDF or SVG | done | P2 | Standalone SVG export for all chart reports; PDF via the global format |
 | Family history books | planned | P2 | Chapter-based composition |
 | Static family website export | planned | P2 | Hosted publishing is a non-goal |
 | USB or folder share bundle | planned | P2 | Tree plus media |
