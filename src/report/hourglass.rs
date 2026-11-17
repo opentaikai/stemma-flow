@@ -176,8 +176,7 @@ pub fn write_html(path: &Path, report: &CombinedChartReport) -> Result<usize, St
         &report.tree_name,
         &report.generated_at,
     );
-    std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
-    Ok(html.len())
+    crate::report::output::write(path, &html)
 }
 
 struct PlacedNode {

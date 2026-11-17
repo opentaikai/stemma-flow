@@ -57,7 +57,7 @@ pub fn show(
                 if ui
                     .add_enabled(
                         preview.count > 0,
-                        egui::Button::new(RichText::new("Export HTML\u{2026}").strong()),
+                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
                     )
                     .clicked()
                 {

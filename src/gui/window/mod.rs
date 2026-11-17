@@ -283,6 +283,7 @@ impl TreeWindow {
         window
             .app
             .set_print_profiles(window.config.print_profiles.clone());
+        window.app.set_report_format(window.config.report_format);
         if let Some(last) = window.recent.first().cloned() {
             if loadable(&last) {
                 window.app.activate_tree(last);

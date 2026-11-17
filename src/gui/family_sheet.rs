@@ -75,7 +75,7 @@ pub fn show(ctx: &Context, state: &mut FamilySheetState) -> Option<String> {
                 if ui
                     .add_enabled(
                         state.selected.is_some(),
-                        egui::Button::new(RichText::new("Export HTML\u{2026}").strong()),
+                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
                     )
                     .clicked()
                     && let Some(id) = state.selected.clone()

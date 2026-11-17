@@ -91,7 +91,7 @@ pub fn show(ctx: &Context, state: &mut ScrapbookState) -> Option<Vec<String>> {
                 if ui
                     .add_enabled(
                         !state.selected.is_empty(),
-                        egui::Button::new(RichText::new("Export HTML\u{2026}").strong()),
+                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
                     )
                     .clicked()
                 {

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::model::people_columns::{PeopleColumnConfig, default_columns, sanitize_columns};
 use crate::model::person_search::SavedPersonSearch;
 use crate::model::print_profile::PrintProfiles;
+use crate::model::report_format::ReportFormat;
 
 const MAX_SAVED_SEARCHES: usize = 50;
 const MAX_SAVED_SEARCH_NAME: usize = 80;
@@ -45,6 +46,9 @@ pub struct AppConfig {
     /// Per-report print customization.
     #[serde(default)]
     pub print_profiles: PrintProfiles,
+    /// Preferred file format for exported reports.
+    #[serde(default)]
+    pub report_format: ReportFormat,
 }
 
 impl Default for AppConfig {
@@ -59,6 +63,7 @@ impl Default for AppConfig {
             people_columns: default_columns(),
             saved_searches: Vec::new(),
             print_profiles: PrintProfiles::default(),
+            report_format: ReportFormat::Html,
         }
     }
 }
@@ -179,6 +184,7 @@ fn rewrite_default(path: &Path) -> AppConfig {
 mod tests {
     use super::*;
     use crate::model::print_profile::{PrintFont, PrintProfile, ReportKind};
+    use crate::model::report_format::ReportFormat;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
@@ -199,6 +205,7 @@ mod tests {
             allow_online_geocoding: true,
             allow_online_map_tiles: true,
             language: "de".to_string(),
+            report_format: ReportFormat::Pdf,
             saved_searches: vec![SavedPersonSearch::new(
                 "London born",
                 crate::model::person_search::PersonSearchCriteria {

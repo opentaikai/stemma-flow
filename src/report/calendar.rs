@@ -102,8 +102,7 @@ pub fn write_html(path: &Path, report: &CalendarReport) -> Result<usize, String>
         &report.tree_name,
         &report.generated_at,
     );
-    std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
-    Ok(html.len())
+    crate::report::output::write(path, &html)
 }
 
 fn heading(report: &CalendarReport) -> String {

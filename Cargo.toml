@@ -21,6 +21,7 @@ strsim = "0.11"
 thiserror = "2"
 toml = "1.2.1"
 ureq = { version = "3.4", features = ["json"] }
+url = "2"
 uuid = { version = "1.29.2", features = ["v4"] }
 zip = { version = "9.5.0", default-features = false, features = ["deflate-flate2"] }
 open = "5"

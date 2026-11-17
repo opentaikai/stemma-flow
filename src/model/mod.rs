@@ -29,6 +29,7 @@ pub mod print_profile;
 pub mod problems;
 pub mod quality;
 pub mod relationship;
+pub mod report_format;
 pub mod search_replace;
 pub mod source_template;
 pub mod timeline;

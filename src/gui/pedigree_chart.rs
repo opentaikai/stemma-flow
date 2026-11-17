@@ -103,7 +103,7 @@ pub fn show(
                 if ui
                     .add_enabled(
                         state.root_id.is_some(),
-                        egui::Button::new(RichText::new("Export HTML\u{2026}").strong()),
+                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
                     )
                     .clicked()
                     && let Some(root_id) = state.root_id.clone()

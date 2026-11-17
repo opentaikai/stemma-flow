@@ -733,6 +733,12 @@ views (the app always launches on Graph View):
   a font family and a base body size from 6–24 pt. Settings persist in the
   application config and apply to every HTML export; empty fields keep the
   report's designed defaults.
+- **Report formats** — **Tools > Print Settings…** also chooses a global
+  **HTML** or **PDF** save format. Report buttons read **Export…** and the
+  native save dialog uses the matching extension. PDF is rendered from the
+  same decorated HTML through an installed Chromium, Chrome, Edge or
+  wkhtmltopdf, so print profiles and charts are preserved; if no renderer
+  is available, export HTML and use the browser's print-to-PDF dialog.
 - **Research** — sub-tabs for **Tasks**, **Groups** and **Problems**.
   Problems surfaces focused missing data and contradictions: unnamed people,
   missing birth dates, impossible chronology, implausible parent ages,

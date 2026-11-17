@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use rfd::FileDialog;
 
+use crate::model::report_format::ReportFormat;
+
 /// Opens the native open dialog filtered to GEDCOM files.
 ///
 /// Returns `None` when the user cancels the dialog.
@@ -100,15 +102,63 @@ fn ensure_extension(mut path: PathBuf, extension: &str) -> PathBuf {
     path
 }
 
-/// Opens the save dialog for a print-ready HTML report.
-pub fn prompt_report_path(default_name: &str, directory: Option<&Path>) -> Option<PathBuf> {
+/// Opens the save dialog for a report in the preferred format.
+pub fn prompt_report_path(
+    default_name: &str,
+    directory: Option<&Path>,
+    format: ReportFormat,
+) -> Option<PathBuf> {
+    let default_name = report_file_name(default_name, format);
+    let (label, extensions) = match format {
+        ReportFormat::Html => ("HTML Report", &["html", "htm"][..]),
+        ReportFormat::Pdf => ("PDF Report", &["pdf"][..]),
+    };
     let mut dialog = FileDialog::new()
-        .add_filter("HTML Report", &["html", "htm"])
+        .add_filter(label, extensions)
         .set_file_name(default_name);
     if let Some(directory) = directory {
         dialog = dialog.set_directory(directory);
     }
     dialog
         .save_file()
-        .map(|path| ensure_extension(path, "html"))
+        .map(|path| ensure_extension(path, format.extension()))
+}
+
+fn report_file_name(default_name: &str, format: ReportFormat) -> String {
+    let mut path = PathBuf::from(default_name);
+    path.set_extension(format.extension());
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(default_name)
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_names_follow_the_selected_format() {
+        assert_eq!(
+            report_file_name("pedigree-Ada-20260101.html", ReportFormat::Pdf),
+            "pedigree-Ada-20260101.pdf"
+        );
+        assert_eq!(
+            report_file_name("pedigree-Ada-20260101.pdf", ReportFormat::Html),
+            "pedigree-Ada-20260101.html"
+        );
+        assert_eq!(report_file_name("report", ReportFormat::Pdf), "report.pdf");
+    }
+
+    #[test]
+    fn extensions_are_enforced() {
+        assert_eq!(
+            ensure_extension(PathBuf::from("report.txt"), "pdf"),
+            PathBuf::from("report.pdf")
+        );
+        assert_eq!(
+            ensure_extension(PathBuf::from("report.PDF"), "pdf"),
+            PathBuf::from("report.PDF")
+        );
+    }
 }
