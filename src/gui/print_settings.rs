@@ -3,6 +3,7 @@
 use egui::{Context, RichText, Window};
 
 use crate::model::print_profile::{PrintFont, PrintProfile, PrintProfiles, ReportKind};
+use crate::model::report_format::ReportFormat;
 
 const DEFAULT_MARGIN_MM: u32 = 12;
 const DEFAULT_FONT_SIZE_PT: f32 = 10.5;
@@ -13,6 +14,7 @@ pub struct PrintSettingsState {
     pub open: bool,
     pub selected: ReportKind,
     pub profiles: PrintProfiles,
+    pub report_format: ReportFormat,
     pub header: String,
     pub footer: String,
     pub margin_override: bool,
@@ -28,6 +30,7 @@ impl Default for PrintSettingsState {
             open: false,
             selected: ReportKind::PedigreeChart,
             profiles: PrintProfiles::default(),
+            report_format: ReportFormat::Html,
             header: String::new(),
             footer: String::new(),
             margin_override: false,
@@ -40,8 +43,9 @@ impl Default for PrintSettingsState {
 }
 
 impl PrintSettingsState {
-    pub fn open_with(&mut self, profiles: PrintProfiles) {
+    pub fn open_with(&mut self, profiles: PrintProfiles, report_format: ReportFormat) {
         self.open = true;
+        self.report_format = report_format;
         self.selected = profiles
             .reports
             .keys()
@@ -92,8 +96,15 @@ impl PrintSettingsState {
     }
 }
 
-/// Draws the print settings window; returns saved profiles when requested.
-pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintProfiles> {
+/// Saved print settings returned by the dialog.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrintSettingsResult {
+    pub profiles: PrintProfiles,
+    pub report_format: ReportFormat,
+}
+
+/// Draws the print settings window; returns saved settings when requested.
+pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintSettingsResult> {
     if !state.open {
         return None;
     }
@@ -128,6 +139,18 @@ pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintProfil
                         }
                     });
             });
+            ui.horizontal(|ui| {
+                ui.label("Save format");
+                ui.selectable_value(&mut state.report_format, ReportFormat::Html, "HTML");
+                ui.selectable_value(&mut state.report_format, ReportFormat::Pdf, "PDF");
+            });
+            ui.label(
+                RichText::new(
+                    "PDF export needs Chromium, Chrome, Edge or wkhtmltopdf; otherwise export HTML and print to PDF.",
+                )
+                .weak()
+                .small(),
+            );
             ui.separator();
             egui::Grid::new("print_settings_fields")
                 .num_columns(2)
@@ -206,7 +229,10 @@ pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintProfil
                 {
                     state.commit_current();
                     state.open = false;
-                    saved = Some(state.profiles.clone());
+                    saved = Some(PrintSettingsResult {
+                        profiles: state.profiles.clone(),
+                        report_format: state.report_format,
+                    });
                 }
                 if ui.button("Cancel").clicked() {
                     state.open = false;
@@ -237,8 +263,9 @@ mod tests {
             },
         );
         let mut state = PrintSettingsState::default();
-        state.open_with(profiles);
+        state.open_with(profiles, ReportFormat::Pdf);
         assert_eq!(state.selected, ReportKind::KinshipReport);
+        assert_eq!(state.report_format, ReportFormat::Pdf);
         assert_eq!(state.header, "Kinship");
         let mut output = ctx.run_ui(RawInput::default(), |ui| {
             assert!(show(ui.ctx(), &mut state).is_none());
@@ -251,7 +278,7 @@ mod tests {
     #[test]
     fn switching_reports_keeps_edited_profiles() {
         let mut state = PrintSettingsState::default();
-        state.open_with(PrintProfiles::default());
+        state.open_with(PrintProfiles::default(), ReportFormat::Html);
         state.header = "Pedigree header".to_string();
         state.select(ReportKind::FanChart);
         state.header = "Fan header".to_string();

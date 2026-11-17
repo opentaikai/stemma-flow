@@ -106,7 +106,7 @@ pub fn show(ctx: &Context, state: &mut CalendarReportState) -> Option<CalendarRe
             ui.horizontal(|ui| {
                 if ui
                     .add(egui::Button::new(
-                        RichText::new("Export HTML\u{2026}").strong(),
+                        RichText::new("Export\u{2026}").strong(),
                     ))
                     .clicked()
                 {

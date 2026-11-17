@@ -60,6 +60,7 @@ use crate::gui::dialogs;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
 use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::print_profile::PrintProfiles;
+use crate::model::report_format::ReportFormat;
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::administrative::AdministrativeReport;
@@ -285,6 +286,7 @@ pub struct StemmaApp {
     geocode_cancel: Option<Arc<AtomicBool>>,
     geocode_report: Option<GeocodeReport>,
     print_profiles: PrintProfiles,
+    report_format: ReportFormat,
 }
 
 impl StemmaApp {
@@ -307,12 +309,18 @@ impl StemmaApp {
             geocode_cancel: None,
             geocode_report: None,
             print_profiles: PrintProfiles::default(),
+            report_format: ReportFormat::Html,
         }
     }
 
     /// Updates the per-report print profiles used by background writers.
     pub fn set_print_profiles(&mut self, profiles: PrintProfiles) {
         self.print_profiles = profiles;
+    }
+
+    /// Updates the preferred report output format.
+    pub fn set_report_format(&mut self, format: ReportFormat) {
+        self.report_format = format;
     }
 
     pub fn is_busy(&self) -> bool {
@@ -1820,7 +1828,8 @@ impl StemmaApp {
         let (tx, rx) = channel();
         self.rx = Some(rx);
         let print_profiles = self.print_profiles.clone();
-        thread::spawn(move || job.run(db_path, &tx, &print_profiles));
+        let report_format = self.report_format;
+        thread::spawn(move || job.run(db_path, &tx, &print_profiles, report_format));
     }
 
     /// Applies every job event that arrived since the last frame.
@@ -2141,13 +2150,24 @@ impl Default for StemmaApp {
 }
 
 impl Job {
-    fn run(self, db_path: Option<PathBuf>, tx: &Sender<JobEvent>, print_profiles: &PrintProfiles) {
+    fn run(
+        self,
+        db_path: Option<PathBuf>,
+        tx: &Sender<JobEvent>,
+        print_profiles: &PrintProfiles,
+        report_format: ReportFormat,
+    ) {
         crate::report::print::set_profiles(print_profiles.clone());
-        let event = self.run_with(db_path, tx);
+        let event = self.run_with(db_path, tx, report_format);
         let _ = tx.send(event);
     }
 
-    fn run_with(self, db_path: Option<PathBuf>, tx: &Sender<JobEvent>) -> JobEvent {
+    fn run_with(
+        self,
+        db_path: Option<PathBuf>,
+        tx: &Sender<JobEvent>,
+        report_format: ReportFormat,
+    ) -> JobEvent {
         match self {
             Job::Import => {
                 let Some(db_path) = db_path else {
@@ -2229,7 +2249,7 @@ impl Job {
                 };
                 let default_name = research_log::file_name(&report.tree_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match research_log::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2251,7 +2271,7 @@ impl Job {
                 };
                 let default_name = group_roster::file_name(&report.group_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match group_roster::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2305,7 +2325,7 @@ impl Job {
                 let default_name =
                     crate::report::photo_tree::file_name(&report.root_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::photo_tree::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2328,7 +2348,7 @@ impl Job {
                 let default_name =
                     crate::report::scrapbook::file_name(&report.tree_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::scrapbook::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2351,7 +2371,7 @@ impl Job {
                 let default_name =
                     crate::report::pedigree::file_name(&report.root_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::pedigree::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2374,7 +2394,7 @@ impl Job {
                 let default_name =
                     crate::report::family_group::file_name(&report.family_label, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::family_group::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2397,7 +2417,7 @@ impl Job {
                 let default_name =
                     crate::report::individual_summary::file_name(&report.name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => {
                         match crate::report::individual_summary::write_html(&dest, &report) {
@@ -2422,7 +2442,7 @@ impl Job {
                 let default_name =
                     crate::report::ahnentafel_list::file_name(&report.root_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => {
                         match crate::report::ahnentafel_list::write_html(&dest, &report) {
@@ -2447,7 +2467,7 @@ impl Job {
                 let default_name =
                     crate::report::descendant_list::file_name(&report.root_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => {
                         match crate::report::descendant_list::write_html(&dest, &report) {
@@ -2471,7 +2491,7 @@ impl Job {
                 };
                 let default_name = crate::report::individual_list::file_name(&timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => {
                         match crate::report::individual_list::write_html(&dest, &report) {
@@ -2496,7 +2516,7 @@ impl Job {
                 let default_name =
                     crate::report::kinship::file_name(&report.subject_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::kinship::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2522,7 +2542,7 @@ impl Job {
                     &timestamp,
                 );
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::relationship::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2545,7 +2565,7 @@ impl Job {
                 let default_name =
                     crate::report::calendar::file_name(report.mode, report.year, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::calendar::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2572,7 +2592,7 @@ impl Job {
                 let default_name =
                     crate::report::timeline::file_name(&report.subject_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::timeline::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2594,7 +2614,7 @@ impl Job {
                 };
                 let default_name = report.file_name(&timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match report.write_html(&dest) {
                         Ok(bytes) => {
@@ -2616,7 +2636,7 @@ impl Job {
                 };
                 let default_name = report.file_name(&timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match report.write_html(&dest) {
                         Ok(bytes) => {
@@ -2639,7 +2659,7 @@ impl Job {
                 let default_name =
                     crate::report::fan_chart::file_name(&report.root_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::fan_chart::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2662,7 +2682,7 @@ impl Job {
                 let default_name =
                     crate::report::hourglass::file_name(report.mode, &report.root_name, &timestamp);
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::hourglass::write_html(&dest, &report) {
                         Ok(bytes) => {
@@ -2688,7 +2708,7 @@ impl Job {
                     &timestamp,
                 );
                 let directory = db_path.as_deref().and_then(Path::parent);
-                match dialogs::prompt_report_path(&default_name, directory) {
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
                     None => JobEvent::Cancelled,
                     Some(dest) => match crate::report::wall_chart::write_html(&dest, &report) {
                         Ok(bytes) => {

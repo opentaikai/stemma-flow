@@ -5038,18 +5038,22 @@ impl TreeWindow {
     }
 
     pub(super) fn open_print_settings(&mut self) {
-        self.print_settings
-            .open_with(self.config.print_profiles.clone());
+        self.print_settings.open_with(
+            self.config.print_profiles.clone(),
+            self.config.report_format,
+        );
     }
 
     pub(super) fn show_print_settings_window(&mut self, ctx: &egui::Context) {
         if !self.print_settings.open {
             return;
         }
-        if let Some(profiles) = print_settings_ui::show(ctx, &mut self.print_settings) {
-            self.config.print_profiles = profiles;
+        if let Some(result) = print_settings_ui::show(ctx, &mut self.print_settings) {
+            self.config.print_profiles = result.profiles;
+            self.config.report_format = result.report_format;
             self.app
                 .set_print_profiles(self.config.print_profiles.clone());
+            self.app.set_report_format(self.config.report_format);
             if let Err(error) = self.config.save() {
                 self.app.set_status(UiStatus::Error(error));
             }

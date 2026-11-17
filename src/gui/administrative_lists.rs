@@ -65,9 +65,7 @@ pub fn show(ctx: &Context, state: &mut AdministrativeListsState) -> Option<Admin
             ui.label(RichText::new(description).weak().small());
             ui.horizontal(|ui| {
                 if ui
-                    .add(egui::Button::new(
-                        RichText::new("Export HTML\u{2026}").strong(),
-                    ))
+                    .add(egui::Button::new(RichText::new("Export\u{2026}").strong()))
                     .clicked()
                 {
                     state.open = false;
