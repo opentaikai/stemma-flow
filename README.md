@@ -687,6 +687,10 @@ views (the app always launches on Graph View):
   same layout so ancestors sit left and descendants right. Ancestor and
   descendant generations are chosen independently (2–6), and cards show
   names with birth/death years.
+- **Wall Charts** — **Tools > Wall Charts…** exports a large-format
+  ancestor or descendant chart with names and birth/death years. Choose
+  A3–A0 paper with landscape or portrait printing, and embed any image
+  from the tree's media library behind the chart with adjustable opacity.
 - **Individual Reports** — **Tools > Individual Summary…** exports one
   person as printable HTML with a portrait, vital data, all facts, parents,
   spouses with marriage details, children and optional notes.
