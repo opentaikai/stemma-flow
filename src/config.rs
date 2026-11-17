@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::people_columns::{PeopleColumnConfig, default_columns, sanitize_columns};
 use crate::model::person_search::SavedPersonSearch;
+use crate::model::print_profile::PrintProfiles;
 
 const MAX_SAVED_SEARCHES: usize = 50;
 const MAX_SAVED_SEARCH_NAME: usize = 80;
@@ -41,6 +42,9 @@ pub struct AppConfig {
     /// Named advanced-search rules shared by every tree.
     #[serde(default)]
     pub saved_searches: Vec<SavedPersonSearch>,
+    /// Per-report print customization.
+    #[serde(default)]
+    pub print_profiles: PrintProfiles,
 }
 
 impl Default for AppConfig {
@@ -54,6 +58,7 @@ impl Default for AppConfig {
             language: "en".to_string(),
             people_columns: default_columns(),
             saved_searches: Vec::new(),
+            print_profiles: PrintProfiles::default(),
         }
     }
 }
@@ -106,6 +111,7 @@ impl AppConfig {
     pub fn upsert_saved_search(&mut self, saved: SavedPersonSearch) {
         SavedPersonSearch::upsert(&mut self.saved_searches, saved);
         self.saved_searches = sanitize_saved_searches(std::mem::take(&mut self.saved_searches));
+        self.print_profiles.sanitize();
     }
 
     /// Removes a saved search by name, returning whether one was removed.
@@ -172,6 +178,7 @@ fn rewrite_default(path: &Path) -> AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::print_profile::{PrintFont, PrintProfile, ReportKind};
 
     fn temp_dir(tag: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
@@ -185,7 +192,7 @@ mod tests {
 
     #[test]
     fn toml_roundtrip_preserves_every_field() {
-        let config = AppConfig {
+        let mut config = AppConfig {
             theme: ThemeMode::Dark,
             font_size: 18.5,
             reverse_place_names: true,
@@ -201,6 +208,16 @@ mod tests {
             )],
             ..AppConfig::default()
         };
+        config.print_profiles.set(
+            ReportKind::PedigreeChart,
+            PrintProfile {
+                header: "King family".to_string(),
+                margin_mm: Some(15),
+                font: PrintFont::Serif,
+                font_size_pt: Some(10.5),
+                ..PrintProfile::default()
+            },
+        );
         let text = toml::to_string_pretty(&config).expect("serialize");
         let back: AppConfig = toml::from_str(&text).expect("parse");
         assert_eq!(back, config);
