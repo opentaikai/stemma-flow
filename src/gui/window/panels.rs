@@ -7,6 +7,7 @@ use crate::i18n::{tr, tr_args};
 use eframe::Frame;
 use egui::Color32;
 use egui::Ui;
+use egui_material_icons::icons::{ICON_CHEVRON_LEFT, ICON_CHEVRON_RIGHT, ICON_STAR};
 
 use super::TreeWindow;
 
@@ -96,7 +97,10 @@ impl TreeWindow {
                     self.set_surname_first(value);
                 }
                 let back = ui
-                    .add_enabled(self.history.can_back(), egui::Button::new(tr("nav.back")))
+                    .add_enabled(
+                        self.history.can_back(),
+                        egui::Button::new(ICON_CHEVRON_LEFT.rich_text().size(18.0)),
+                    )
                     .on_hover_text(tr("nav.back"));
                 if back.clicked() {
                     self.navigate_back();
@@ -104,7 +108,7 @@ impl TreeWindow {
                 let forward = ui
                     .add_enabled(
                         self.history.can_forward(),
-                        egui::Button::new(tr("nav.forward")),
+                        egui::Button::new(ICON_CHEVRON_RIGHT.rich_text().size(18.0)),
                     )
                     .on_hover_text(tr("nav.forward"));
                 if forward.clicked() {
@@ -113,9 +117,12 @@ impl TreeWindow {
                 let selected = self.app.selected_person_id().is_some();
                 let bookmarked = self.selected_is_bookmarked();
                 let mark = if bookmarked {
-                    tr("bookmarks.marked")
+                    ICON_STAR
+                        .rich_text()
+                        .size(18.0)
+                        .color(Color32::from_rgb(245, 158, 11))
                 } else {
-                    tr("bookmarks.mark")
+                    ICON_STAR.rich_text().size(18.0)
                 };
                 let tooltip = if bookmarked {
                     tr("bookmarks.remove_current")
@@ -377,6 +384,12 @@ impl TreeWindow {
                 });
             }
         });
+        let rect = ui.max_rect();
+        ui.painter().hline(
+            rect.x_range(),
+            rect.bottom(),
+            egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        );
     }
 
     pub(super) fn recent_menu(&mut self, ui: &mut Ui, frame: &mut Frame) {

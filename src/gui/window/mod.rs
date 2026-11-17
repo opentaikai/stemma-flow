@@ -366,7 +366,24 @@ impl App for TreeWindow {
             ui.ctx().request_repaint();
         }
 
-        egui::Panel::top("menu_bar").show(ui, |ui| self.top_panel(ui, frame));
+        let visuals = ui.visuals();
+        let system_fill = if visuals.dark_mode {
+            egui::Color32::from_rgb(34, 38, 43)
+        } else {
+            egui::Color32::from_rgb(236, 239, 243)
+        };
+        egui::Panel::top("menu_bar")
+            .frame(
+                egui::Frame::new()
+                    .fill(system_fill)
+                    .inner_margin(egui::Margin {
+                        left: 8,
+                        right: 8,
+                        top: 3,
+                        bottom: 0,
+                    }),
+            )
+            .show(ui, |ui| self.top_panel(ui, frame));
         if self.app.active_db().is_some() {
             egui::Panel::top("tab_bar").show(ui, |ui| tabs::show(ui, &mut self.tab));
         }
