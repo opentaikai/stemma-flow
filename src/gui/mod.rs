@@ -66,5 +66,6 @@ pub mod theme;
 pub mod timeline;
 pub mod wall_chart;
 pub mod watchlist;
+pub mod website_export;
 pub mod welcome;
 pub mod window;

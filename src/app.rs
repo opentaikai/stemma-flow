@@ -39,7 +39,9 @@ use crate::db::notes::{self as note_store, Note, NoteOwner};
 use crate::db::participants::{self as participant_store, EventContext, ParticipantDraft};
 use crate::db::people::{self, ParentRole, PersonDetails};
 use crate::db::places::{self as place_store, PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage};
-use crate::db::privacy::{self as privacy_store, DEFAULT_LIVING_AGE, PersonPrivacy};
+use crate::db::privacy::{
+    self as privacy_store, DEFAULT_LIVING_AGE, PersonPrivacy, PrivacySnapshot,
+};
 use crate::db::problems as problem_store;
 use crate::db::repositories::{
     self as repository_store, RepositoryDraft, RepositoryRecord, RepositorySummary,
@@ -84,6 +86,7 @@ use crate::report::research_log::{self, ResearchLogReport};
 use crate::report::scrapbook::ScrapbookReport;
 use crate::report::timeline::TimelineReport;
 use crate::report::wall_chart::WallChartReport;
+use crate::report::website::WebsiteReport;
 
 /// Outcome of a background import/export job.
 #[derive(Debug)]
@@ -216,6 +219,12 @@ pub enum JobEvent {
         bytes: usize,
         chapters: usize,
     },
+    WebsiteExported {
+        path: PathBuf,
+        pages: usize,
+        media: usize,
+        bytes: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -273,6 +282,7 @@ enum Job {
     CombinedChart(Box<CombinedChartReport>),
     WallChart(Box<WallChartReport>),
     Book(Box<BookReport>),
+    Website(Box<WebsiteReport>),
     Svg {
         default_name: String,
         svg: String,
@@ -558,6 +568,11 @@ impl StemmaApp {
     /// Writes a print-ready family history book on a worker thread.
     pub fn begin_book_export(&mut self, report: BookReport) {
         self.begin(Job::Book(Box::new(report)), self.active_db.clone());
+    }
+
+    /// Writes a static family website on a worker thread.
+    pub fn begin_website_export(&mut self, report: WebsiteReport) {
+        self.begin(Job::Website(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -1640,6 +1655,16 @@ impl StemmaApp {
         privacy_store::load_person_privacy(&conn, person_id, year, DEFAULT_LIVING_AGE)
     }
 
+    /// Loads privacy and living state for every person in one pass.
+    pub fn privacy_snapshot(
+        &self,
+    ) -> Result<std::collections::HashMap<String, PrivacySnapshot>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        let year = privacy_store::current_year(&conn)?;
+        privacy_store::load_privacy_snapshot(&conn, year, DEFAULT_LIVING_AGE)
+    }
+
     /// Updates a person's private flag.
     pub fn set_person_private(&mut self, person_id: &str, private: bool) -> Result<(), String> {
         let path = self.require_active_db()?;
@@ -1865,6 +1890,7 @@ impl StemmaApp {
             Job::WallChart(_) => "Choosing wall chart destination\u{2026}",
             Job::Svg { .. } => "Choosing SVG destination\u{2026}",
             Job::Book(_) => "Choosing book destination\u{2026}",
+            Job::Website(_) => "Choosing website destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -2115,6 +2141,15 @@ impl StemmaApp {
                 chapters,
             } => UiStatus::Success(format!(
                 "Exported book with {chapters} chapters ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::WebsiteExported {
+                path,
+                pages,
+                media,
+                bytes,
+            } => UiStatus::Success(format!(
+                "Exported {pages} pages and {media} media files ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2775,6 +2810,28 @@ impl Job {
                         }
                         Err(message) => JobEvent::Failed(message),
                     },
+                }
+            }
+            Job::Website(report) => {
+                let Some(folder) = dialogs::pick_folder() else {
+                    return JobEvent::Cancelled;
+                };
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let directory = folder.join(format!("family-website-{timestamp}"));
+                match crate::report::website::write_site(&directory, &report) {
+                    Ok(stats) => {
+                        let _ = open::that(directory.join("index.html"));
+                        JobEvent::WebsiteExported {
+                            path: directory,
+                            pages: stats.pages,
+                            media: stats.media,
+                            bytes: stats.bytes,
+                        }
+                    }
+                    Err(message) => JobEvent::Failed(message),
                 }
             }
             Job::Book(report) => {

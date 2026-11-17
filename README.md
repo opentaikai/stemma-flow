@@ -702,6 +702,12 @@ views (the app always launches on Graph View):
   can be reordered and exported as one cover-and-contents document in the
   global HTML/PDF format, with duplicate report headers and page rules
   trimmed for a unified book layout.
+- **Static Website** — **Tools > Static Website…** writes a folder of
+  linked HTML pages with an index and search, surnames, people, families,
+  places, sources, repositories, a media gallery and an optional SVG
+  pedigree chart. Media files are copied into the site. Private people are
+  omitted; living people keep their names but their dates, places, facts,
+  notes and media are hidden. Publishing is left to the user.
 - **Individual Reports** — **Tools > Individual Summary…** exports one
   person as printable HTML with a portrait, vital data, all facts, parents,
   spouses with marriage details, children and optional notes.

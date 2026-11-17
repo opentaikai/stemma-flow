@@ -75,6 +75,7 @@ use crate::gui::timeline as timeline_ui;
 use crate::gui::wall_chart as wall_chart_ui;
 use crate::gui::watchlist;
 use crate::gui::watchlist::WatchEvent;
+use crate::gui::website_export as website_export_ui;
 use crate::gui::welcome;
 use crate::model::dataclean::DataCleanPlan;
 use crate::model::geocode::GeocodeResult;
@@ -5350,6 +5351,359 @@ impl TreeWindow {
             description: group.description.clone().unwrap_or_default(),
             rule: group.rule.clone(),
             members,
+        })
+    }
+
+    pub(super) fn open_website_export(&mut self) {
+        let root = self
+            .app
+            .selected_person_id()
+            .map(str::to_string)
+            .or_else(|| self.tree_settings.root_person_id.clone())
+            .or_else(|| self.tree.people.first().map(|person| person.id.clone()));
+        self.website_export.open_with(self.tree_name(), root);
+    }
+
+    pub(super) fn show_website_export_window(&mut self, ctx: &egui::Context) {
+        if !self.website_export.open {
+            return;
+        }
+        if let Some(event) = website_export_ui::show(
+            ctx,
+            &mut self.website_export,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            match self.build_website_report(
+                &event.title,
+                event.root_id.as_deref(),
+                event.include_chart,
+            ) {
+                Ok(report) => self.app.begin_website_export(report),
+                Err(message) => self.app.set_status(UiStatus::Error(message)),
+            }
+        }
+    }
+
+    pub(super) fn build_website_report(
+        &self,
+        title: &str,
+        root_id: Option<&str>,
+        include_chart: bool,
+    ) -> Result<crate::report::website::WebsiteReport, String> {
+        use crate::report::website::{
+            SiteFact, SiteFamily, SiteLink, SiteMedia, SitePerson, SitePlace, SiteRepository,
+            SiteSource, SiteUsage, WebsiteReport,
+        };
+        let privacy = self.app.privacy_snapshot()?;
+        let hidden: std::collections::HashSet<&str> = privacy
+            .iter()
+            .filter(|(_, state)| state.private)
+            .map(|(id, _)| id.as_str())
+            .collect();
+        let visible: std::collections::HashSet<&str> = self
+            .tree
+            .people
+            .iter()
+            .map(|person| person.id.as_str())
+            .filter(|id| !hidden.contains(id))
+            .collect();
+        let living: std::collections::HashSet<&str> = privacy
+            .iter()
+            .filter(|(id, state)| state.living && !hidden.contains(id.as_str()))
+            .map(|(id, _)| id.as_str())
+            .collect();
+        let link = |id: &str| -> Option<SiteLink> {
+            if hidden.contains(id) {
+                return None;
+            }
+            self.tree
+                .people
+                .iter()
+                .find(|person| person.id == id)
+                .map(|person| SiteLink {
+                    id: person.id.clone(),
+                    name: inspector::person_label(person, self.tree_settings.surname_first),
+                })
+        };
+
+        let mut people = Vec::new();
+        for person in &self.tree.people {
+            if hidden.contains(person.id.as_str()) {
+                continue;
+            }
+            let dates = self.dates.get(&person.id);
+            let is_living = living.contains(person.id.as_str());
+            let connections = inspector::connections(
+                &self.tree,
+                &person.id,
+                &self.marriages,
+                self.tree_settings.surname_first,
+            );
+            let relatives = |items: &[inspector::Relative]| -> Vec<SiteLink> {
+                items
+                    .iter()
+                    .filter_map(|relative| link(&relative.id))
+                    .collect()
+            };
+            let facts = if is_living {
+                Vec::new()
+            } else {
+                self.person_facts
+                    .get(&person.id)
+                    .map(|facts| {
+                        facts
+                            .iter()
+                            .map(|fact| SiteFact {
+                                label: fact.label.clone(),
+                                date: fact.date.clone().unwrap_or_default(),
+                                place: fact.place.clone().unwrap_or_default(),
+                                value: fact.value.clone().unwrap_or_default(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let notes = if is_living {
+                None
+            } else {
+                self.rows
+                    .iter()
+                    .find(|row| row.id == person.id)
+                    .map(|row| row.notes_text.clone())
+                    .filter(|notes| !notes.trim().is_empty())
+            };
+            people.push(SitePerson {
+                id: person.id.clone(),
+                name: inspector::person_label(person, self.tree_settings.surname_first),
+                surname: person.surname.clone(),
+                birth: if is_living {
+                    String::new()
+                } else {
+                    dates
+                        .and_then(|dates| dates.birth.clone())
+                        .unwrap_or_default()
+                },
+                birth_place: if is_living {
+                    String::new()
+                } else {
+                    dates
+                        .and_then(|dates| dates.birth_place.clone())
+                        .unwrap_or_default()
+                },
+                death: if is_living {
+                    String::new()
+                } else {
+                    dates
+                        .and_then(|dates| dates.death.clone())
+                        .unwrap_or_default()
+                },
+                death_place: if is_living {
+                    String::new()
+                } else {
+                    dates
+                        .and_then(|dates| dates.death_place.clone())
+                        .unwrap_or_default()
+                },
+                living: is_living,
+                facts,
+                parents: relatives(&connections.parents),
+                spouses: relatives(&connections.spouses),
+                children: relatives(&connections.children),
+                notes,
+                families: connections
+                    .families
+                    .iter()
+                    .map(|family| SiteLink {
+                        id: family.id.clone(),
+                        name: family.label.clone(),
+                    })
+                    .collect(),
+            });
+        }
+
+        let mut families = Vec::new();
+        let mut family_living = std::collections::HashSet::new();
+        for family in &self.tree.families {
+            let husband = family.husband_id.as_deref().and_then(&link);
+            let wife = family.wife_id.as_deref().and_then(&link);
+            let children: Vec<SiteLink> = self
+                .tree
+                .child_links
+                .iter()
+                .filter(|(family_id, _)| family_id == &family.id)
+                .filter_map(|(_, child_id)| link(child_id))
+                .collect();
+            if husband.is_none() && wife.is_none() && children.is_empty() {
+                continue;
+            }
+            let has_living = [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                .into_iter()
+                .flatten()
+                .any(|id| living.contains(id));
+            if has_living {
+                family_living.insert(family.id.as_str());
+            }
+            let label = match (&husband, &wife) {
+                (Some(husband), Some(wife)) => format!("{} & {}", husband.name, wife.name),
+                (Some(husband), None) => husband.name.clone(),
+                (None, Some(wife)) => wife.name.clone(),
+                (None, None) => "Family".to_string(),
+            };
+            let marriage = if has_living {
+                None
+            } else {
+                self.marriages.get(&family.id)
+            };
+            families.push(SiteFamily {
+                id: family.id.clone(),
+                label,
+                husband,
+                wife,
+                marriage_date: marriage
+                    .and_then(|marriage| marriage.date.clone())
+                    .unwrap_or_default(),
+                marriage_place: marriage
+                    .and_then(|marriage| marriage.place.clone())
+                    .unwrap_or_default(),
+                children,
+            });
+        }
+
+        let mut places = Vec::new();
+        for place in self.app.list_places()? {
+            let mut usages = Vec::new();
+            for usage in self
+                .app
+                .place_usage(&place.id, self.tree_settings.surname_first)?
+            {
+                let person = usage
+                    .person_id
+                    .as_deref()
+                    .filter(|id| !living.contains(*id))
+                    .and_then(&link);
+                let family = usage.family_id.as_deref().and_then(|id| {
+                    if family_living.contains(id) {
+                        return None;
+                    }
+                    families
+                        .iter()
+                        .find(|family| family.id == id)
+                        .map(|family| SiteLink {
+                            id: family.id.clone(),
+                            name: family.label.clone(),
+                        })
+                });
+                if person.is_none() && family.is_none() {
+                    continue;
+                }
+                usages.push(SiteUsage {
+                    label: usage.event_label.clone(),
+                    date: usage.date.clone().unwrap_or_default(),
+                    person,
+                    family,
+                });
+            }
+            places.push(SitePlace {
+                id: place.id.clone(),
+                name: place.name,
+                notes: place.notes,
+                coordinates: coordinates_text(place.latitude, place.longitude),
+                usages,
+            });
+        }
+
+        let sources: Vec<SiteSource> = self
+            .app
+            .list_source_overviews()?
+            .into_iter()
+            .map(|source| SiteSource {
+                id: source.id,
+                title: source.title,
+                author: source.author.unwrap_or_default(),
+                publication: source.publication.unwrap_or_default(),
+                citations: source.citation_count,
+                repositories: source.repositories,
+            })
+            .collect();
+
+        let mut repositories = Vec::new();
+        for repository in self.app.list_repositories()? {
+            let source_titles = self
+                .app
+                .load_repository(&repository.id)
+                .ok()
+                .flatten()
+                .map(|record| {
+                    record
+                        .links
+                        .into_iter()
+                        .map(|source_link| source_link.source_title)
+                        .collect()
+                })
+                .unwrap_or_default();
+            repositories.push(SiteRepository {
+                id: repository.id,
+                name: repository.name,
+                address: repository.address.unwrap_or_default(),
+                source_titles,
+            });
+        }
+
+        let mut media = Vec::new();
+        for item in self.app.list_media()? {
+            if item.missing {
+                continue;
+            }
+            let links = self
+                .app
+                .list_media_links(&item.id, self.tree_settings.surname_first)
+                .unwrap_or_default();
+            let allowed = links.is_empty()
+                || links.iter().any(|link| {
+                    link.owner_type == "person"
+                        && visible.contains(link.owner_id.as_str())
+                        && !living.contains(link.owner_id.as_str())
+                });
+            if !allowed {
+                continue;
+            }
+            let image = crate::db::media::is_image_path(&item.file_path, item.format.as_deref());
+            media.push(SiteMedia {
+                id: item.id,
+                source: item.resolved_path,
+                caption: item.caption.unwrap_or_default(),
+                format: item.format.unwrap_or_default(),
+                image,
+            });
+        }
+
+        let chart_svg = if include_chart
+            && root_id.is_some_and(|root| visible.contains(root) && !living.contains(root))
+        {
+            let root = root_id.expect("checked above");
+            let report = self.build_pedigree_report(root, 5, false)?;
+            let mut report = report;
+            report.people.retain(|person| {
+                !hidden.contains(person.person_id.as_str())
+                    && !living.contains(person.person_id.as_str())
+            });
+            crate::report::svg::standalone(&crate::report::pedigree::render_html(&report)).ok()
+        } else {
+            None
+        };
+
+        Ok(WebsiteReport {
+            title: title.to_string(),
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            people,
+            families,
+            places,
+            sources,
+            repositories,
+            media,
+            chart_svg,
         })
     }
 

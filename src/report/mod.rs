@@ -26,3 +26,4 @@ pub mod scrapbook;
 pub mod svg;
 pub mod timeline;
 pub mod wall_chart;
+pub mod website;

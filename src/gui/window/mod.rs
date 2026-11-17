@@ -67,6 +67,7 @@ use super::timeline;
 use super::wall_chart;
 use super::watchlist;
 use super::watchlist::PersonRow;
+use super::website_export;
 use crate::app::StemmaApp;
 use crate::app::UiStatus;
 use crate::config::AppConfig;
@@ -136,6 +137,7 @@ pub struct TreeWindow {
     pub(super) pedigree_chart: pedigree_chart::PedigreeChartState,
     pub(super) family_sheet: family_sheet::FamilySheetState,
     pub(super) family_book: family_book::FamilyBookState,
+    pub(super) website_export: website_export::WebsiteExportState,
     pub(super) individual_summary: individual_summary::IndividualSummaryState,
     pub(super) individual_list: individual_list::IndividualListState,
     pub(super) ahnentafel_list: ahnentafel_list::AhnentafelListState,
@@ -235,6 +237,7 @@ impl TreeWindow {
             pedigree_chart: pedigree_chart::PedigreeChartState::default(),
             family_sheet: family_sheet::FamilySheetState::default(),
             family_book: family_book::FamilyBookState::default(),
+            website_export: website_export::WebsiteExportState::default(),
             individual_summary: individual_summary::IndividualSummaryState::default(),
             individual_list: individual_list::IndividualListState::default(),
             ahnentafel_list: ahnentafel_list::AhnentafelListState::default(),
@@ -401,6 +404,7 @@ impl App for TreeWindow {
             self.show_pedigree_chart_window(ui.ctx());
             self.show_family_sheet_window(ui.ctx());
             self.show_family_book_window(ui.ctx());
+            self.show_website_export_window(ui.ctx());
             self.show_individual_summary_window(ui.ctx());
             self.show_individual_list_window(ui.ctx());
             self.show_ahnentafel_list_window(ui.ctx());
@@ -3344,6 +3348,73 @@ mod tests {
             .push(BookChapter::album("Missing", "missing"));
         assert!(window.build_book_report(&broken).is_err());
 
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    fn import_website(db_file: &Path) {
+        import_people(
+            db_file,
+            "0 HEAD\n1 CHAR UTF-8\n\
+             0 @I1@ INDI\n1 NAME Ada /King/\n1 SEX F\n1 BIRT\n2 DATE 1815\n2 PLAC London\n\
+             0 @I2@ INDI\n1 NAME John /Stone/\n1 SEX M\n1 BIRT\n2 DATE 1780\n\
+             0 @I3@ INDI\n1 NAME Bea /Stone/\n1 SEX F\n1 BIRT\n2 DATE 1840\n2 PLAC London\n\
+             0 @I4@ INDI\n1 NAME Living /Person/\n1 SEX U\n1 BIRT\n2 DATE 2000\n\
+             0 @I5@ INDI\n1 NAME Private /Person/\n1 SEX U\n1 BIRT\n2 DATE 1900\n\
+             0 @F1@ FAM\n1 HUSB @I2@\n1 WIFE @I1@\n1 CHIL @I3@\n\
+             0 TRLR\n",
+        );
+    }
+
+    #[test]
+    fn builds_static_website_with_privacy_and_chart() {
+        let db_file = temp_path("db");
+        import_website(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let ada = person_id_by_given(&window, "Ada");
+        let living = person_id_by_given(&window, "Living");
+        let private = person_id_by_given(&window, "Private");
+        window
+            .app
+            .set_person_private(&private, true)
+            .expect("private");
+
+        let report = window
+            .build_website_report("King site", Some(&ada), true)
+            .expect("website report");
+        assert_eq!(report.title, "King site");
+        assert_eq!(report.people.len(), 4, "private person omitted");
+        assert!(report.people.iter().all(|person| person.id != private));
+        let living_page = report
+            .people
+            .iter()
+            .find(|person| person.id == living)
+            .expect("living person");
+        assert!(living_page.living);
+        assert!(living_page.birth.is_empty());
+        assert!(living_page.facts.is_empty());
+        assert!(living_page.notes.is_none());
+        assert!(report.chart_svg.is_some());
+        assert!(
+            !report
+                .chart_svg
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Living")
+        );
+
+        let dir = std::env::temp_dir().join(format!("stemma-window-site-{}", uuid::Uuid::new_v4()));
+        let stats = crate::report::website::write_site(&dir, &report).expect("write site");
+        assert!(stats.pages >= 5);
+        let search = std::fs::read_to_string(dir.join("search-data.js")).expect("search");
+        assert!(search.contains("Ada King"));
+        assert!(search.contains("Living Person"));
+        assert!(!search.contains("Private Person"));
+        let chart = std::fs::read_to_string(dir.join("charts/pedigree.svg")).expect("chart");
+        assert!(!chart.contains("Living"));
+
+        let _ = std::fs::remove_dir_all(dir);
         let _ = std::fs::remove_file(&db_file);
     }
 

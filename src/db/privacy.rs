@@ -1,6 +1,6 @@
 //! Person/event privacy flags and conservative living detection.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -134,6 +134,61 @@ pub fn load_person_privacy(
         effective_living,
         events,
     }))
+}
+
+/// One person's privacy state for bulk exports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrivacySnapshot {
+    pub private: bool,
+    pub living: bool,
+}
+
+/// Loads privacy flags and effective living state for every person.
+pub fn load_privacy_snapshot(
+    conn: &Connection,
+    current_year: i32,
+    living_age: u32,
+) -> Result<HashMap<String, PrivacySnapshot>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT p.id, p.private, p.living_override,
+                    (SELECT COUNT(*) FROM events e
+                     WHERE e.person_id = p.id
+                       AND e.event_type IN ('DEATH', 'BURIAL', 'CREMATION')),
+                    (SELECT e.date FROM events e
+                     WHERE e.person_id = p.id AND e.event_type = 'BIRTH'
+                     ORDER BY e.rowid LIMIT 1)
+             FROM people p ORDER BY p.rowid",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            let private: i64 = row.get(1)?;
+            let living_override: Option<i64> = row.get(2)?;
+            let deaths: i64 = row.get(3)?;
+            let birth: Option<String> = row.get(4)?;
+            let living = match living_override {
+                Some(value) => value != 0,
+                None => {
+                    deaths == 0
+                        && birth
+                            .as_deref()
+                            .and_then(year_hint)
+                            .is_none_or(|year| year > current_year - living_age as i32)
+                }
+            };
+            Ok((
+                row.get::<_, String>(0)?,
+                PrivacySnapshot {
+                    private: private != 0,
+                    living,
+                },
+            ))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<HashMap<String, PrivacySnapshot>>>()
+        .map_err(|error| error.to_string())?;
+    Ok(rows)
 }
 
 /// Derives living status without considering the manual override.
@@ -333,6 +388,28 @@ mod tests {
         assert!(!privacy.effective_living);
         assert!(privacy.events[0].private);
         assert!(is_living(&conn, "p1", 2026, 110).is_ok());
+    }
+
+    #[test]
+    fn snapshots_cover_private_living_overrides_and_unknown_dates() {
+        let conn = connection();
+        person(&conn, "living");
+        event(&conn, "e1", "BIRTH", Some("2000"), "living");
+        person(&conn, "dead");
+        event(&conn, "e2", "BIRTH", Some("1900"), "dead");
+        person(&conn, "override");
+        event(&conn, "e3", "BIRTH", Some("2000"), "override");
+        set_living_override(&conn, "override", Some(false)).expect("override");
+        person(&conn, "unknown");
+        person(&conn, "private");
+        set_person_private(&conn, "private", true).expect("private");
+
+        let snapshot = load_privacy_snapshot(&conn, 2026, 110).expect("snapshot");
+        assert!(snapshot["living"].living);
+        assert!(!snapshot["dead"].living);
+        assert!(!snapshot["override"].living);
+        assert!(snapshot["unknown"].living);
+        assert!(snapshot["private"].private);
     }
 
     #[test]
