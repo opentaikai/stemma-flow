@@ -696,6 +696,12 @@ views (the app always launches on Graph View):
   **SVG…** button that saves the inline chart as a standalone SVG with its
   styles and embedded images. The main **Export…** button keeps using the
   global HTML/PDF format from Print Settings.
+- **Family History Books** — **Tools > Family History Book…** composes
+  multiple books per tree from text chapters, individual summaries, family
+  group sheets, person timelines, photo albums and group rosters. Chapters
+  can be reordered and exported as one cover-and-contents document in the
+  global HTML/PDF format, with duplicate report headers and page rules
+  trimmed for a unified book layout.
 - **Individual Reports** — **Tools > Individual Summary…** exports one
   person as printable HTML with a portrait, vital data, all facts, parents,
   spouses with marriage details, children and optional notes.
