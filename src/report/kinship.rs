@@ -122,8 +122,7 @@ pub fn write_html(path: &Path, report: &KinshipReport) -> Result<usize, String> 
         &report.tree_name,
         &report.generated_at,
     );
-    std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
-    Ok(html.len())
+    crate::report::output::write(path, &html)
 }
 
 fn event_cell(date: &str, place: &str) -> String {

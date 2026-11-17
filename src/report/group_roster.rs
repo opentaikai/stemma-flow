@@ -140,8 +140,7 @@ pub fn write_html(path: &Path, report: &GroupRosterReport) -> Result<usize, Stri
         &report.tree_name,
         &report.generated_at,
     );
-    std::fs::write(path, html.as_bytes()).map_err(|error| error.to_string())?;
-    Ok(html.len())
+    crate::report::output::write(path, &html)
 }
 
 fn escape_html(value: &str) -> String {

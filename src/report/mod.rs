@@ -14,6 +14,8 @@ pub mod individual_list;
 pub mod individual_summary;
 pub mod kinship;
 pub mod list_entry;
+pub mod output;
+pub mod pdf;
 pub mod pedigree;
 pub mod photo_tree;
 pub mod print;
