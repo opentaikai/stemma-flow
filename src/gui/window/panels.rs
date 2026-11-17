@@ -97,35 +97,6 @@ impl TreeWindow {
                 if let Some(value) = changed {
                     self.set_surname_first(value);
                 }
-                let items = self.bookmarks.clone();
-                let mut chosen = None;
-                let mut removed = None;
-                ui.menu_button(tr("bookmarks.menu"), |ui| {
-                    if items.is_empty() {
-                        ui.label(egui::RichText::new(tr("bookmarks.empty")).weak());
-                    }
-                    for bookmark in &items {
-                        ui.horizontal(|ui| {
-                            if ui.button(&bookmark.name).clicked() {
-                                chosen = Some(bookmark.person_id.clone());
-                                ui.close();
-                            }
-                            if ui
-                                .small_button("×")
-                                .on_hover_text(tr("bookmarks.remove"))
-                                .clicked()
-                            {
-                                removed = Some(bookmark.person_id.clone());
-                            }
-                        });
-                    }
-                });
-                if let Some(person_id) = chosen {
-                    self.focus_person(&person_id);
-                }
-                if let Some(person_id) = removed {
-                    self.remove_bookmark(&person_id);
-                }
             }
             ui.menu_button(tr("tools.menu"), |ui| {
                 if self.app.active_db().is_some()
@@ -195,140 +166,10 @@ impl TreeWindow {
                 }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
-                    && ui.button(tr("tools.photo_tree")).clicked()
-                {
-                    ui.close();
-                    self.open_photo_tree();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.scrapbook")).clicked()
-                {
-                    ui.close();
-                    self.open_scrapbook();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.pedigree_chart")).clicked()
-                {
-                    ui.close();
-                    self.open_pedigree_chart();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.fan_chart")).clicked()
-                {
-                    ui.close();
-                    self.open_fan_chart();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.hourglass_chart")).clicked()
-                {
-                    ui.close();
-                    self.open_hourglass_chart();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.wall_chart")).clicked()
-                {
-                    ui.close();
-                    self.open_wall_chart();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.ahnentafel_list")).clicked()
-                {
-                    ui.close();
-                    self.open_ahnentafel_list();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.descendant_list")).clicked()
-                {
-                    ui.close();
-                    self.open_descendant_list();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.family_sheet")).clicked()
-                {
-                    ui.close();
-                    self.open_family_sheet();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.individual_summary")).clicked()
-                {
-                    ui.close();
-                    self.open_individual_summary();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.family_book")).clicked()
-                {
-                    ui.close();
-                    self.open_family_book();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.website")).clicked()
-                {
-                    ui.close();
-                    self.open_website_export();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
                     && ui.button(tr("tools.share_bundle")).clicked()
                 {
                     ui.close();
                     self.open_share_bundle();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.individual_list")).clicked()
-                {
-                    ui.close();
-                    self.open_individual_list();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.kinship_report")).clicked()
-                {
-                    ui.close();
-                    self.open_kinship_report();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.calendar_reports")).clicked()
-                {
-                    ui.close();
-                    self.open_calendar_report();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.timeline")).clicked()
-                {
-                    ui.close();
-                    self.open_timeline();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.administrative_lists")).clicked()
-                {
-                    ui.close();
-                    self.open_administrative_lists();
-                }
-                if self.app.active_db().is_some()
-                    && !self.app.is_busy()
-                    && ui.button(tr("tools.cleanup_reports")).clicked()
-                {
-                    ui.close();
-                    self.open_cleanup_reports();
-                }
-                if ui.button(tr("tools.print_settings")).clicked() {
-                    ui.close();
-                    self.open_print_settings();
                 }
                 if self.app.active_db().is_some()
                     && !self.app.is_busy()
@@ -338,6 +179,124 @@ impl TreeWindow {
                     self.search_replace.open = true;
                 }
             });
+            ui.menu_button(tr("menu.reports"), |ui| {
+                let can_report = self.app.active_db().is_some() && !self.app.is_busy();
+                let report = |ui: &mut Ui, label: &str| {
+                    ui.add_enabled(can_report, egui::Button::new(label))
+                        .clicked()
+                };
+                if report(ui, &tr("tools.photo_tree")) {
+                    ui.close();
+                    self.open_photo_tree();
+                }
+                if report(ui, &tr("tools.scrapbook")) {
+                    ui.close();
+                    self.open_scrapbook();
+                }
+                ui.separator();
+                if report(ui, &tr("tools.pedigree_chart")) {
+                    ui.close();
+                    self.open_pedigree_chart();
+                }
+                if report(ui, &tr("tools.fan_chart")) {
+                    ui.close();
+                    self.open_fan_chart();
+                }
+                if report(ui, &tr("tools.hourglass_chart")) {
+                    ui.close();
+                    self.open_hourglass_chart();
+                }
+                if report(ui, &tr("tools.wall_chart")) {
+                    ui.close();
+                    self.open_wall_chart();
+                }
+                ui.separator();
+                if report(ui, &tr("tools.ahnentafel_list")) {
+                    ui.close();
+                    self.open_ahnentafel_list();
+                }
+                if report(ui, &tr("tools.descendant_list")) {
+                    ui.close();
+                    self.open_descendant_list();
+                }
+                if report(ui, &tr("tools.family_sheet")) {
+                    ui.close();
+                    self.open_family_sheet();
+                }
+                if report(ui, &tr("tools.individual_summary")) {
+                    ui.close();
+                    self.open_individual_summary();
+                }
+                if report(ui, &tr("tools.individual_list")) {
+                    ui.close();
+                    self.open_individual_list();
+                }
+                if report(ui, &tr("tools.kinship_report")) {
+                    ui.close();
+                    self.open_kinship_report();
+                }
+                if report(ui, &tr("tools.calendar_reports")) {
+                    ui.close();
+                    self.open_calendar_report();
+                }
+                if report(ui, &tr("tools.timeline")) {
+                    ui.close();
+                    self.open_timeline();
+                }
+                if report(ui, &tr("tools.administrative_lists")) {
+                    ui.close();
+                    self.open_administrative_lists();
+                }
+                if report(ui, &tr("tools.cleanup_reports")) {
+                    ui.close();
+                    self.open_cleanup_reports();
+                }
+                ui.separator();
+                if report(ui, &tr("tools.family_book")) {
+                    ui.close();
+                    self.open_family_book();
+                }
+                if report(ui, &tr("tools.website")) {
+                    ui.close();
+                    self.open_website_export();
+                }
+                ui.separator();
+                if ui.button(tr("tools.print_settings")).clicked() {
+                    ui.close();
+                    self.open_print_settings();
+                }
+            });
+            if self.app.active_db().is_some() {
+                let items = self.bookmarks.clone();
+                let mut chosen = None;
+                let mut removed = None;
+                ui.menu_button(tr("bookmarks.menu"), |ui| {
+                    if items.is_empty() {
+                        ui.label(egui::RichText::new(tr("bookmarks.empty")).weak());
+                    }
+                    for bookmark in &items {
+                        ui.horizontal(|ui| {
+                            if ui.button(&bookmark.name).clicked() {
+                                chosen = Some(bookmark.person_id.clone());
+                                ui.close();
+                            }
+                            if ui
+                                .small_button("×")
+                                .on_hover_text(tr("bookmarks.remove"))
+                                .clicked()
+                            {
+                                removed = Some(bookmark.person_id.clone());
+                            }
+                        });
+                    }
+                });
+                if let Some(person_id) = chosen {
+                    self.focus_person(&person_id);
+                }
+                if let Some(person_id) = removed {
+                    self.remove_bookmark(&person_id);
+                }
+            }
             if let Some(path) = self.app.active_db() {
                 let label = tr_args("menu.active_tree", &[("name", welcome::display_name(path))]);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

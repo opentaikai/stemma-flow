@@ -33,6 +33,7 @@ dark = "Dark"
 [menu]
 file = "File"
 view = "View"
+reports = "Reports"
 recent = "Recent"
 new_tree = "New Family Tree…"
 open_tree = "Open Tree…"

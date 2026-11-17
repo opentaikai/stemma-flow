@@ -33,6 +33,7 @@ dark = "Dunkel"
 [menu]
 file = "Datei"
 view = "Ansicht"
+reports = "Berichte"
 recent = "Zuletzt verwendet"
 new_tree = "Neuer Familienstammbaum…"
 open_tree = "Stammbaum öffnen…"
