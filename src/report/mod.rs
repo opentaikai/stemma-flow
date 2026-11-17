@@ -20,3 +20,4 @@ pub mod relationship;
 pub mod research_log;
 pub mod scrapbook;
 pub mod timeline;
+pub mod wall_chart;

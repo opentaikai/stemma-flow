@@ -177,7 +177,7 @@ Goal: turn research into shareable output.
 | Duplicate and missing-information reports | done | P2 | Scored duplicate pairs and open problem reports |
 | Fan charts | done | P1 | Radial ancestor chart with configurable span and start angle |
 | Hourglass and bow-tie charts | done | P2 | Vertical and horizontal combined ancestor/descendant charts |
-| Ancestor and descendant wall charts | planned | P2 | Large format and backgrounds |
+| Ancestor and descendant wall charts | done | P2 | A3–A0 wall charts with media backgrounds and dimming |
 | Print customisation: headers, footers, margins, fonts | planned | P2 | Per report |
 | Save reports as PDF, DOCX, XLSX, RTF, HTML, EPUB, Markdown | planned | P1 | Start with PDF and HTML |
 | Save charts as PDF or SVG | planned | P2 | Vector output |

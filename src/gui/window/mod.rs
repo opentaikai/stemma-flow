@@ -62,6 +62,7 @@ use super::sources;
 use super::tabs;
 use super::tasks;
 use super::timeline;
+use super::wall_chart;
 use super::watchlist;
 use super::watchlist::PersonRow;
 use crate::app::StemmaApp;
@@ -143,6 +144,7 @@ pub struct TreeWindow {
     pub(super) cleanup_report: cleanup_report::CleanupReportState,
     pub(super) fan_chart: fan_chart::FanChartState,
     pub(super) hourglass_chart: hourglass_chart::HourglassChartState,
+    pub(super) wall_chart: wall_chart::WallChartState,
     pub(super) event_editor: Option<event_editor::EventEditor>,
     pub(super) pedigree: pedigree::PedigreeState,
     pub(super) fact_types: fact_types::FactTypesState,
@@ -239,6 +241,7 @@ impl TreeWindow {
             cleanup_report: cleanup_report::CleanupReportState::default(),
             fan_chart: fan_chart::FanChartState::default(),
             hourglass_chart: hourglass_chart::HourglassChartState::default(),
+            wall_chart: wall_chart::WallChartState::default(),
             event_editor: None,
             pedigree: pedigree::PedigreeState::default(),
             fact_types: fact_types::FactTypesState::default(),
@@ -398,6 +401,7 @@ impl App for TreeWindow {
             self.show_cleanup_report_window(ui.ctx());
             self.show_fan_chart_window(ui.ctx());
             self.show_hourglass_chart_window(ui.ctx());
+            self.show_wall_chart_window(ui.ctx());
             self.show_event_editor(ui.ctx());
             self.show_relationship_calculator(ui.ctx());
             self.show_merge_window(ui.ctx());
@@ -3066,6 +3070,128 @@ mod tests {
                 .is_err()
         );
 
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn builds_wall_chart_reports_and_loads_background_media() {
+        use crate::report::wall_chart::{WallChartMode, WallOrientation, WallPageSize};
+        let db_file = temp_path("db");
+        import_hourglass(&db_file);
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let ada = person_id_by_given(&window, "Ada");
+
+        let ancestors = window
+            .build_wall_chart_report(
+                WallChartMode::Ancestors,
+                &ada,
+                3,
+                3,
+                WallPageSize::A2,
+                WallOrientation::Landscape,
+                None,
+                0.2,
+            )
+            .expect("ancestor wall chart");
+        assert_eq!(ancestors.mode, WallChartMode::Ancestors);
+        assert_eq!(ancestors.root_name, "Ada King");
+        assert_eq!(ancestors.generations, 3);
+        assert_eq!(ancestors.page_size, WallPageSize::A2);
+        assert_eq!(ancestors.orientation, WallOrientation::Landscape);
+        assert!(ancestors.background.is_none());
+        let ids: std::collections::HashSet<&str> = ancestors
+            .scene
+            .nodes
+            .iter()
+            .map(|node| node.person_id.as_str())
+            .collect();
+        for expected in ["Ada", "John", "Mary", "George"] {
+            let id = person_id_by_given(&window, expected);
+            assert!(ids.contains(id.as_str()), "missing {expected}");
+        }
+        assert!(
+            ancestors
+                .people
+                .iter()
+                .any(|person| person.birth_year == Some(1780))
+        );
+
+        let descendants = window
+            .build_wall_chart_report(
+                WallChartMode::Descendants,
+                &ada,
+                3,
+                3,
+                WallPageSize::A1,
+                WallOrientation::Portrait,
+                None,
+                0.2,
+            )
+            .expect("descendant wall chart");
+        assert_eq!(descendants.mode, WallChartMode::Descendants);
+        assert_eq!(descendants.page_size, WallPageSize::A1);
+        assert_eq!(descendants.orientation, WallOrientation::Portrait);
+        let ids: std::collections::HashSet<&str> = descendants
+            .scene
+            .nodes
+            .iter()
+            .map(|node| node.person_id.as_str())
+            .collect();
+        for expected in ["Ada", "Bo", "Bea"] {
+            let id = person_id_by_given(&window, expected);
+            assert!(ids.contains(id.as_str()), "missing {expected}");
+        }
+
+        let image = temp_path("png");
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 255]))
+            .save(&image)
+            .expect("png writes");
+        window
+            .app
+            .save_media(&crate::db::media::MediaDraft {
+                file_path: image.to_string_lossy().into_owned(),
+                caption: "Garden".to_string(),
+                ..crate::db::media::MediaDraft::default()
+            })
+            .expect("media");
+        window.open_wall_chart();
+        assert_eq!(window.wall_chart.media.len(), 1);
+        assert_eq!(window.wall_chart.media[0].label, "Garden");
+        assert_eq!(window.wall_chart.media[0].path, image);
+
+        let with_background = window
+            .build_wall_chart_report(
+                WallChartMode::Ancestors,
+                &ada,
+                3,
+                3,
+                WallPageSize::A0,
+                WallOrientation::Landscape,
+                Some(image.clone()),
+                0.35,
+            )
+            .expect("background wall chart");
+        assert_eq!(with_background.background.as_deref(), Some(image.as_path()));
+        assert!((with_background.background_opacity - 0.35).abs() < f64::EPSILON);
+
+        assert!(
+            window
+                .build_wall_chart_report(
+                    WallChartMode::Ancestors,
+                    "missing",
+                    3,
+                    3,
+                    WallPageSize::A2,
+                    WallOrientation::Landscape,
+                    None,
+                    0.2,
+                )
+                .is_err()
+        );
+
+        let _ = std::fs::remove_file(&image);
         let _ = std::fs::remove_file(&db_file);
     }
 
