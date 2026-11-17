@@ -16,6 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Stemma Flow",
         options,
         Box::new(|cc| {
+            egui_material_icons::initialize(&cc.egui_ctx);
             let app = StemmaApp::new();
             Ok(Box::new(TreeWindow::new(app, cc.storage)))
         }),
