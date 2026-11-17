@@ -26,10 +26,11 @@ pub enum ReportKind {
     FanChart,
     HourglassChart,
     WallChart,
+    FamilyHistoryBook,
 }
 
 impl ReportKind {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::GroupRoster,
         Self::ResearchLog,
         Self::PhotoTree,
@@ -49,6 +50,7 @@ impl ReportKind {
         Self::FanChart,
         Self::HourglassChart,
         Self::WallChart,
+        Self::FamilyHistoryBook,
     ];
 
     pub fn label(self) -> &'static str {
@@ -72,6 +74,7 @@ impl ReportKind {
             Self::FanChart => "Fan Chart",
             Self::HourglassChart => "Hourglass & Bow-tie",
             Self::WallChart => "Wall Charts",
+            Self::FamilyHistoryBook => "Family History Book",
         }
     }
 }
@@ -253,6 +256,6 @@ mod tests {
                 .is_some_and(|css| css.contains("serif"))
         );
         assert_eq!(PrintFont::Monospace.label(), "Monospace");
-        assert_eq!(ReportKind::ALL.len(), 19);
+        assert_eq!(ReportKind::ALL.len(), 20);
     }
 }

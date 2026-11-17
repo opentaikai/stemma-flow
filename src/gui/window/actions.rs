@@ -30,6 +30,7 @@ use crate::gui::dialogs;
 use crate::gui::event_editor::{self, EventEditorOutcome};
 use crate::gui::export_dialog;
 use crate::gui::fact_types::{self, FactTypesEvent};
+use crate::gui::family_book as family_book_ui;
 use crate::gui::family_sheet::{self as family_sheet_ui, FamilyChoice};
 use crate::gui::fan_chart as fan_chart_ui;
 use crate::gui::find_everywhere::{self as find_ui, FindEvent};
@@ -5146,6 +5147,212 @@ impl TreeWindow {
         }
     }
 
+    pub(super) fn open_family_book(&mut self) {
+        let books = match self.app.list_books() {
+            Ok(books) => books,
+            Err(message) => {
+                self.app.set_status(UiStatus::Error(message));
+                return;
+            }
+        };
+        let albums = match self.app.list_albums(self.tree_settings.surname_first) {
+            Ok(albums) => albums,
+            Err(message) => {
+                self.app.set_status(UiStatus::Error(message));
+                Vec::new()
+            }
+        };
+        let groups = match self.app.list_groups() {
+            Ok(groups) => groups,
+            Err(message) => {
+                self.app.set_status(UiStatus::Error(message));
+                Vec::new()
+            }
+        };
+        let families =
+            self.tree
+                .families
+                .iter()
+                .map(|family| {
+                    let partners: Vec<String> =
+                        [family.husband_id.as_deref(), family.wife_id.as_deref()]
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|id| {
+                                self.tree.people.iter().find(|person| person.id == id).map(
+                                    |person| {
+                                        inspector::person_label(
+                                            person,
+                                            self.tree_settings.surname_first,
+                                        )
+                                    },
+                                )
+                            })
+                            .collect();
+                    let label = if partners.is_empty() {
+                        "Family".to_string()
+                    } else {
+                        partners.join(" & ")
+                    };
+                    (family.id.clone(), label)
+                })
+                .collect();
+        self.family_book.open_with(books, albums, groups, families);
+    }
+
+    pub(super) fn show_family_book_window(&mut self, ctx: &egui::Context) {
+        if !self.family_book.open {
+            return;
+        }
+        if let Some(outcome) = family_book_ui::show(
+            ctx,
+            &mut self.family_book,
+            &self.tree.people,
+            self.tree_settings.surname_first,
+        ) {
+            if let Err(message) = self.app.save_books(&outcome.books) {
+                self.app.set_status(UiStatus::Error(message));
+                return;
+            }
+            match outcome.export {
+                Some(book) => match self.build_book_report(&book) {
+                    Ok(report) => self.app.begin_book_export(report),
+                    Err(message) => self.app.set_status(UiStatus::Error(message)),
+                },
+                None => self
+                    .app
+                    .set_status(UiStatus::Success("Books saved".to_string())),
+            }
+        }
+    }
+
+    pub(super) fn build_book_report(
+        &self,
+        book: &crate::model::book::BookDefinition,
+    ) -> Result<crate::report::book::BookReport, String> {
+        use crate::model::book::BookChapter;
+        use crate::report::book::{BookChapterContent, BookReport};
+        let albums = self.app.list_albums(self.tree_settings.surname_first)?;
+        let groups = self.app.list_groups()?;
+        let mut chapters = Vec::new();
+        for (index, chapter) in book.chapters.iter().enumerate() {
+            let (default_title, body, styles) = match chapter {
+                BookChapter::Text { body, .. } => (
+                    format!("Chapter {}", index + 1),
+                    text_chapter_html(body),
+                    String::new(),
+                ),
+                BookChapter::Person { person_id, .. } => {
+                    let report = self.build_individual_summary_report(person_id, true)?;
+                    let (body, styles) = crate::report::book::fragment(
+                        &crate::report::individual_summary::render_html(&report),
+                    );
+                    (report.name.clone(), body, styles)
+                }
+                BookChapter::Family { family_id, .. } => {
+                    let report = self.build_family_sheet_report(family_id)?;
+                    let (body, styles) = crate::report::book::fragment(
+                        &crate::report::family_group::render_html(&report),
+                    );
+                    (report.family_label.clone(), body, styles)
+                }
+                BookChapter::Timeline { person_id, .. } => {
+                    let report = self.build_timeline_report(
+                        crate::report::timeline::TimelineMode::Person,
+                        Some(person_id),
+                        None,
+                    )?;
+                    let (body, styles) = crate::report::book::fragment(
+                        &crate::report::timeline::render_html(&report),
+                    );
+                    (report.subject_name.clone(), body, styles)
+                }
+                BookChapter::Album { album_id, .. } => {
+                    let album = albums
+                        .iter()
+                        .find(|album| &album.id == album_id)
+                        .ok_or_else(|| format!("chapter {}: photo album not found", index + 1))?;
+                    let report = self.build_scrapbook_report(std::slice::from_ref(album_id))?;
+                    let (body, styles) = crate::report::book::fragment(
+                        &crate::report::scrapbook::render_html(&report),
+                    );
+                    (album.name.clone(), body, styles)
+                }
+                BookChapter::Group { group_id, .. } => {
+                    let group = groups
+                        .iter()
+                        .find(|group| &group.id == group_id)
+                        .ok_or_else(|| format!("chapter {}: group not found", index + 1))?;
+                    let report = self.build_group_roster_report(group_id)?;
+                    let (body, styles) = crate::report::book::fragment(
+                        &crate::report::group_roster::render_html(&report),
+                    );
+                    (group.name.clone(), body, styles)
+                }
+            };
+            let title = if chapter.title().trim().is_empty() {
+                default_title
+            } else {
+                chapter.title().trim().to_string()
+            };
+            chapters.push(BookChapterContent {
+                title,
+                body,
+                styles,
+            });
+        }
+        Ok(BookReport {
+            title: book.title.clone(),
+            subtitle: book.subtitle.clone(),
+            author: book.author.clone(),
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            chapters,
+        })
+    }
+
+    fn build_group_roster_report(
+        &self,
+        group_id: &str,
+    ) -> Result<crate::report::group_roster::GroupRosterReport, String> {
+        let groups = self.app.list_groups()?;
+        let group = groups
+            .iter()
+            .find(|group| group.id == group_id)
+            .ok_or_else(|| "group not found".to_string())?;
+        let members = match &group.rule {
+            Some(rule) => crate::gui::groups::rule_members(&self.rows, rule),
+            None => self
+                .app
+                .list_group_members(group_id, self.tree_settings.surname_first)?,
+        };
+        let members = members
+            .into_iter()
+            .map(|member| {
+                let row = self.rows.iter().find(|row| row.id == member.person_id);
+                crate::report::group_roster::GroupRosterMember {
+                    name: member.name,
+                    birth: row.and_then(|row| row.birth.clone()).unwrap_or_default(),
+                    death: row.and_then(|row| row.death.clone()).unwrap_or_default(),
+                    birth_place: row
+                        .and_then(|row| row.birth_place.clone())
+                        .unwrap_or_default(),
+                    death_place: row
+                        .and_then(|row| row.death_place.clone())
+                        .unwrap_or_default(),
+                }
+            })
+            .collect();
+        Ok(crate::report::group_roster::GroupRosterReport {
+            tree_name: self.tree_name(),
+            generated_at: crate::backup::timestamp_text().unwrap_or_else(|_| "unknown".to_string()),
+            group_name: group.name.clone(),
+            description: group.description.clone().unwrap_or_default(),
+            rule: group.rule.clone(),
+            members,
+        })
+    }
+
     fn tree_name(&self) -> String {
         self.app
             .active_db()
@@ -6009,4 +6216,17 @@ fn coordinates_text(latitude: Option<f64>, longitude: Option<f64>) -> String {
         (None, Some(longitude)) => format!("{longitude:.4}"),
         (None, None) => String::new(),
     }
+}
+
+fn text_chapter_html(body: &str) -> String {
+    body.split("\n\n")
+        .map(str::trim)
+        .filter(|paragraph| !paragraph.is_empty())
+        .map(|paragraph| {
+            format!(
+                "<p>{}</p>",
+                crate::report::html::escape_html(paragraph).replace('\n', "<br>")
+            )
+        })
+        .collect()
 }

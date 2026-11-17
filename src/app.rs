@@ -57,6 +57,7 @@ use crate::db::tasks::{
 use crate::gedcom::{ExportOptions, ImportReport, export_to_gedcom_with_bases};
 use crate::geocode;
 use crate::gui::dialogs;
+use crate::model::book::BookDefinition;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
 use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
 use crate::model::print_profile::PrintProfiles;
@@ -65,6 +66,7 @@ use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
 use crate::report::administrative::AdministrativeReport;
 use crate::report::ahnentafel_list::AhnentafelListReport;
+use crate::report::book::BookReport;
 use crate::report::calendar::CalendarReport;
 use crate::report::cleanup::CleanupReport;
 use crate::report::descendant_list::DescendantListReport;
@@ -209,6 +211,11 @@ pub enum JobEvent {
         path: PathBuf,
         bytes: usize,
     },
+    BookExported {
+        path: PathBuf,
+        bytes: usize,
+        chapters: usize,
+    },
     GeocodeProgress {
         done: usize,
         total: usize,
@@ -265,6 +272,7 @@ enum Job {
     FanChart(Box<FanChartReport>),
     CombinedChart(Box<CombinedChartReport>),
     WallChart(Box<WallChartReport>),
+    Book(Box<BookReport>),
     Svg {
         default_name: String,
         svg: String,
@@ -545,6 +553,11 @@ impl StemmaApp {
     /// Writes a standalone SVG chart on a worker thread.
     pub fn begin_svg_export(&mut self, default_name: String, svg: String) {
         self.begin(Job::Svg { default_name, svg }, self.active_db.clone());
+    }
+
+    /// Writes a print-ready family history book on a worker thread.
+    pub fn begin_book_export(&mut self, report: BookReport) {
+        self.begin(Job::Book(Box::new(report)), self.active_db.clone());
     }
 
     /// Starts a cache-first place geocoding batch.
@@ -987,6 +1000,20 @@ impl StemmaApp {
         group_store::delete_group(&conn, id)?;
         self.set_status(UiStatus::Success("Group deleted".to_string()));
         Ok(())
+    }
+
+    /// Lists the tree's saved family history books.
+    pub fn list_books(&self) -> Result<Vec<BookDefinition>, String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        settings_store::load_books(&conn)
+    }
+
+    /// Stores the tree's family history books.
+    pub fn save_books(&mut self, books: &[BookDefinition]) -> Result<(), String> {
+        let path = self.require_active_db()?;
+        let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+        settings_store::save_books(&conn, books)
     }
 
     /// Lists bookmarked people in insertion order.
@@ -1837,6 +1864,7 @@ impl StemmaApp {
             Job::CombinedChart(_) => "Choosing combined chart destination\u{2026}",
             Job::WallChart(_) => "Choosing wall chart destination\u{2026}",
             Job::Svg { .. } => "Choosing SVG destination\u{2026}",
+            Job::Book(_) => "Choosing book destination\u{2026}",
             Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
         });
         let (tx, rx) = channel();
@@ -2079,6 +2107,14 @@ impl StemmaApp {
             )),
             JobEvent::SvgExported { path, bytes } => UiStatus::Success(format!(
                 "Exported SVG chart ({bytes} bytes) to {}",
+                path.display()
+            )),
+            JobEvent::BookExported {
+                path,
+                bytes,
+                chapters,
+            } => UiStatus::Success(format!(
+                "Exported book with {chapters} chapters ({bytes} bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2735,6 +2771,28 @@ impl Job {
                                 path: dest,
                                 bytes,
                                 people: report.people.len(),
+                            }
+                        }
+                        Err(message) => JobEvent::Failed(message),
+                    },
+                }
+            }
+            Job::Book(report) => {
+                let timestamp = match backup::timestamp_suffix() {
+                    Ok(timestamp) => timestamp,
+                    Err(message) => return JobEvent::Failed(message),
+                };
+                let default_name = crate::report::book::file_name(&report.title, &timestamp);
+                let directory = db_path.as_deref().and_then(Path::parent);
+                match dialogs::prompt_report_path(&default_name, directory, report_format) {
+                    None => JobEvent::Cancelled,
+                    Some(dest) => match crate::report::book::write_html(&dest, &report) {
+                        Ok(bytes) => {
+                            let _ = open::that(&dest);
+                            JobEvent::BookExported {
+                                path: dest,
+                                bytes,
+                                chapters: report.chapters.len(),
                             }
                         }
                         Err(message) => JobEvent::Failed(message),
