@@ -414,8 +414,8 @@ No schema change is required.
 
 ## Bookmarks and navigation
 
-The top bar provides **←**/*Back*, **→**/*Forward*, a bookmark star and a
-**Bookmarks** menu. The same star is available in the person inspector and
+The system bar provides chevron **Back**/**Forward** buttons, a star
+bookmark toggle and a **Bookmarks** menu. The same star is available in the person inspector and
 pinned editor.
 
 - **History** keeps the last 50 selected people for the current session.
