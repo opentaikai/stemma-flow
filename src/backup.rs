@@ -161,26 +161,8 @@ pub fn backup_tree(db_path: &Path, dest: &Path) -> Result<BackupReport, String> 
 
 fn write_backup(db_path: &Path, dest: &Path, work: &Path) -> Result<BackupReport, String> {
     let snapshot_path = work.join(DATABASE_ENTRY);
-    let source = db::open_connection(db_path).map_err(|error| error.to_string())?;
-    let mut snapshot = Connection::open(&snapshot_path).map_err(|error| error.to_string())?;
-    {
-        let backup = rusqlite::backup::Backup::new(&source, &mut snapshot)
-            .map_err(|error| error.to_string())?;
-        backup
-            .run_to_completion(128, Duration::from_millis(1), None)
-            .map_err(|error| error.to_string())?;
-    }
-    snapshot
-        .execute_batch("PRAGMA journal_mode = DELETE;")
-        .map_err(|error| error.to_string())?;
-    drop(snapshot);
-    drop(source);
-
-    let schema_version: i64 = {
-        let conn = Connection::open(&snapshot_path).map_err(|error| error.to_string())?;
-        conn.query_row("PRAGMA user_version", [], |row| row.get(0))
-            .map_err(|error| error.to_string())?
-    };
+    snapshot_database(db_path, &snapshot_path)?;
+    let schema_version = schema_version(&snapshot_path)?;
 
     let media = media_rows(&snapshot_path)?;
     let mut archive_paths: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
@@ -341,7 +323,7 @@ fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<Sh
     let database_name = format!("{name}.db");
     let snapshot_path = directory.join(&database_name);
     snapshot_database(db_path, &snapshot_path)?;
-    let schema_version = share_schema_version(&snapshot_path)?;
+    let schema_version = schema_version(&snapshot_path)?;
     let media = copy_media(db_path, directory, media_rows(&snapshot_path)?)?;
     rewrite_media_paths(&snapshot_path, &media.rewritten_paths)?;
     write_share_manifest(directory, &database_name, schema_version, media.entries)?;
@@ -354,7 +336,7 @@ fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<Sh
     share_report(directory, &snapshot_path, media.included, media.missing)
 }
 
-fn share_schema_version(snapshot_path: &Path) -> Result<i64, String> {
+fn schema_version(snapshot_path: &Path) -> Result<i64, String> {
     let conn = Connection::open(snapshot_path).map_err(|error| error.to_string())?;
     conn.query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|error| error.to_string())
