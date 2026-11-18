@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -1919,17 +1919,31 @@ impl StemmaApp {
     ///
     /// Returns `true` when at least one event was applied.
     pub fn poll(&mut self) -> bool {
-        let events: Vec<JobEvent> = match &self.rx {
-            Some(rx) => rx.try_iter().collect(),
-            None => return false,
-        };
-        if events.is_empty() {
+        let Some(rx) = self.rx.take() else {
             return false;
+        };
+        let mut applied = false;
+        loop {
+            match rx.try_recv() {
+                Ok(event) => {
+                    self.apply_event(event);
+                    applied = true;
+                }
+                Err(TryRecvError::Empty) => {
+                    self.rx = Some(rx);
+                    return applied;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    if self.busy {
+                        self.apply_event(JobEvent::Failed(
+                            "Background job ended unexpectedly".to_string(),
+                        ));
+                        applied = true;
+                    }
+                    return applied;
+                }
+            }
         }
-        for event in events {
-            self.apply_event(event);
-        }
-        true
     }
 
     /// Applies a single job event to the presentation state.
@@ -3129,6 +3143,60 @@ mod tests {
         app.close_tree();
         assert_eq!(app.active_db(), None, "closing returns to the dashboard");
         assert_eq!(app.selected_person_id(), None, "closing clears selection");
+    }
+
+    #[test]
+    fn poll_recovers_from_a_crashed_background_job() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        let (tx, rx) = channel();
+        app.rx = Some(rx);
+        drop(tx);
+
+        assert!(app.poll(), "the failure updates the UI state");
+        assert!(!app.is_busy());
+        assert!(matches!(
+            app.status(),
+            UiStatus::Error(message) if message.contains("ended unexpectedly")
+        ));
+        assert!(app.rx.is_none(), "the dead receiver is dropped");
+        assert!(!app.poll(), "a cleared channel applies nothing");
+    }
+
+    #[test]
+    fn poll_clears_a_finished_channel_without_overwriting_success() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        let (tx, rx) = channel();
+        app.rx = Some(rx);
+        tx.send(JobEvent::Cancelled).expect("send terminal event");
+        drop(tx);
+
+        assert!(app.poll());
+        assert_eq!(app.status(), &UiStatus::Cancelled);
+        assert!(!app.is_busy());
+        assert!(app.rx.is_none(), "the finished receiver is dropped");
+    }
+
+    #[test]
+    fn poll_clears_geocode_state_when_a_running_job_disconnects() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        app.geocode_cancel = Some(Arc::new(AtomicBool::new(false)));
+        app.geocode_progress = Some((0, 2));
+        let (tx, rx) = channel();
+        app.rx = Some(rx);
+        drop(tx);
+
+        assert!(app.poll());
+        assert!(!app.is_busy());
+        assert_eq!(app.geocode_progress(), None);
+        assert!(app.geocode_cancel.is_none());
+        assert!(
+            app.take_geocode_report()
+                .is_some_and(|report| report.error.is_some()),
+            "the disconnected job reports an error"
+        );
     }
 
     #[test]
