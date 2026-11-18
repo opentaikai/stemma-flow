@@ -26,7 +26,7 @@ const DATABASE_ENTRY: &str = "tree.db";
 /// Marker stored in share-bundle manifests.
 pub const SHARE_FORMAT: &str = "stemma-flow-share";
 /// Current share-bundle manifest version.
-pub const SHARE_VERSION: u32 = 1;
+pub const SHARE_VERSION: u32 = 2;
 
 /// Summary of a completed backup.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -67,8 +67,10 @@ struct BackupManifest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ShareMediaEntry {
     id: String,
-    original_path: String,
-    #[serde(default)]
+    /// Original file name only; never a filesystem path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    file_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     bundle_path: Option<String>,
     missing: bool,
 }
@@ -339,8 +341,8 @@ fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<Sh
     fs::create_dir_all(&media_dir).map_err(|error| error.to_string())?;
     let mut archive_paths: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
     let mut entries = Vec::with_capacity(media.len());
-    let mut missing = BTreeSet::new();
-    let mut updated_paths: Vec<(String, String)> = Vec::new();
+    let mut missing: BTreeMap<PathBuf, String> = BTreeMap::new();
+    let mut rewritten_paths: Vec<(String, String)> = Vec::new();
     for (id, stored_path) in media {
         let resolved = resolve_media_path(db_path, &stored_path);
         let exists = resolved.is_file();
@@ -350,7 +352,9 @@ fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<Sh
             resolved.clone()
         };
         if !exists {
-            missing.insert(resolved.to_string_lossy().to_string());
+            missing.entry(resolved.clone()).or_insert_with(|| {
+                file_name_of(&stored_path).unwrap_or_else(|| "unknown media".to_string())
+            });
         }
         let bundle_path = match archive_paths.get(&key) {
             Some(path) => path.clone(),
@@ -375,20 +379,22 @@ fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<Sh
                 }
             }
         };
-        if let Some(path) = &bundle_path {
-            updated_paths.push((id.clone(), path.clone()));
-        }
+        let file_name = file_name_of(&stored_path);
+        let written_path = bundle_path
+            .clone()
+            .unwrap_or_else(|| missing_media_path(&id, &stored_path));
+        rewritten_paths.push((id.clone(), written_path));
         entries.push(ShareMediaEntry {
             id,
-            original_path: stored_path,
+            file_name,
             bundle_path,
             missing: !exists,
         });
     }
-    if !updated_paths.is_empty() {
+    if !rewritten_paths.is_empty() {
         let mut conn = Connection::open(&snapshot_path).map_err(|error| error.to_string())?;
         let tx = conn.transaction().map_err(|error| error.to_string())?;
-        for (id, path) in &updated_paths {
+        for (id, path) in &rewritten_paths {
             tx.execute(
                 "UPDATE media SET file_path = ?1 WHERE id = ?2",
                 params![path, id],
@@ -411,9 +417,9 @@ fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<Sh
     let manifest_text = toml::to_string_pretty(&manifest).map_err(|error| error.to_string())?;
     fs::write(directory.join("share-manifest.toml"), manifest_text)
         .map_err(|error| error.to_string())?;
-    let missing_paths = missing.into_iter().collect::<Vec<_>>();
+    let missing_paths = missing.into_values().collect::<Vec<_>>();
     let readme = format!(
-        "Stemma Flow family tree share\n=============================\n\nOpen \"{database_name}\" in Stemma Flow.\nKeep the \"media\" folder next to the database; its paths are relative.\n\nGenerated: {}\nMedia included: {}\nMedia missing: {}\n",
+        "Stemma Flow family tree share\n=============================\n\nOpen \"{database_name}\" in Stemma Flow.\nKeep the \"media\" folder next to the database; its paths are relative.\nMissing media stay in the database as relative \"missing/...\" placeholders.\n\nGenerated: {}\nMedia included: {}\nMedia missing: {}\n",
         timestamp_text()?,
         archive_paths.values().filter(|path| path.is_some()).count(),
         missing_paths.len()
@@ -428,6 +434,22 @@ fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<Sh
         media_included: archive_paths.values().filter(|path| path.is_some()).count(),
         media_missing: missing_paths,
     })
+}
+
+fn file_name_of(path: &str) -> Option<String> {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+}
+
+fn missing_media_path(id: &str, stored: &str) -> String {
+    let name = file_name_of(stored)
+        .as_deref()
+        .map(sanitize_filename)
+        .unwrap_or_else(|| "file".to_string());
+    format!("missing/{}_{}", sanitize_filename(id), name)
 }
 
 fn snapshot_database(db_path: &Path, dest: &Path) -> Result<(), String> {
@@ -777,9 +799,22 @@ mod tests {
         let readme = fs::read_to_string(report.path.join("README.txt")).expect("readme");
         assert!(readme.contains("Family_Tree.db"));
         assert!(readme.contains("Media included: 1"));
-        let manifest =
+        let manifest_text =
             fs::read_to_string(report.path.join("share-manifest.toml")).expect("manifest");
-        assert!(manifest.contains(SHARE_FORMAT));
+        assert!(manifest_text.contains(SHARE_FORMAT));
+        assert!(
+            !manifest_text.contains(dir.to_string_lossy().as_ref()),
+            "manifest stores no source paths"
+        );
+        assert!(!manifest_text.contains("original_path"));
+        let manifest: ShareManifest = toml::from_str(&manifest_text).expect("manifest parses");
+        assert_eq!(manifest.version, SHARE_VERSION);
+        assert_eq!(manifest.media.len(), 2);
+        for entry in &manifest.media {
+            assert!(!entry.missing);
+            assert_eq!(entry.file_name.as_deref(), Some("portrait.jpg"));
+            assert!(entry.bundle_path.is_some());
+        }
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -798,19 +833,167 @@ mod tests {
         fs::create_dir_all(&parent).expect("usb dir");
         let report = share_folder(&db_path, &parent, "Tree", "20260101").expect("share");
         assert_eq!(report.media_included, 0);
-        assert_eq!(report.media_missing.len(), 1);
+        assert_eq!(report.media_missing, vec!["missing.jpg".to_string()]);
         let conn = Connection::open(report.path.join("Tree.db")).expect("db");
         let stored: String = conn
             .query_row("SELECT file_path FROM media WHERE id = 'm1'", [], |row| {
                 row.get(0)
             })
             .expect("media");
-        assert_eq!(stored, "/definitely/missing.jpg");
+        assert_eq!(stored, "missing/m1_missing.jpg");
+        assert!(Path::new(&stored).is_relative());
+        let manifest_text =
+            fs::read_to_string(report.path.join("share-manifest.toml")).expect("manifest");
+        assert!(!manifest_text.contains("/definitely"));
+        assert!(!manifest_text.contains("original_path"));
+        let manifest: ShareManifest = toml::from_str(&manifest_text).expect("manifest parses");
+        assert_eq!(manifest.version, SHARE_VERSION);
+        let entry = manifest.media.first().expect("media entry");
+        assert_eq!(entry.file_name.as_deref(), Some("missing.jpg"));
+        assert!(entry.bundle_path.is_none());
+        assert!(entry.missing);
         assert!(
             share_folder(&db_path, &parent, "Tree", "20260101").is_err(),
             "existing bundle is not overwritten"
         );
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn share_bundles_do_not_leak_source_paths() {
+        let dir = temp_dir();
+        let db_path = dir.join("tree.db");
+        let source_dir = dir.join("Alice Private").join("Photos");
+        fs::create_dir_all(&source_dir).expect("source dir");
+        let included = source_dir.join("portrait.jpg");
+        fs::write(&included, b"portrait").expect("portrait");
+        let missing_absolute = source_dir.join("secret-location.jpg");
+        let conn = connection(&db_path);
+        conn.execute(
+            "INSERT INTO media (id, file_path) VALUES ('m1', ?1)",
+            params![included.to_string_lossy().to_string()],
+        )
+        .expect("included row");
+        conn.execute(
+            "INSERT INTO media (id, file_path) VALUES ('m2', ?1)",
+            params![missing_absolute.to_string_lossy().to_string()],
+        )
+        .expect("missing absolute row");
+        conn.execute(
+            "INSERT INTO media (id, file_path)
+             VALUES ('m3', 'private/album/secret.jpg')",
+            [],
+        )
+        .expect("missing relative row");
+        drop(conn);
+        let parent = dir.join("usb");
+        fs::create_dir_all(&parent).expect("usb dir");
+        let report = share_folder(&db_path, &parent, "Tree", "20260101").expect("share");
+        assert_eq!(report.media_included, 1);
+        assert_eq!(report.media_missing.len(), 2);
+        for name in &report.media_missing {
+            assert!(Path::new(name).is_relative(), "report holds display names");
+        }
+
+        let conn = Connection::open(report.path.join("Tree.db")).expect("bundled db");
+        let paths: Vec<String> = conn
+            .prepare("SELECT file_path FROM media ORDER BY id")
+            .expect("query")
+            .query_map([], |row| row.get(0))
+            .expect("rows")
+            .collect::<rusqlite::Result<_>>()
+            .expect("paths");
+        assert_eq!(paths.len(), 3);
+        for path in &paths {
+            assert!(Path::new(path).is_relative(), "{path} stays relative");
+            assert!(
+                !path.contains("Alice Private"),
+                "{path} hides the source tree"
+            );
+            assert!(
+                !path.contains("private/album"),
+                "{path} hides source folders"
+            );
+            assert!(
+                !Path::new(path)
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir)),
+                "{path} has no parent traversal"
+            );
+        }
+        assert_eq!(paths[1], "missing/m2_secret-location.jpg");
+        assert_eq!(paths[2], "missing/m3_secret.jpg");
+
+        let manifest_text =
+            fs::read_to_string(report.path.join("share-manifest.toml")).expect("manifest");
+        assert!(!manifest_text.contains("Alice Private"));
+        assert!(!manifest_text.contains(source_dir.to_string_lossy().as_ref()));
+        assert!(!manifest_text.contains("original_path"));
+        let manifest: ShareManifest = toml::from_str(&manifest_text).expect("manifest parses");
+        assert_eq!(manifest.version, SHARE_VERSION);
+        assert_eq!(manifest.media.len(), 3);
+        let included = manifest
+            .media
+            .iter()
+            .find(|entry| entry.id == "m1")
+            .expect("included entry");
+        assert_eq!(included.file_name.as_deref(), Some("portrait.jpg"));
+        assert!(
+            included
+                .bundle_path
+                .as_deref()
+                .is_some_and(|path| Path::new(path).is_relative())
+        );
+        let missing = manifest
+            .media
+            .iter()
+            .find(|entry| entry.id == "m2")
+            .expect("missing entry");
+        assert_eq!(missing.file_name.as_deref(), Some("secret-location.jpg"));
+        assert!(missing.bundle_path.is_none());
+        assert!(missing.missing);
+        let relative = manifest
+            .media
+            .iter()
+            .find(|entry| entry.id == "m3")
+            .expect("relative entry");
+        assert_eq!(relative.file_name.as_deref(), Some("secret.jpg"));
+        assert!(relative.bundle_path.is_none());
+        assert!(relative.missing);
+
+        let readme = fs::read_to_string(report.path.join("README.txt")).expect("readme");
+        assert!(!readme.contains("Alice Private"));
+        assert!(readme.contains("missing/..."));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn missing_media_placeholders_are_relative_and_sanitized() {
+        assert_eq!(
+            missing_media_path("m1", "/home/alice/Photos/portrait.jpg"),
+            "missing/m1_portrait.jpg"
+        );
+        assert_eq!(
+            missing_media_path("m2", "private/album/secret.jpg"),
+            "missing/m2_secret.jpg"
+        );
+        assert_eq!(
+            missing_media_path("m3", "portrait.jpg"),
+            "missing/m3_portrait.jpg"
+        );
+        assert_eq!(missing_media_path("m4", ""), "missing/m4_file");
+        for path in [
+            missing_media_path("m1", "/home/alice/Photos/portrait.jpg"),
+            missing_media_path("m2", "private/album/secret.jpg"),
+            missing_media_path("m4", ""),
+        ] {
+            assert!(Path::new(&path).is_relative());
+            assert!(
+                !Path::new(&path)
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir))
+            );
+        }
     }
 
     #[test]

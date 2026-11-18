@@ -183,7 +183,7 @@ Goal: turn research into shareable output.
 | Save charts as PDF or SVG | done | P2 | Standalone SVG export for all chart reports; PDF via the global format |
 | Family history books | done | P2 | Per-tree books with text and report chapters, cover and contents |
 | Static family website export | done | P2 | Folder site with search, pages, media and privacy; publishing left to the user |
-| USB or folder share bundle | done | P2 | Portable folder with tree snapshot, relative media, README and manifest |
+| USB or folder share bundle | done | P2 | Portable folder with tree snapshot, relative media and missing-media placeholders, README and a path-free manifest |
 | AI prompt builder | deferred | P2 | Optional, local prompt generation |
 
 ## M6 - Interoperability and integrations (P2, deferred)
