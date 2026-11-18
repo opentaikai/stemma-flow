@@ -1009,6 +1009,17 @@ it with `<html lang="…">`; the static website and individual summary use the
 catalogs. Other report writers still carry English labels and remain part of
 the ongoing localization work.
 
+The GUI audit reports hardcoded widget labels and runs as a blocking CI
+check:
+
+```bash
+python3 scripts/i18n_audit.py          # report only
+python3 scripts/i18n_audit.py --strict # CI guard
+```
+
+Add `// i18n-allow: reason` on a line only when the literal is technical,
+such as a stored code or an unlocalised symbol.
+
 Theme changes apply to the context immediately and persist to
 `<config_dir>/stemma-flow/config.toml` resolved with `dirs::config_dir()`
 (`~/.config/stemma-flow/config.toml` on Linux). The font-size slider stays
