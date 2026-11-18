@@ -1,5 +1,7 @@
 //! Descendant list export options.
 
+use crate::i18n::tr;
+
 use egui::{Context, RichText, Window};
 
 use crate::db::Person;
@@ -65,22 +67,20 @@ pub fn show(
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Descendant List")
+    Window::new(tr("descendant_list.title"))
         .id(egui::Id::unique("descendant_list_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new(
-                    "Export descendants as an indented list or a direct line to one person.",
-                )
-                .weak()
-                .small(),
+                RichText::new(tr("descendant_list.description"))
+                    .weak()
+                    .small(),
             );
             if people.is_empty() {
-                ui.label(RichText::new("No people are available.").weak());
-                if ui.button("Close").clicked() {
+                ui.label(RichText::new(tr("common.no_people")).weak());
+                if ui.button(tr("common.close")).clicked() {
                     state.open = false;
                 }
                 return;
@@ -90,7 +90,7 @@ pub fn show(
                 .as_deref()
                 .and_then(|id| people.iter().find(|person| person.id == id))
                 .map(|person| person_label(person, surname_first))
-                .unwrap_or_else(|| "Select a person".to_string());
+                .unwrap_or_else(|| tr("report_dialog.select_person").to_string());
             egui::ComboBox::from_id_salt("descendant_list_root")
                 .selected_text(current)
                 .show_ui(ui, |ui| {
@@ -107,28 +107,43 @@ pub fn show(
                 });
 
             ui.horizontal(|ui| {
-                ui.label("Layout");
-                ui.selectable_value(&mut state.mode, DescendantListMode::Indented, "Indented");
-                ui.selectable_value(&mut state.mode, DescendantListMode::Direct, "Direct line");
+                ui.label(tr("common.layout"));
+                ui.selectable_value(
+                    &mut state.mode,
+                    DescendantListMode::Indented,
+                    tr("report_dialog.indented"),
+                );
+                ui.selectable_value(
+                    &mut state.mode,
+                    DescendantListMode::Direct,
+                    tr("report_dialog.direct_line"),
+                );
             });
             ui.horizontal(|ui| {
-                ui.label("Numbering");
+                ui.label(tr("common.numbering"));
                 ui.selectable_value(
                     &mut state.numbering,
                     DescendantNumbering::DAboville,
-                    "d'Aboville",
+                    tr("report_dialog.d_aboville"),
                 );
-                ui.selectable_value(&mut state.numbering, DescendantNumbering::Henry, "Henry");
+                ui.selectable_value(
+                    &mut state.numbering,
+                    DescendantNumbering::Henry,
+                    tr("report_dialog.henry"),
+                );
             });
 
             match state.mode {
                 DescendantListMode::Indented => {
-                    ui.add(egui::Slider::new(&mut state.generations, 2..=7).text("Generations"));
+                    ui.add(
+                        egui::Slider::new(&mut state.generations, 2..=7)
+                            .text(tr("common.generations")),
+                    );
                 }
                 DescendantListMode::Direct => {
                     if targets.is_empty() {
                         state.target_id = None;
-                        ui.label(RichText::new("This person has no recorded descendants.").weak());
+                        ui.label(RichText::new(tr("descendant_list.no_descendants")).weak());
                     } else {
                         let valid = state
                             .target_id
@@ -142,7 +157,7 @@ pub fn show(
                             .as_deref()
                             .and_then(|id| targets.iter().find(|person| person.id == id))
                             .map(|person| person_label(person, surname_first))
-                            .unwrap_or_else(|| "Select a descendant".to_string());
+                            .unwrap_or_else(|| tr("report_dialog.select_descendant").to_string());
                         egui::ComboBox::from_id_salt("descendant_list_target")
                             .selected_text(target_label)
                             .show_ui(ui, |ui| {
@@ -170,7 +185,7 @@ pub fn show(
                 if ui
                     .add_enabled(
                         ready,
-                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("common.export")).strong()),
                     )
                     .clicked()
                     && let Some(root_id) = state.root_id.clone()
@@ -187,7 +202,7 @@ pub fn show(
                         },
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

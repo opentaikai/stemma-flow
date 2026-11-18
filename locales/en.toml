@@ -83,6 +83,32 @@ system = "System"
 light = "Light"
 dark = "Dark"
 
+export = "Export…"
+svg = "SVG…"
+generations = "Generations"
+layout = "Layout"
+numbering = "Numbering"
+span = "Span"
+start = "Start"
+top = "Top"
+right = "Right"
+bottom = "Bottom"
+left = "Left"
+chart = "Chart"
+page = "Page"
+background = "Background"
+portrait = "Portrait"
+format = "Format"
+orientation = "Orientation"
+paper = "Paper"
+include_notes = "Include notes"
+include_portraits = "Include portraits"
+select_all = "Select all"
+select_none = "Select none"
+no_people = "No people are available."
+no_albums = "No albums are available."
+no_families = "No families are available."
+no_groups = "No groups are available."
 remove = "Remove"
 confirm = "Confirm"
 [menu]
@@ -879,6 +905,149 @@ name_required = "Name *"
 colour = "Colour:"
 members = "Members ({count})"
 add_person = "Add person"
+
+[report_dialog]
+report = "Report"
+person = "Person"
+group = "Group"
+select_person = "Select a person"
+select_group = "Select a group"
+select_descendant = "Select a descendant"
+none = "None"
+ancestors = "Ancestors"
+descendants = "Descendants"
+indented = "Indented"
+direct_line = "Direct line"
+henry = "Henry"
+d_aboville = "d'Aboville"
+landscape = "Landscape"
+portrait = "Portrait"
+birthdays = "Birthdays"
+anniversaries = "Anniversaries"
+year_calendar = "Year calendar"
+year = "Year"
+timeline = "Timeline"
+
+[ahnentafel_list]
+title = "Ahnentafel List"
+description = "Export numbered ancestors with birth, death and marriage details."
+
+[individual_list]
+title = "Individual List"
+description = "Export the current People list as printable HTML, keeping its filter, sort order and columns."
+active_filter = "Active filter"
+empty = "The current list is empty."
+
+[individual_summary]
+title = "Individual Summary"
+description = "Export a printable summary with facts, parents, spouses and children."
+
+[descendant_list]
+title = "Descendant List"
+description = "Export descendants as an indented list or a direct line to one person."
+no_descendants = "This person has no recorded descendants."
+
+[pedigree_chart]
+title = "Pedigree Chart"
+description = "Export a printable ancestor chart with Ahnentafel numbers, dates and places."
+numbering_hint = "Root is 1; father 2n, mother 2n + 1."
+
+[fan_chart]
+title = "Fan Chart"
+description = "Export a radial ancestor chart with selectable span and rotation."
+full_circle_hint = "A full circle ignores the start angle."
+
+[wall_chart]
+title = "Wall Charts"
+description = "Export a large-format ancestor or descendant chart with an optional media background."
+no_media = "No image media available."
+
+[hourglass_chart]
+title = "Hourglass & Bow-tie"
+description = "Export a combined ancestor and descendant chart around one person."
+
+[photo_tree]
+title = "Photo Tree"
+description = "Export a printable ancestor chart with portraits."
+
+[scrapbook]
+title = "Scrapbook"
+description = "Export selected albums as printable scrapbook pages."
+selected = "{count} selected"
+photos = "{count} photos"
+
+[timeline_dialog]
+title = "Timeline Report"
+description = "Export birth, death, marriage and fact events in chronological order."
+
+[calendar_dialog]
+title = "Calendar Reports"
+description = "Export upcoming birthdays, marriage anniversaries or a full year calendar."
+birthdays_hint = "Birthdays in the next twelve months with the age reached."
+anniversaries_hint = "Marriage anniversaries in the next twelve months with the years reached."
+year_hint = "Twelve month grids with births, marriages and deaths."
+
+[cleanup_dialog]
+title = "Cleanup Reports"
+description = "Find possible duplicates or open missing-information problems for cleanup."
+
+[administrative_lists]
+title = "Lists & Statistics"
+description = "Export stored records and tree-wide counts as printable HTML."
+
+[family_sheet]
+title = "Family Group Sheet"
+description = "Export a printable sheet with spouses, parents, marriage, children and facts."
+
+[family_book]
+title = "Family History Book"
+description = "Compose a book from text and report chapters, then export it as HTML or PDF."
+new_book = "New book"
+no_books = "No books yet."
+title_field = "Title"
+subtitle = "Subtitle"
+author = "Author"
+chapters = "Chapters"
+add_chapter_hint = "Add a text or report chapter below."
+up = "Up"
+down = "Down"
+new_chapter = "New chapter"
+type = "Type"
+chapter_text_hint = "Chapter text"
+family = "Family"
+album = "Album"
+group = "Group"
+add_chapter = "Add chapter"
+select = "Select"
+kind_text = "Text"
+kind_person = "Individual summary"
+kind_family = "Family group sheet"
+kind_timeline = "Timeline"
+kind_album = "Photo album"
+kind_group = "Group roster"
+
+[website_export]
+title = "Static Website"
+description = "Write a folder of linked pages, search data and copied media. No hosting is included."
+site_title = "Site title"
+chart_root = "Chart root"
+no_chart = "No chart"
+include_chart = "Include pedigree chart"
+privacy_hint = "Private people are omitted. Living people keep their names but their dates, places, facts, notes and media are hidden."
+folder_hint = "The site is created in a new family-website-<timestamp> folder inside the chosen directory."
+export = "Export website…"
+
+[kinship_dialog]
+title = "Kinship Report"
+description = "Export every person with their relationship to a chosen subject."
+only_relatives = "Only relatives"
+
+[participants]
+title = "Witnesses"
+principal = "Principal: {name}"
+none = "No witnesses yet."
+add_person = "Add person"
+no_matches = "No matching people."
 
 [replace]
 title = "Search and Replace"

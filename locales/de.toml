@@ -83,6 +83,32 @@ system = "System"
 light = "Hell"
 dark = "Dunkel"
 
+export = "Exportieren…"
+svg = "SVG…"
+generations = "Generationen"
+layout = "Layout"
+numbering = "Nummerierung"
+span = "Spannweite"
+start = "Start"
+top = "Oben"
+right = "Rechts"
+bottom = "Unten"
+left = "Links"
+chart = "Diagramm"
+page = "Seite"
+background = "Hintergrund"
+portrait = "Porträt"
+format = "Format"
+orientation = "Ausrichtung"
+paper = "Papier"
+include_notes = "Notizen einschließen"
+include_portraits = "Porträts einschließen"
+select_all = "Alle auswählen"
+select_none = "Keine auswählen"
+no_people = "Keine Personen verfügbar."
+no_albums = "Keine Alben verfügbar."
+no_families = "Keine Familien verfügbar."
+no_groups = "Keine Gruppen verfügbar."
 remove = "Entfernen"
 confirm = "Bestätigen"
 [menu]
@@ -879,6 +905,149 @@ name_required = "Name *"
 colour = "Farbe:"
 members = "Mitglieder ({count})"
 add_person = "Person hinzufügen"
+
+[report_dialog]
+report = "Bericht"
+person = "Person"
+group = "Gruppe"
+select_person = "Person auswählen"
+select_group = "Gruppe auswählen"
+select_descendant = "Nachkommen auswählen"
+none = "Keine"
+ancestors = "Vorfahren"
+descendants = "Nachkommen"
+indented = "Eingerückt"
+direct_line = "Direkte Linie"
+henry = "Henry"
+d_aboville = "d'Aboville"
+landscape = "Querformat"
+portrait = "Hochformat"
+birthdays = "Geburtstage"
+anniversaries = "Jahrestage"
+year_calendar = "Jahreskalender"
+year = "Jahr"
+timeline = "Zeitleiste"
+
+[ahnentafel_list]
+title = "Ahnentafel-Liste"
+description = "Nummerierte Vorfahren mit Geburts-, Sterbe- und Heiratsdaten exportieren."
+
+[individual_list]
+title = "Personenliste"
+description = "Die aktuelle Personenliste als druckbares HTML exportieren, mit Filter, Sortierung und Spalten."
+active_filter = "Aktiver Filter"
+empty = "Die aktuelle Liste ist leer."
+
+[individual_summary]
+title = "Personenzusammenfassung"
+description = "Eine druckbare Zusammenfassung mit Fakten, Eltern, Ehepartnern und Kindern exportieren."
+
+[descendant_list]
+title = "Nachkommenliste"
+description = "Nachkommen als eingerückte Liste oder direkte Linie zu einer Person exportieren."
+no_descendants = "Für diese Person sind keine Nachkommen erfasst."
+
+[pedigree_chart]
+title = "Ahnentafel"
+description = "Ein druckbares Vorfahrendiagramm mit Ahnentafelnummern, Daten und Orten exportieren."
+numbering_hint = "Die Ausgangsperson ist 1; Vater 2n, Mutter 2n + 1."
+
+[fan_chart]
+title = "Fächerdiagramm"
+description = "Ein radiales Vorfahrendiagramm mit wählbarer Spannweite und Drehung exportieren."
+full_circle_hint = "Ein Vollkreis ignoriert den Startwinkel."
+
+[wall_chart]
+title = "Wanddiagramme"
+description = "Ein großformatiges Vorfahren- oder Nachkommendiagramm mit optionalem Medienhintergrund exportieren."
+no_media = "Keine Bildmedien verfügbar."
+
+[hourglass_chart]
+title = "Sanduhr & Fliege"
+description = "Ein kombiniertes Vorfahren- und Nachkommendiagramm um eine Person exportieren."
+
+[photo_tree]
+title = "Fotostammbaum"
+description = "Ein druckbares Vorfahrendiagramm mit Porträts exportieren."
+
+[scrapbook]
+title = "Sammelalbum"
+description = "Ausgewählte Alben als druckbare Sammelalbumseiten exportieren."
+selected = "{count} ausgewählt"
+photos = "{count} Fotos"
+
+[timeline_dialog]
+title = "Zeitleistenbericht"
+description = "Geburts-, Sterbe-, Heirats- und Faktenereignisse chronologisch exportieren."
+
+[calendar_dialog]
+title = "Kalenderberichte"
+description = "Kommende Geburtstage, Hochzeitstage oder einen Jahreskalender exportieren."
+birthdays_hint = "Geburtstage der nächsten zwölf Monate mit erreichtem Alter."
+anniversaries_hint = "Hochzeitstage der nächsten zwölf Monate mit erreichten Jahren."
+year_hint = "Zwölf Monatsraster mit Geburten, Heiraten und Sterbefällen."
+
+[cleanup_dialog]
+title = "Bereinigungsberichte"
+description = "Mögliche Duplikate oder offene fehlende Informationen zur Bereinigung finden."
+
+[administrative_lists]
+title = "Listen & Statistiken"
+description = "Gespeicherte Datensätze und stammbaumweite Zählungen als druckbares HTML exportieren."
+
+[family_sheet]
+title = "Familiengruppenblatt"
+description = "Ein druckbares Blatt mit Ehepartnern, Eltern, Heirat, Kindern und Fakten exportieren."
+
+[family_book]
+title = "Familienchronik"
+description = "Ein Buch aus Text- und Berichtskapiteln zusammenstellen und als HTML oder PDF exportieren."
+new_book = "Neues Buch"
+no_books = "Noch keine Bücher."
+title_field = "Titel"
+subtitle = "Untertitel"
+author = "Autor"
+chapters = "Kapitel"
+add_chapter_hint = "Fügen Sie unten ein Text- oder Berichtskapitel hinzu."
+up = "Nach oben"
+down = "Nach unten"
+new_chapter = "Neues Kapitel"
+type = "Typ"
+chapter_text_hint = "Kapiteltext"
+family = "Familie"
+album = "Album"
+group = "Gruppe"
+add_chapter = "Kapitel hinzufügen"
+select = "Auswählen"
+kind_text = "Text"
+kind_person = "Personenzusammenfassung"
+kind_family = "Familiengruppenblatt"
+kind_timeline = "Zeitleiste"
+kind_album = "Fotoalbum"
+kind_group = "Gruppenliste"
+
+[website_export]
+title = "Statische Website"
+description = "Einen Ordner mit verlinkten Seiten, Suchdaten und kopierten Medien schreiben. Kein Hosting enthalten."
+site_title = "Seitentitel"
+chart_root = "Diagramm-Ausgangsperson"
+no_chart = "Kein Diagramm"
+include_chart = "Ahnentafel einschließen"
+privacy_hint = "Private Personen werden ausgelassen. Lebende Personen behalten ihre Namen, aber Daten, Orte, Fakten, Notizen und Medien werden ausgeblendet."
+folder_hint = "Die Website wird in einem neuen Ordner family-website-<timestamp> im gewählten Verzeichnis erstellt."
+export = "Website exportieren…"
+
+[kinship_dialog]
+title = "Verwandtschaftsbericht"
+description = "Jede Person mit ihrer Beziehung zu einer gewählten Bezugsperson exportieren."
+only_relatives = "Nur Verwandte"
+
+[participants]
+title = "Zeugen"
+principal = "Hauptperson: {name}"
+none = "Noch keine Zeugen."
+add_person = "Person hinzufügen"
+no_matches = "Keine passenden Personen."
 
 [replace]
 title = "Suchen und Ersetzen"

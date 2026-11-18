@@ -1,5 +1,7 @@
 //! Wall chart export options.
 
+use crate::i18n::tr;
+
 use std::path::PathBuf;
 
 use egui::{Context, RichText, Window};
@@ -86,37 +88,39 @@ pub fn show(
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Wall Charts")
+    Window::new(tr("wall_chart.title"))
         .id(egui::Id::unique("wall_chart_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
-            ui.label(
-                RichText::new(
-                    "Export a large-format ancestor or descendant chart with an optional media background.",
-                )
-                .weak()
-                .small(),
-            );
+            ui.label(RichText::new(tr("wall_chart.description")).weak().small());
             if people.is_empty() {
-                ui.label(RichText::new("No people are available.").weak());
-                if ui.button("Close").clicked() {
+                ui.label(RichText::new(tr("common.no_people")).weak());
+                if ui.button(tr("common.close")).clicked() {
                     state.open = false;
                 }
                 return;
             }
             ui.horizontal(|ui| {
-                ui.label("Chart");
-                ui.selectable_value(&mut state.mode, WallChartMode::Ancestors, "Ancestors");
-                ui.selectable_value(&mut state.mode, WallChartMode::Descendants, "Descendants");
+                ui.label(tr("common.chart"));
+                ui.selectable_value(
+                    &mut state.mode,
+                    WallChartMode::Ancestors,
+                    tr("report_dialog.ancestors"),
+                );
+                ui.selectable_value(
+                    &mut state.mode,
+                    WallChartMode::Descendants,
+                    tr("report_dialog.descendants"),
+                );
             });
             let current = state
                 .root_id
                 .as_deref()
                 .and_then(|id| people.iter().find(|person| person.id == id))
                 .map(|person| person_label(person, surname_first))
-                .unwrap_or_else(|| "Select a person".to_string());
+                .unwrap_or_else(|| tr("report_dialog.select_person").to_string());
             egui::ComboBox::from_id_salt("wall_chart_root")
                 .selected_text(current)
                 .show_ui(ui, |ui| {
@@ -134,18 +138,18 @@ pub fn show(
                 WallChartMode::Ancestors => {
                     ui.add(
                         egui::Slider::new(&mut state.ancestor_generations, 3..=8)
-                            .text("Generations"),
+                            .text(tr("common.generations")),
                     );
                 }
                 WallChartMode::Descendants => {
                     ui.add(
                         egui::Slider::new(&mut state.descendant_generations, 2..=7)
-                            .text("Generations"),
+                            .text(tr("common.generations")),
                     );
                 }
             }
             ui.horizontal(|ui| {
-                ui.label("Page");
+                ui.label(tr("common.page"));
                 egui::ComboBox::from_id_salt("wall_chart_page")
                     .selected_text(state.page_size.label())
                     .show_ui(ui, |ui| {
@@ -161,16 +165,16 @@ pub fn show(
                 ui.selectable_value(
                     &mut state.orientation,
                     WallOrientation::Landscape,
-                    "Landscape",
+                    tr("report_dialog.landscape"),
                 );
                 ui.selectable_value(
                     &mut state.orientation,
                     WallOrientation::Portrait,
-                    "Portrait",
+                    tr("common.portrait"),
                 );
             });
             ui.horizontal(|ui| {
-                ui.label("Background");
+                ui.label(tr("common.background"));
                 let current = state
                     .background
                     .as_deref()
@@ -181,38 +185,38 @@ pub fn show(
                             .find(|choice| choice.path == path)
                             .map(|choice| choice.label.clone())
                     })
-                    .unwrap_or_else(|| "None".to_string());
+                    .unwrap_or_else(|| tr("report_dialog.none").to_string());
                 egui::ComboBox::from_id_salt("wall_chart_background")
                     .selected_text(current)
                     .show_ui(ui, |ui| {
                         if ui
-                            .selectable_label(state.background.is_none(), "None")
+                            .selectable_label(state.background.is_none(), tr("report_dialog.none"))
                             .clicked()
                         {
                             state.background = None;
                         }
                         for choice in &state.media {
-                            let selected = state.background.as_deref() == Some(choice.path.as_path());
+                            let selected =
+                                state.background.as_deref() == Some(choice.path.as_path());
                             if ui.selectable_label(selected, &choice.label).clicked() {
                                 state.background = Some(choice.path.clone());
                             }
                         }
                     });
                 if state.media.is_empty() {
-                    ui.label(RichText::new("No image media available.").weak().small());
+                    ui.label(RichText::new(tr("wall_chart.no_media")).weak().small());
                 }
             });
             if state.background.is_some() {
                 ui.add(
-                    egui::Slider::new(&mut state.background_opacity, 0.0..=100.0)
-                        .text("Opacity %"),
+                    egui::Slider::new(&mut state.background_opacity, 0.0..=100.0).text("Opacity %"),
                 );
             }
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
                         state.root_id.is_some(),
-                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("common.export")).strong()),
                     )
                     .clicked()
                     && let Some(root_id) = state.root_id.clone()
@@ -231,10 +235,7 @@ pub fn show(
                     });
                 }
                 if ui
-                    .add_enabled(
-                        state.root_id.is_some(),
-                        egui::Button::new("SVG\u{2026}"),
-                    )
+                    .add_enabled(state.root_id.is_some(), egui::Button::new(tr("common.svg")))
                     .clicked()
                     && let Some(root_id) = state.root_id.clone()
                 {
@@ -251,7 +252,7 @@ pub fn show(
                         svg: true,
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

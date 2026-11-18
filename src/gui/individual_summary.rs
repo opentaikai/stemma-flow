@@ -1,5 +1,7 @@
 //! Individual summary export options.
 
+use crate::i18n::tr;
+
 use egui::{Context, RichText, Window};
 
 use crate::db::Person;
@@ -49,22 +51,20 @@ pub fn show(
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Individual Summary")
+    Window::new(tr("individual_summary.title"))
         .id(egui::Id::unique("individual_summary_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new(
-                    "Export a printable summary with facts, parents, spouses and children.",
-                )
-                .weak()
-                .small(),
+                RichText::new(tr("individual_summary.description"))
+                    .weak()
+                    .small(),
             );
             if people.is_empty() {
-                ui.label(RichText::new("No people are available.").weak());
-                if ui.button("Close").clicked() {
+                ui.label(RichText::new(tr("common.no_people")).weak());
+                if ui.button(tr("common.close")).clicked() {
                     state.open = false;
                 }
                 return;
@@ -74,7 +74,7 @@ pub fn show(
                 .as_deref()
                 .and_then(|id| people.iter().find(|person| person.id == id))
                 .map(|person| person_label(person, surname_first))
-                .unwrap_or_else(|| "Select a person".to_string());
+                .unwrap_or_else(|| tr("report_dialog.select_person").to_string());
             egui::ComboBox::from_id_salt("individual_summary_person")
                 .selected_text(current)
                 .show_ui(ui, |ui| {
@@ -88,12 +88,12 @@ pub fn show(
                         }
                     }
                 });
-            ui.checkbox(&mut state.include_notes, "Include notes");
+            ui.checkbox(&mut state.include_notes, tr("common.include_notes"));
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
                         state.person_id.is_some(),
-                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("common.export")).strong()),
                     )
                     .clicked()
                     && let Some(person_id) = state.person_id.clone()
@@ -104,7 +104,7 @@ pub fn show(
                         include_notes: state.include_notes,
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

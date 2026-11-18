@@ -1,5 +1,7 @@
 //! Duplicate and missing-information report options.
 
+use crate::i18n::tr;
+
 use egui::{Context, RichText, Window};
 
 use crate::report::cleanup::CleanupMode;
@@ -24,21 +26,19 @@ pub fn show(ctx: &Context, state: &mut CleanupReportState) -> Option<CleanupMode
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Cleanup Reports")
+    Window::new(tr("cleanup_dialog.title"))
         .id(egui::Id::unique("cleanup_report_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new(
-                    "Find possible duplicates or open missing-information problems for cleanup.",
-                )
-                .weak()
-                .small(),
+                RichText::new(tr("cleanup_dialog.description"))
+                    .weak()
+                    .small(),
             );
             ui.horizontal(|ui| {
-                ui.label("Report");
+                ui.label(tr("report_dialog.report"));
                 ui.selectable_value(&mut state.mode, CleanupMode::Duplicates, "Duplicates");
                 ui.selectable_value(
                     &mut state.mode,
@@ -57,13 +57,15 @@ pub fn show(ctx: &Context, state: &mut CleanupReportState) -> Option<CleanupMode
             ui.label(RichText::new(description).weak().small());
             ui.horizontal(|ui| {
                 if ui
-                    .add(egui::Button::new(RichText::new("Export\u{2026}").strong()))
+                    .add(egui::Button::new(
+                        RichText::new(tr("common.export")).strong(),
+                    ))
                     .clicked()
                 {
                     state.open = false;
                     event = Some(state.mode);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

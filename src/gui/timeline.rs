@@ -1,5 +1,7 @@
 //! Timeline report export options.
 
+use crate::i18n::tr;
+
 use egui::{Context, RichText, Window};
 
 use crate::db::Person;
@@ -46,35 +48,41 @@ pub fn show(
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Timeline Report")
+    Window::new(tr("timeline_dialog.title"))
         .id(egui::Id::unique("timeline_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new(
-                    "Export birth, death, marriage and fact events in chronological order.",
-                )
-                .weak()
-                .small(),
+                RichText::new(tr("timeline_dialog.description"))
+                    .weak()
+                    .small(),
             );
             ui.horizontal(|ui| {
-                ui.label("Timeline");
-                ui.selectable_value(&mut state.mode, TimelineMode::Person, "Person");
-                ui.selectable_value(&mut state.mode, TimelineMode::Group, "Group");
+                ui.label(tr("report_dialog.timeline"));
+                ui.selectable_value(
+                    &mut state.mode,
+                    TimelineMode::Person,
+                    tr("report_dialog.person"),
+                );
+                ui.selectable_value(
+                    &mut state.mode,
+                    TimelineMode::Group,
+                    tr("report_dialog.group"),
+                );
             });
             match state.mode {
                 TimelineMode::Person => {
                     if people.is_empty() {
-                        ui.label(RichText::new("No people are available.").weak());
+                        ui.label(RichText::new(tr("common.no_people")).weak());
                     } else {
                         let current = state
                             .person_id
                             .as_deref()
                             .and_then(|id| people.iter().find(|person| person.id == id))
                             .map(|person| person_label(person, surname_first))
-                            .unwrap_or_else(|| "Select a person".to_string());
+                            .unwrap_or_else(|| tr("report_dialog.select_person").to_string());
                         egui::ComboBox::from_id_salt("timeline_person")
                             .selected_text(current)
                             .show_ui(ui, |ui| {
@@ -96,14 +104,14 @@ pub fn show(
                 }
                 TimelineMode::Group => {
                     if state.groups.is_empty() {
-                        ui.label(RichText::new("No groups are available.").weak());
+                        ui.label(RichText::new(tr("common.no_groups")).weak());
                     } else {
                         let current = state
                             .group_id
                             .as_deref()
                             .and_then(|id| state.groups.iter().find(|group| group.id == id))
                             .map(|group| format!("{} ({} people)", group.name, group.member_count))
-                            .unwrap_or_else(|| "Select a group".to_string());
+                            .unwrap_or_else(|| tr("report_dialog.select_group").to_string());
                         egui::ComboBox::from_id_salt("timeline_group")
                             .selected_text(current)
                             .show_ui(ui, |ui| {
@@ -135,7 +143,7 @@ pub fn show(
                 if ui
                     .add_enabled(
                         ready,
-                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("common.export")).strong()),
                     )
                     .clicked()
                 {
@@ -152,7 +160,7 @@ pub fn show(
                         },
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

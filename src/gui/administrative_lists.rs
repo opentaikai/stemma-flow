@@ -1,5 +1,7 @@
 //! Administrative list and statistics export options.
 
+use crate::i18n::tr;
+
 use egui::{Context, RichText, Window};
 
 use crate::report::administrative::AdministrativeMode;
@@ -24,19 +26,19 @@ pub fn show(ctx: &Context, state: &mut AdministrativeListsState) -> Option<Admin
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Lists & Statistics")
+    Window::new(tr("administrative_lists.title"))
         .id(egui::Id::unique("administrative_lists_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new("Export stored records and tree-wide counts as printable HTML.")
+                RichText::new(tr("administrative_lists.description"))
                     .weak()
                     .small(),
             );
             ui.horizontal(|ui| {
-                ui.label("Report");
+                ui.label(tr("report_dialog.report"));
                 ui.selectable_value(&mut state.mode, AdministrativeMode::Places, "Places");
                 ui.selectable_value(&mut state.mode, AdministrativeMode::Sources, "Sources");
                 ui.selectable_value(
@@ -65,13 +67,15 @@ pub fn show(ctx: &Context, state: &mut AdministrativeListsState) -> Option<Admin
             ui.label(RichText::new(description).weak().small());
             ui.horizontal(|ui| {
                 if ui
-                    .add(egui::Button::new(RichText::new("Export\u{2026}").strong()))
+                    .add(egui::Button::new(
+                        RichText::new(tr("common.export")).strong(),
+                    ))
                     .clicked()
                 {
                     state.open = false;
                     event = Some(state.mode);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

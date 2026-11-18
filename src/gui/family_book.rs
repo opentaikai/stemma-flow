@@ -6,6 +6,7 @@ use crate::db::Person;
 use crate::db::albums::AlbumSummary;
 use crate::db::groups::GroupSummary;
 use crate::gui::inspector::person_label;
+use crate::i18n::tr;
 use crate::model::book::{BookChapter, BookDefinition};
 
 /// Chapter type selected in the editor form.
@@ -23,14 +24,25 @@ pub enum ChapterKind {
 impl ChapterKind {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Text => "Text",
-            Self::Person => "Individual summary",
-            Self::Family => "Family group sheet",
-            Self::Timeline => "Timeline",
-            Self::Album => "Photo album",
-            Self::Group => "Group roster",
+            Self::Text => "family_book.kind_text",
+            Self::Person => "family_book.kind_person",
+            Self::Family => "family_book.kind_family",
+            Self::Timeline => "family_book.kind_timeline",
+            Self::Album => "family_book.kind_album",
+            Self::Group => "family_book.kind_group",
         }
     }
+}
+
+fn chapter_kind_label(chapter: &BookChapter) -> String {
+    tr(match chapter {
+        BookChapter::Text { .. } => "family_book.kind_text",
+        BookChapter::Person { .. } => "family_book.kind_person",
+        BookChapter::Family { .. } => "family_book.kind_family",
+        BookChapter::Timeline { .. } => "family_book.kind_timeline",
+        BookChapter::Album { .. } => "family_book.kind_album",
+        BookChapter::Group { .. } => "family_book.kind_group",
+    })
 }
 
 /// State owned by the family history book editor.
@@ -302,30 +314,27 @@ pub fn show(
     }
     let mut open = true;
     let mut outcome = None;
-    Window::new("Family History Book")
+    Window::new(tr("family_book.title"))
         .id(egui::Id::unique("family_book_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(860.0)
         .open(&mut open)
         .show(ctx, |ui| {
-            ui.label(
-                RichText::new(
-                    "Compose a book from text and report chapters, then export it as HTML or PDF.",
-                )
-                .weak()
-                .small(),
-            );
+            ui.label(RichText::new(tr("family_book.description")).weak().small());
             ui.separator();
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(220.0);
                     ui.horizontal(|ui| {
-                        if ui.button("New book").clicked() {
+                        if ui.button(tr("family_book.new_book")).clicked() {
                             state.new_book();
                         }
                         if ui
-                            .add_enabled(state.selected.is_some(), egui::Button::new("Delete"))
+                            .add_enabled(
+                                state.selected.is_some(),
+                                egui::Button::new(tr("common.delete")),
+                            )
                             .clicked()
                         {
                             state.delete_book();
@@ -336,7 +345,7 @@ pub fn show(
                         .max_height(360.0)
                         .show(ui, |ui| {
                             if state.books.is_empty() {
-                                ui.label(RichText::new("No books yet.").weak().small());
+                                ui.label(RichText::new(tr("family_book.no_books")).weak().small());
                             }
                             let selected = state.selected.clone();
                             let mut pick = None;
@@ -362,26 +371,24 @@ pub fn show(
                         .num_columns(2)
                         .spacing([10.0, 6.0])
                         .show(ui, |ui| {
-                            ui.label("Title");
+                            ui.label(tr("family_book.title_field"));
                             ui.text_edit_singleline(&mut state.draft.title);
                             ui.end_row();
-                            ui.label("Subtitle");
+                            ui.label(tr("family_book.subtitle"));
                             ui.text_edit_singleline(&mut state.draft.subtitle);
                             ui.end_row();
-                            ui.label("Author");
+                            ui.label(tr("family_book.author"));
                             ui.text_edit_singleline(&mut state.draft.author);
                             ui.end_row();
                         });
                     ui.separator();
-                    ui.label(RichText::new("Chapters").strong());
+                    ui.label(RichText::new(tr("family_book.chapters")).strong());
                     egui::ScrollArea::vertical()
                         .id_salt("book_chapters")
                         .max_height(200.0)
                         .show(ui, |ui| {
                             if state.draft.chapters.is_empty() {
-                                ui.label(
-                                    RichText::new("Add a text or report chapter below.").weak(),
-                                );
+                                ui.label(RichText::new(tr("family_book.add_chapter_hint")).weak());
                             }
                             let selected = state.chapter_selected.clone();
                             let mut pick = None;
@@ -393,7 +400,7 @@ pub fn show(
                                             "{}. {} ({})",
                                             index + 1,
                                             chapter.title(),
-                                            chapter.kind_label()
+                                            chapter_kind_label(chapter)
                                         ),
                                     )
                                     .clicked()
@@ -407,7 +414,10 @@ pub fn show(
                         });
                     ui.horizontal(|ui| {
                         if ui
-                            .add_enabled(state.chapter_selected.is_some(), egui::Button::new("Up"))
+                            .add_enabled(
+                                state.chapter_selected.is_some(),
+                                egui::Button::new(tr("family_book.up")),
+                            )
                             .clicked()
                         {
                             state.move_chapter(-1);
@@ -415,7 +425,7 @@ pub fn show(
                         if ui
                             .add_enabled(
                                 state.chapter_selected.is_some(),
-                                egui::Button::new("Down"),
+                                egui::Button::new(tr("family_book.down")),
                             )
                             .clicked()
                         {
@@ -424,19 +434,19 @@ pub fn show(
                         if ui
                             .add_enabled(
                                 state.chapter_selected.is_some(),
-                                egui::Button::new("Remove"),
+                                egui::Button::new(tr("common.remove")),
                             )
                             .clicked()
                         {
                             state.remove_chapter();
                         }
-                        if ui.button("New chapter").clicked() {
+                        if ui.button(tr("family_book.new_chapter")).clicked() {
                             state.reset_chapter();
                         }
                     });
                     ui.separator();
                     ui.horizontal(|ui| {
-                        ui.label("Type");
+                        ui.label(tr("family_book.type"));
                         egui::ComboBox::from_id_salt("book_chapter_kind")
                             .selected_text(state.chapter_kind.label())
                             .show_ui(ui, |ui| {
@@ -455,7 +465,7 @@ pub fn show(
                                     );
                                 }
                             });
-                        ui.label("Title");
+                        ui.label(tr("family_book.title_field"));
                         ui.text_edit_singleline(&mut state.chapter_title);
                     });
                     match state.chapter_kind {
@@ -464,13 +474,13 @@ pub fn show(
                                 egui::TextEdit::multiline(&mut state.chapter_body)
                                     .desired_rows(5)
                                     .desired_width(f32::INFINITY)
-                                    .hint_text("Chapter text"),
+                                    .hint_text(tr("family_book.chapter_text_hint")),
                             );
                         }
                         ChapterKind::Person => {
                             person_picker(
                                 ui,
-                                "Person",
+                                &tr("report_dialog.person"),
                                 people,
                                 surname_first,
                                 &mut state.chapter_person,
@@ -479,14 +489,19 @@ pub fn show(
                         ChapterKind::Timeline => {
                             person_picker(
                                 ui,
-                                "Person",
+                                &tr("report_dialog.person"),
                                 people,
                                 surname_first,
                                 &mut state.chapter_person,
                             );
                         }
                         ChapterKind::Family => {
-                            choice_picker(ui, "Family", &state.families, &mut state.chapter_family);
+                            choice_picker(
+                                ui,
+                                &tr("family_book.family"),
+                                &state.families,
+                                &mut state.chapter_family,
+                            );
                         }
                         ChapterKind::Album => {
                             let choices: Vec<(String, String)> = state
@@ -494,7 +509,12 @@ pub fn show(
                                 .iter()
                                 .map(|album| (album.id.clone(), album.name.clone()))
                                 .collect();
-                            choice_picker(ui, "Album", &choices, &mut state.chapter_album);
+                            choice_picker(
+                                ui,
+                                &tr("family_book.album"),
+                                &choices,
+                                &mut state.chapter_album,
+                            );
                         }
                         ChapterKind::Group => {
                             let choices: Vec<(String, String)> = state
@@ -502,19 +522,24 @@ pub fn show(
                                 .iter()
                                 .map(|group| (group.id.clone(), group.name.clone()))
                                 .collect();
-                            choice_picker(ui, "Group", &choices, &mut state.chapter_group);
+                            choice_picker(
+                                ui,
+                                &tr("family_book.group"),
+                                &choices,
+                                &mut state.chapter_group,
+                            );
                         }
                     }
                     if let Some(error) = &state.error {
                         ui.label(RichText::new(error).color(ui.visuals().error_fg_color));
                     }
-                    if ui.button("Add chapter").clicked() {
+                    if ui.button(tr("family_book.add_chapter")).clicked() {
                         state.save_chapter();
                     }
                     ui.separator();
                     ui.horizontal(|ui| {
                         if ui
-                            .add(egui::Button::new(RichText::new("Save").strong()))
+                            .add(egui::Button::new(RichText::new(tr("common.save")).strong()))
                             .clicked()
                         {
                             state.store_draft();
@@ -527,7 +552,7 @@ pub fn show(
                         if ui
                             .add_enabled(
                                 state.selected.is_some(),
-                                egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                                egui::Button::new(RichText::new(tr("common.export")).strong()),
                             )
                             .clicked()
                         {
@@ -538,7 +563,7 @@ pub fn show(
                                 export: Some(state.draft.clone()),
                             });
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr("common.cancel")).clicked() {
                             state.open = false;
                         }
                     });
@@ -564,7 +589,7 @@ fn person_picker(
             .as_deref()
             .and_then(|id| people.iter().find(|person| person.id == id))
             .map(|person| person_label(person, surname_first))
-            .unwrap_or_else(|| "Select".to_string());
+            .unwrap_or_else(|| tr("family_book.select"));
         egui::ComboBox::from_id_salt(format!("book_{label}"))
             .selected_text(current)
             .show_ui(ui, |ui| {
@@ -593,7 +618,7 @@ fn choice_picker(
             .as_deref()
             .and_then(|id| choices.iter().find(|(choice, _)| choice == id))
             .map(|(_, name)| name.clone())
-            .unwrap_or_else(|| "Select".to_string());
+            .unwrap_or_else(|| tr("family_book.select"));
         egui::ComboBox::from_id_salt(format!("book_{label}"))
             .selected_text(current)
             .show_ui(ui, |ui| {
