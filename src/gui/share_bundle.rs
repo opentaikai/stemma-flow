@@ -2,6 +2,8 @@
 
 use egui::{Context, RichText, Window};
 
+use crate::i18n::tr;
+
 /// State owned by the share bundle dialog.
 #[derive(Debug, Clone, Default)]
 pub struct ShareBundleState {
@@ -23,51 +25,33 @@ pub fn show(ctx: &Context, state: &mut ShareBundleState) -> Option<String> {
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Share Bundle")
+    Window::new(tr("share_bundle.title"))
         .id(egui::Id::unique("share_bundle_window"))
         .collapsible(false)
         .resizable(false)
         .default_width(520.0)
         .open(&mut open)
         .show(ctx, |ui| {
-            ui.label(
-                RichText::new(
-                    "Copy the complete tree and its media into a portable folder for USB drives or another machine.",
-                )
-                .weak()
-                .small(),
-            );
+            ui.label(RichText::new(tr("share_bundle.intro")).weak().small());
             ui.horizontal(|ui| {
-                ui.label("Bundle name");
+                ui.label(tr("share_bundle.name_label"));
                 ui.text_edit_singleline(&mut state.name);
             });
-            ui.label(
-                RichText::new(
-                    "A <name>-share-<timestamp> folder is created inside the chosen directory. Media paths inside the bundled database are relative to that folder.",
-                )
-                .weak()
-                .small(),
-            );
-            ui.label(
-                RichText::new(
-                    "The complete tree is included, including private and living people. Share the folder only with trusted recipients.",
-                )
-                .weak()
-                .small(),
-            );
+            ui.label(RichText::new(tr("share_bundle.folder_hint")).weak().small());
+            ui.label(RichText::new(tr("share_bundle.privacy")).weak().small());
             ui.horizontal(|ui| {
                 let name = state.name.trim();
                 if ui
                     .add_enabled(
                         !name.is_empty(),
-                        egui::Button::new(RichText::new("Create bundle\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("share_bundle.create")).strong()),
                     )
                     .clicked()
                 {
                     state.open = false;
                     event = Some(name.to_string());
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

@@ -872,3 +872,11 @@ cached = "zwischengespeichert"
 use_place = "Im Ortseditor verwenden"
 show_map = "Auf der Karte anzeigen"
 attribution = "Suche über OpenStreetMap Nominatim. Daten © OpenStreetMap-Mitwirkende, ODbL."
+
+[share_bundle]
+title = "Freigabepaket"
+intro = "Kopiert den kompletten Stammbaum und seine Medien in einen portablen Ordner für USB-Laufwerke oder einen anderen Rechner."
+name_label = "Paketname"
+folder_hint = "Im gewählten Verzeichnis wird ein Ordner <name>-share-<timestamp> erstellt. Die Medienpfade in der gebündelten Datenbank sind relativ zu diesem Ordner."
+privacy = "Der komplette Stammbaum wird eingebunden, einschließlich privater und lebender Personen. Geben Sie den Ordner nur an vertrauenswürdige Empfänger weiter."
+create = "Paket erstellen…"

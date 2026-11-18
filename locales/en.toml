@@ -872,3 +872,11 @@ cached = "cached"
 use_place = "Use in place editor"
 show_map = "Show on map"
 attribution = "Search by OpenStreetMap Nominatim. Data © OpenStreetMap contributors, ODbL."
+
+[share_bundle]
+title = "Share Bundle"
+intro = "Copy the complete tree and its media into a portable folder for USB drives or another machine."
+name_label = "Bundle name"
+folder_hint = "A <name>-share-<timestamp> folder is created inside the chosen directory. Media paths inside the bundled database are relative to that folder."
+privacy = "The complete tree is included, including private and living people. Share the folder only with trusted recipients."
+create = "Create bundle…"
