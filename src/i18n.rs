@@ -174,10 +174,17 @@ pub fn tr_args(key: &str, args: &[(&str, String)]) -> String {
     text
 }
 
+/// Resolves a plural key and replaces additional placeholders.
+pub fn trn_args(key: &str, count: i64, args: &[(&str, String)]) -> String {
+    let suffix = if count == 1 { "one" } else { "other" };
+    let mut values = args.to_vec();
+    values.push(("count", count.to_string()));
+    tr_args(&format!("{key}_{suffix}"), &values)
+}
+
 /// Resolves a plural key (`key_one` or `key_other`).
 pub fn trn(key: &str, count: i64) -> String {
-    let suffix = if count == 1 { "one" } else { "other" };
-    tr_args(&format!("{key}_{suffix}"), &[("count", count.to_string())])
+    trn_args(key, count, &[])
 }
 
 /// Parses the locale from a TOML file; used by catalog tests.
@@ -250,6 +257,10 @@ pub(crate) mod tests {
         );
         assert_eq!(trn("media.links", 1), "1 link");
         assert_eq!(trn("media.links", 2), "2 links");
+        assert_eq!(
+            trn_args("status.coordinates_updated", 2, &[]),
+            "Updated coordinates for 2 places"
+        );
     }
 
     #[test]
