@@ -5883,7 +5883,7 @@ impl TreeWindow {
         self.sync_citations();
         self.sync_alternate_names();
         self.sync_associations();
-        let Some(person_id) = self.app.selected_person_id().map(str::to_string) else {
+        let Some(person_id) = self.app.selected_person_id() else {
             return;
         };
         let person = self
@@ -5893,41 +5893,43 @@ impl TreeWindow {
             .find(|person| person.id == person_id);
         let mut connections = inspector::connections(
             &self.tree,
-            &person_id,
+            person_id,
             &self.marriages,
             self.tree_settings.surname_first,
         );
         if self.config.reverse_place_names {
             inspector::reverse_marriage_places(&mut connections);
         }
-        let associations = self.associations.clone();
-        let root_relationship = self.root_relationship(&person_id);
-        let is_root = self.tree_settings.root_person_id.as_deref() == Some(person_id.as_str());
+        let associations = &self.associations;
+        let root_relationship = self.root_relationship(person_id);
+        let is_root = self.tree_settings.root_person_id.as_deref() == Some(person_id);
         let facts = self
             .person_facts
-            .get(&person_id)
-            .cloned()
-            .unwrap_or_default();
+            .get(person_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
         let bookmarked = self.selected_is_bookmarked();
-        if let Some(action) = inspector::show(
+        let action = inspector::show(
             ui,
             person,
             &mut self.inspector,
-            self.dates.get(&person_id),
+            self.dates.get(person_id),
             connections,
-            &associations,
+            associations,
             &[],
             &[],
             bookmarked,
             &mut self.citations,
-            &facts,
+            facts,
             self.person_privacy.as_ref(),
             &mut self.names,
             root_relationship.as_deref(),
             is_root,
             self.tree_settings.surname_first,
             false,
-        ) {
+        );
+        if let Some(action) = action {
+            let person_id = person_id.to_string();
             self.apply_inspector_action(action, &person_id);
         }
     }
