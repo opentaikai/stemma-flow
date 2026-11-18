@@ -574,6 +574,9 @@ from = "Von"
 associate = "Assoziierte Person"
 relationship = "Beziehung"
 
+edit_title = "Assoziation bearbeiten — {name}"
+add_title = "Assoziation hinzufügen"
+relationship_hint = "Freund, Kollege, Nachbar…"
 [relationship]
 root = "Wurzel"
 husband = "Ehemann"
@@ -1043,6 +1046,7 @@ description = "Jede Person mit ihrer Beziehung zu einer gewählten Bezugsperson 
 only_relatives = "Nur Verwandte"
 
 [participants]
+roles_hint = "Fügen Sie Rollen für diesen Faktentyp unter Faktentypen hinzu, bevor Sie Zeugen ergänzen."
 title = "Zeugen"
 principal = "Hauptperson: {name}"
 none = "Noch keine Zeugen."
@@ -1107,6 +1111,43 @@ no_linked_sources = "Keine verknüpften Quellen."
 title = "Personenzusammenfassung"
 vital_data = "Lebensdaten"
 no_facts = "Keine weiteren Fakten erfasst."
+
+[notes]
+add = "+ Notiz hinzufügen"
+empty = "Noch keine Notizen."
+text_hint = "Notiztext…"
+save = "Notiz speichern"
+
+[media_repair]
+title = "Fehlende Medien reparieren"
+all_present = "Alle Mediendateien sind vorhanden."
+missing_one = "{count} Mediendatei fehlt."
+missing_other = "{count} Mediendateien fehlen."
+refresh = "Aktualisieren"
+search_folder = "Ordner durchsuchen…"
+scanning = "Wird durchsucht…"
+filter_hint = "Nach Beschriftung oder Pfad filtern…"
+missing_badge = "FEHLT"
+locate = "Suchen…"
+resolved = "Aufgelöst: {path}"
+folder_matches = "Ordnerübereinstimmungen"
+apply_selected = "Auswahl anwenden"
+summary = "{unique} eindeutig, {ambiguous} mehrdeutig, {unmatched} nicht gefunden"
+
+[print_settings]
+title = "Druckeinstellungen"
+description = "Kopf- und Fußzeilen, Ränder und Schriften für jeden druckbaren Bericht anpassen."
+report = "Bericht"
+save_format = "Speicherformat"
+pdf_hint = "PDF-Export benötigt Chromium, Chrome, Edge oder wkhtmltopdf; andernfalls HTML exportieren und im Browser als PDF drucken."
+header = "Kopfzeile"
+footer = "Fußzeile"
+margin = "Rand"
+override = "Überschreiben"
+font = "Schrift"
+body_size = "Textgröße"
+placeholders = "Platzhalter: {report}, {tree} und {date}. Leere Felder behalten die Berichtsstandards."
+reset = "Diesen Bericht zurücksetzen"
 
 [replace]
 title = "Suchen und Ersetzen"

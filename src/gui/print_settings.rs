@@ -2,6 +2,7 @@
 
 use egui::{Context, RichText, Window};
 
+use crate::i18n::tr;
 use crate::model::print_profile::{PrintFont, PrintProfile, PrintProfiles, ReportKind};
 use crate::model::report_format::ReportFormat;
 
@@ -110,7 +111,7 @@ pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintSettin
     }
     let mut open = true;
     let mut saved = None;
-    Window::new("Print Settings")
+    Window::new(tr("print_settings.title"))
         .id(egui::Id::unique("print_settings_window"))
         .collapsible(false)
         .resizable(false)
@@ -118,14 +119,12 @@ pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintSettin
         .open(&mut open)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new(
-                    "Customize headers, footers, margins and fonts for each printable report.",
-                )
-                .weak()
-                .small(),
+                RichText::new(tr("print_settings.description"))
+                    .weak()
+                    .small(),
             );
             ui.horizontal(|ui| {
-                ui.label("Report");
+                ui.label(tr("print_settings.report"));
                 egui::ComboBox::from_id_salt("print_settings_report")
                     .selected_text(state.selected.label())
                     .show_ui(ui, |ui| {
@@ -140,39 +139,33 @@ pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintSettin
                     });
             });
             ui.horizontal(|ui| {
-                ui.label("Save format");
+                ui.label(tr("print_settings.save_format"));
                 ui.selectable_value(&mut state.report_format, ReportFormat::Html, "HTML");
                 ui.selectable_value(&mut state.report_format, ReportFormat::Pdf, "PDF");
             });
-            ui.label(
-                RichText::new(
-                    "PDF export needs Chromium, Chrome, Edge or wkhtmltopdf; otherwise export HTML and print to PDF.",
-                )
-                .weak()
-                .small(),
-            );
+            ui.label(RichText::new(tr("print_settings.pdf_hint")).weak().small());
             ui.separator();
             egui::Grid::new("print_settings_fields")
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("Header");
+                    ui.label(tr("print_settings.header"));
                     ui.add(
                         egui::TextEdit::singleline(&mut state.header)
                             .hint_text("{report} \u{00b7} {tree}"),
                     );
                     ui.end_row();
 
-                    ui.label("Footer");
+                    ui.label(tr("print_settings.footer"));
                     ui.add(
                         egui::TextEdit::singleline(&mut state.footer)
                             .hint_text("{date} \u{00b7} {report}"),
                     );
                     ui.end_row();
 
-                    ui.label("Margin");
+                    ui.label(tr("print_settings.margin"));
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut state.margin_override, "Override");
+                        ui.checkbox(&mut state.margin_override, tr("print_settings.override"));
                         ui.add_enabled(
                             state.margin_override,
                             egui::DragValue::new(&mut state.margin_mm)
@@ -183,7 +176,7 @@ pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintSettin
                     });
                     ui.end_row();
 
-                    ui.label("Font");
+                    ui.label(tr("print_settings.font"));
                     egui::ComboBox::from_id_salt("print_settings_font")
                         .selected_text(state.font.label())
                         .show_ui(ui, |ui| {
@@ -198,9 +191,9 @@ pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintSettin
                         });
                     ui.end_row();
 
-                    ui.label("Body size");
+                    ui.label(tr("print_settings.body_size"));
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut state.font_size_override, "Override");
+                        ui.checkbox(&mut state.font_size_override, tr("print_settings.override"));
                         ui.add_enabled(
                             state.font_size_override,
                             egui::DragValue::new(&mut state.font_size_pt)
@@ -212,19 +205,17 @@ pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintSettin
                     ui.end_row();
                 });
             ui.label(
-                RichText::new(
-                    "Placeholders: {report}, {tree} and {date}. Empty fields keep the report defaults.",
-                )
-                .weak()
-                .small(),
+                RichText::new(tr("print_settings.placeholders"))
+                    .weak()
+                    .small(),
             );
             ui.horizontal(|ui| {
-                if ui.button("Reset this report").clicked() {
+                if ui.button(tr("print_settings.reset")).clicked() {
                     state.profiles.reset(state.selected);
                     state.load_selected();
                 }
                 if ui
-                    .add(egui::Button::new(RichText::new("Save").strong()))
+                    .add(egui::Button::new(RichText::new(tr("common.save")).strong()))
                     .clicked()
                 {
                     state.commit_current();
@@ -234,7 +225,7 @@ pub fn show(ctx: &Context, state: &mut PrintSettingsState) -> Option<PrintSettin
                         report_format: state.report_format,
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

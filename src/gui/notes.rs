@@ -2,6 +2,8 @@
 
 use egui::{Context, RichText, Ui};
 
+use crate::i18n::tr;
+
 use crate::db::notes::{Note, NoteOwner};
 
 /// What the notes dialog asks the shell to persist.
@@ -73,7 +75,7 @@ pub fn show(ctx: &Context, state: &mut NotesState) -> Option<NotesOutcome> {
         .show(ctx, |ui| {
             notes_list(ui, state, &mut outcome);
             ui.separator();
-            if !state.adding && state.editing.is_none() && ui.button("+ Add note").clicked() {
+            if !state.adding && state.editing.is_none() && ui.button(tr("notes.add")).clicked() {
                 state.begin_add();
             }
             if state.adding || state.editing.is_some() {
@@ -97,7 +99,7 @@ pub fn show(ctx: &Context, state: &mut NotesState) -> Option<NotesOutcome> {
 
 fn notes_list(ui: &mut Ui, state: &mut NotesState, outcome: &mut Option<NotesOutcome>) {
     if state.notes.is_empty() {
-        ui.label(RichText::new("No notes yet.").weak().small());
+        ui.label(RichText::new(tr("notes.empty")).weak().small());
         return;
     }
     let mut edit = None;
@@ -109,10 +111,10 @@ fn notes_list(ui: &mut Ui, state: &mut NotesState, outcome: &mut Option<NotesOut
                     ui.label(RichText::new(&note.body).small());
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    if ui.small_button("Delete").clicked() {
+                    if ui.small_button(tr("common.delete")).clicked() {
                         delete = Some(note.id.clone());
                     }
-                    if ui.small_button("Edit").clicked() {
+                    if ui.small_button(tr("common.edit")).clicked() {
                         edit = Some(note.id.clone());
                     }
                 });
@@ -134,14 +136,14 @@ fn note_editor(ui: &mut Ui, state: &mut NotesState, outcome: &mut Option<NotesOu
         egui::TextEdit::multiline(&mut state.draft)
             .desired_rows(6)
             .desired_width(f32::INFINITY)
-            .hint_text("Note text…"),
+            .hint_text(tr("notes.text_hint")),
     );
     let valid = !state.draft.trim().is_empty();
     ui.horizontal(|ui| {
         if ui
             .add_enabled(
                 valid,
-                egui::Button::new(RichText::new("Save note").strong()),
+                egui::Button::new(RichText::new(tr("notes.save")).strong()),
             )
             .clicked()
         {
@@ -150,7 +152,7 @@ fn note_editor(ui: &mut Ui, state: &mut NotesState, outcome: &mut Option<NotesOu
                 body: state.draft.trim().to_string(),
             });
         }
-        if ui.button("Cancel").clicked() {
+        if ui.button(tr("common.cancel")).clicked() {
             state.finish_edit();
         }
     });

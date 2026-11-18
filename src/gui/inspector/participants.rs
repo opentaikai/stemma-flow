@@ -125,11 +125,9 @@ pub fn show(
             ui.separator();
             if form.roles.is_empty() {
                 ui.label(
-                    RichText::new(
-                        "Add roles for this fact type in Fact Types before adding witnesses.",
-                    )
-                    .color(ui.visuals().warn_fg_color)
-                    .small(),
+                    RichText::new(tr("participants.roles_hint"))
+                        .color(ui.visuals().warn_fg_color)
+                        .small(),
                 );
             } else {
                 ui.label(RichText::new(tr("participants.add_person")).strong());
