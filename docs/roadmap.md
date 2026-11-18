@@ -47,6 +47,7 @@ Priority:
 | Date validation and canonical GEDCOM dates | done | P0 | GEDCOM plus ISO input |
 | First-or-last-name requirement on manual saves | done | P0 | Drafts may exist until named |
 | Theme and font scaling settings | done | P2 | Persisted config |
+| Localized interface (English/German) | partial | P2 | Core editors, status messages and chart/report dialogs localized; generated report HTML and some utility dialogs pending |
 | Background import and export jobs | done | P1 | UI stays responsive |
 | Sources and citations | partial | P0 | Source and citation editors, reusable citations and source merge |
 | Facts and events | partial | P0 | Read-only facts with witness editing; generic editor pending |

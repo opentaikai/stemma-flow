@@ -1,5 +1,7 @@
 //! Scrapbook export options.
 
+use crate::i18n::{tr, tr_args};
+
 use std::collections::HashSet;
 
 use egui::{Context, RichText, Window};
@@ -29,36 +31,35 @@ pub fn show(ctx: &Context, state: &mut ScrapbookState) -> Option<Vec<String>> {
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Scrapbook")
+    Window::new(tr("scrapbook.title"))
         .id(egui::Id::unique("scrapbook_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(460.0)
         .open(&mut open)
         .show(ctx, |ui| {
-            ui.label(
-                RichText::new("Export selected albums as printable scrapbook pages.")
-                    .weak()
-                    .small(),
-            );
+            ui.label(RichText::new(tr("scrapbook.description")).weak().small());
             if state.albums.is_empty() {
-                ui.label(RichText::new("No albums are available.").weak());
-                if ui.button("Close").clicked() {
+                ui.label(RichText::new(tr("common.no_albums")).weak());
+                if ui.button(tr("common.close")).clicked() {
                     state.open = false;
                 }
                 return;
             }
             ui.horizontal(|ui| {
-                if ui.button("Select all").clicked() {
+                if ui.button(tr("common.select_all")).clicked() {
                     state.selected = state.albums.iter().map(|album| album.id.clone()).collect();
                 }
-                if ui.button("Select none").clicked() {
+                if ui.button(tr("common.select_none")).clicked() {
                     state.selected.clear();
                 }
                 ui.label(
-                    RichText::new(format!("{} selected", state.selected.len()))
-                        .weak()
-                        .small(),
+                    RichText::new(tr_args(
+                        "scrapbook.selected",
+                        &[("count", state.selected.len().to_string())],
+                    ))
+                    .weak()
+                    .small(),
                 );
             });
             egui::ScrollArea::vertical()
@@ -80,9 +81,12 @@ pub fn show(ctx: &Context, state: &mut ScrapbookState) -> Option<Vec<String>> {
                                 ui.label(RichText::new(person).weak().small());
                             }
                             ui.label(
-                                RichText::new(format!("{} photos", album.media_count))
-                                    .weak()
-                                    .small(),
+                                RichText::new(tr_args(
+                                    "scrapbook.photos",
+                                    &[("count", album.media_count.to_string())],
+                                ))
+                                .weak()
+                                .small(),
                             );
                         });
                     }
@@ -91,14 +95,14 @@ pub fn show(ctx: &Context, state: &mut ScrapbookState) -> Option<Vec<String>> {
                 if ui
                     .add_enabled(
                         !state.selected.is_empty(),
-                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("common.export")).strong()),
                     )
                     .clicked()
                 {
                     state.open = false;
                     event = Some(state.selected.iter().cloned().collect());
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

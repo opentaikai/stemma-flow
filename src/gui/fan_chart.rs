@@ -1,5 +1,7 @@
 //! Fan chart export options.
 
+use crate::i18n::tr;
+
 use egui::{Context, RichText, Window};
 
 use crate::db::Person;
@@ -59,20 +61,16 @@ pub fn show(
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Fan Chart")
+    Window::new(tr("fan_chart.title"))
         .id(egui::Id::unique("fan_chart_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
-            ui.label(
-                RichText::new("Export a radial ancestor chart with selectable span and rotation.")
-                    .weak()
-                    .small(),
-            );
+            ui.label(RichText::new(tr("fan_chart.description")).weak().small());
             if people.is_empty() {
-                ui.label(RichText::new("No people are available.").weak());
-                if ui.button("Close").clicked() {
+                ui.label(RichText::new(tr("common.no_people")).weak());
+                if ui.button(tr("common.close")).clicked() {
                     state.open = false;
                 }
                 return;
@@ -82,7 +80,7 @@ pub fn show(
                 .as_deref()
                 .and_then(|id| people.iter().find(|person| person.id == id))
                 .map(|person| person_label(person, surname_first))
-                .unwrap_or_else(|| "Select a person".to_string());
+                .unwrap_or_else(|| tr("report_dialog.select_person").to_string());
             egui::ComboBox::from_id_salt("fan_chart_root")
                 .selected_text(current)
                 .show_ui(ui, |ui| {
@@ -96,9 +94,9 @@ pub fn show(
                         }
                     }
                 });
-            ui.add(egui::Slider::new(&mut state.generations, 3..=6).text("Generations"));
+            ui.add(egui::Slider::new(&mut state.generations, 3..=6).text(tr("common.generations")));
             ui.horizontal(|ui| {
-                ui.label("Span");
+                ui.label(tr("common.span"));
                 for (degrees, label) in [
                     (90.0, "Quarter (90\u{00b0})"),
                     (180.0, "Half (180\u{00b0})"),
@@ -111,29 +109,29 @@ pub fn show(
             let full_circle = state.span_degrees >= 360.0;
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(!full_circle, |ui| {
-                    ui.label("Start");
+                    ui.label(tr("common.start"));
                     ui.add(
                         egui::DragValue::new(&mut state.start_angle)
                             .range(0.0..=359.0)
                             .speed(1.0)
                             .suffix("\u{00b0}"),
                     );
-                    if ui.small_button("Top").clicked() {
+                    if ui.small_button(tr("common.top")).clicked() {
                         state.start_angle = 180.0;
                     }
-                    if ui.small_button("Right").clicked() {
+                    if ui.small_button(tr("common.right")).clicked() {
                         state.start_angle = 270.0;
                     }
-                    if ui.small_button("Bottom").clicked() {
+                    if ui.small_button(tr("common.bottom")).clicked() {
                         state.start_angle = 0.0;
                     }
-                    if ui.small_button("Left").clicked() {
+                    if ui.small_button(tr("common.left")).clicked() {
                         state.start_angle = 90.0;
                     }
                 });
                 if full_circle {
                     ui.label(
-                        RichText::new("A full circle ignores the start angle.")
+                        RichText::new(tr("fan_chart.full_circle_hint"))
                             .weak()
                             .small(),
                     );
@@ -143,7 +141,7 @@ pub fn show(
                 if ui
                     .add_enabled(
                         state.root_id.is_some(),
-                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("common.export")).strong()),
                     )
                     .clicked()
                     && let Some(root_id) = state.root_id.clone()
@@ -162,7 +160,7 @@ pub fn show(
                     });
                 }
                 if ui
-                    .add_enabled(state.root_id.is_some(), egui::Button::new("SVG\u{2026}"))
+                    .add_enabled(state.root_id.is_some(), egui::Button::new(tr("common.svg")))
                     .clicked()
                     && let Some(root_id) = state.root_id.clone()
                 {
@@ -179,7 +177,7 @@ pub fn show(
                         svg: true,
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

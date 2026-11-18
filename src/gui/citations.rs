@@ -2,6 +2,7 @@
 
 use crate::db::citations::{CitationEdit, CitationRecord, CitationTarget, SourceCitation};
 use crate::db::sources::SourceSummary;
+use crate::i18n::{tr, tr_args, trn};
 use crate::model::quality::{Certainty, EvidenceQuality, InformationQuality, SourceQuality};
 
 /// One event a citation is attached to.
@@ -181,45 +182,53 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
     } = state;
 
     if citations.is_empty() {
-        ui.label(egui::RichText::new("No citations yet.").weak());
+        ui.label(egui::RichText::new(tr("citations.empty")).weak());
     }
     for citation in citations.iter_mut() {
         ui.push_id(&citation.id, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&citation.source_title).strong());
-                if ui.small_button("Notes\u{2026}").clicked() {
+                if ui.small_button(tr("citations.notes")).clicked() {
                     requested = Some(CitationsEvent::Notes {
                         citation_id: citation.id.clone(),
-                        title: format!("Notes \u{2014} {}", citation.source_title),
+                        title: tr_args(
+                            "citations.notes_title",
+                            &[("title", citation.source_title.clone())],
+                        ),
                     });
                 }
-                if ui.small_button("Tasks\u{2026}").clicked() {
+                if ui.small_button(tr("citations.tasks")).clicked() {
                     requested = Some(CitationsEvent::Tasks {
                         citation_id: citation.id.clone(),
-                        title: format!("Tasks \u{2014} {}", citation.source_title),
+                        title: tr_args(
+                            "citations.tasks_title",
+                            &[("title", citation.source_title.clone())],
+                        ),
                     });
                 }
-                let facts = if citation.usage == 1 { "fact" } else { "facts" };
                 ui.label(
-                    egui::RichText::new(format!("used by {} {facts}", citation.usage))
+                    egui::RichText::new(trn("citations.used_by", citation.usage))
                         .weak()
                         .small(),
                 );
                 if citation.usage > 1 {
                     if pending_delete.as_deref() == Some(citation.id.as_str()) {
-                        if ui.small_button("Confirm delete").clicked() {
+                        if ui.small_button(tr("citations.confirm_delete")).clicked() {
                             delete = Some(citation.id.clone());
                         }
-                        if ui.small_button("Cancel").clicked() {
+                        if ui.small_button(tr("common.cancel")).clicked() {
                             cancel_delete = true;
                         }
                     } else if ui
-                        .small_button(format!("Delete ({})", citation.usage))
+                        .small_button(tr_args(
+                            "citations.delete_count",
+                            &[("count", citation.usage.to_string())],
+                        ))
                         .clicked()
                     {
                         *pending_delete = Some(citation.id.clone());
                     }
-                } else if ui.small_button("Delete").clicked() {
+                } else if ui.small_button(tr("common.delete")).clicked() {
                     delete = Some(citation.id.clone());
                 }
             });
@@ -227,7 +236,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
                 ui.push_id(("citation-use", &use_.event_id), |ui| {
                     ui.horizontal(|ui| {
                         ui.label(use_label(&use_.event_type, use_.event_date.as_deref()));
-                        if ui.small_button("Detach").clicked() {
+                        if ui.small_button(tr("citations.detach")).clicked() {
                             detach = Some((citation.id.clone(), use_.event_id.clone()));
                         }
                     });
@@ -237,31 +246,31 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
                 .num_columns(2)
                 .spacing([8.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label("Page:");
+                    ui.label(tr("citations.page"));
                     if ui.text_edit_singleline(&mut citation.page).changed() {
                         *dirty = true;
                     }
                     ui.end_row();
 
-                    ui.label("Source:");
+                    ui.label(tr("citations.source"));
                     if source_combo(ui, &mut citation.quality_source) {
                         *dirty = true;
                     }
                     ui.end_row();
 
-                    ui.label("Information:");
+                    ui.label(tr("citations.information"));
                     if information_combo(ui, &mut citation.quality_information) {
                         *dirty = true;
                     }
                     ui.end_row();
 
-                    ui.label("Evidence:");
+                    ui.label(tr("citations.evidence"));
                     if evidence_combo(ui, &mut citation.quality_evidence) {
                         *dirty = true;
                     }
                     ui.end_row();
 
-                    ui.label("Certainty:");
+                    ui.label(tr("citations.certainty"));
                     if certainty_combo(ui, &mut citation.quality_certainty) {
                         *dirty = true;
                     }
@@ -271,10 +280,10 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
         });
     }
 
-    ui.label(egui::RichText::new("Add citation").strong());
+    ui.label(egui::RichText::new(tr("citations.add")).strong());
     if sources.is_empty() {
         ui.label(
-            egui::RichText::new("Create a source in the Sources tab first.")
+            egui::RichText::new(tr("citations.create_source_first"))
                 .weak()
                 .small(),
         );
@@ -297,9 +306,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
             .as_deref()
             .and_then(|id| sources.iter().find(|source| source.id == id))
             .map(|source| source.title.clone())
-            .unwrap_or_else(|| "Select a source".to_string());
+            .unwrap_or_else(|| tr("citations.select_source"));
         ui.horizontal(|ui| {
-            ui.label("Event:");
+            ui.label(tr("citations.event"));
             egui::ComboBox::from_id_salt("citation_add_target")
                 .selected_text(selected_target)
                 .show_ui(ui, |ui| {
@@ -315,7 +324,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
                         }
                     }
                 });
-            ui.label("Source:");
+            ui.label(tr("citations.source"));
             egui::ComboBox::from_id_salt("citation_add_source")
                 .selected_text(current_source)
                 .show_ui(ui, |ui| {
@@ -336,10 +345,13 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
                 });
         });
         ui.horizontal(|ui| {
-            ui.label("Page:");
+            ui.label(tr("citations.page"));
             ui.text_edit_singleline(add_page);
             if ui
-                .add_enabled(add_source.is_some(), egui::Button::new("Add new"))
+                .add_enabled(
+                    add_source.is_some(),
+                    egui::Button::new(tr("citations.add_new")),
+                )
                 .clicked()
                 && let Some(source_id) = add_source.clone()
             {
@@ -352,15 +364,19 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
         });
         if let Some(source_id) = add_source.as_deref() {
             if choices_source.as_deref() != Some(source_id) {
-                ui.label(egui::RichText::new("Loading citations...").weak().small());
+                ui.label(egui::RichText::new(tr("citations.loading")).weak().small());
             } else if choices.is_empty() {
                 ui.label(
-                    egui::RichText::new("No existing citations for this source.")
+                    egui::RichText::new(tr("citations.none_for_source"))
                         .weak()
                         .small(),
                 );
             } else {
-                ui.label(egui::RichText::new("Reuse existing").weak().small());
+                ui.label(
+                    egui::RichText::new(tr("citations.reuse_existing"))
+                        .weak()
+                        .small(),
+                );
                 for choice in choices.iter() {
                     ui.push_id(("citation-choice", &choice.id), |ui| {
                         ui.horizontal_wrapped(|ui| {
@@ -372,13 +388,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
                                 .unwrap_or("(no page)");
                             ui.label(page);
                             ui.label(egui::RichText::new(quality_summary(choice)).weak().small());
-                            let facts = if choice.usage == 1 { "fact" } else { "facts" };
                             ui.label(
-                                egui::RichText::new(format!("used by {} {facts}", choice.usage))
+                                egui::RichText::new(trn("citations.used_by", choice.usage))
                                     .weak()
                                     .small(),
                             );
-                            if ui.small_button("Attach").clicked() {
+                            if ui.small_button(tr("citations.attach")).clicked() {
                                 attach = Some((choice.id.clone(), add_target.clone()));
                             }
                         });
@@ -395,7 +410,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
                 .small(),
         );
     }
-    if requested.is_none() && *dirty && ui.button("Save citations").clicked() {
+    if requested.is_none() && *dirty && ui.button(tr("citations.save")).clicked() {
         requested = Some(CitationsEvent::Save(
             citations.iter().map(CitationDraft::to_edit).collect(),
         ));
@@ -425,12 +440,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
     requested
 }
 
-fn event_label(event_type: &str) -> &str {
+fn event_label(event_type: &str) -> String {
     match event_type {
-        "DEATH" => "Death",
-        "MARRIAGE" => "Marriage",
-        "BIRTH" => "Birth",
-        other => other,
+        "DEATH" => tr("citations.death"),
+        "MARRIAGE" => tr("citations.marriage"),
+        "BIRTH" => tr("citations.birth"),
+        other => other.to_string(),
     }
 }
 
@@ -438,25 +453,69 @@ fn use_label(event_type: &str, date: Option<&str>) -> String {
     let label = event_label(event_type);
     match date.map(str::trim).filter(|date| !date.is_empty()) {
         Some(date) => format!("{label} ({date})"),
-        None => label.to_string(),
+        None => label,
     }
+}
+
+fn quality_source_label(value: SourceQuality) -> String {
+    tr(match value {
+        SourceQuality::Original => "citations.quality.original",
+        SourceQuality::Derivative => "citations.quality.derivative",
+        SourceQuality::Authored => "citations.quality.authored",
+    })
+}
+
+fn quality_information_label(value: InformationQuality) -> String {
+    tr(match value {
+        InformationQuality::Primary => "citations.information_quality.primary",
+        InformationQuality::Secondary => "citations.information_quality.secondary",
+        InformationQuality::Undetermined => "citations.information_quality.undetermined",
+    })
+}
+
+fn quality_evidence_label(value: EvidenceQuality) -> String {
+    tr(match value {
+        EvidenceQuality::Direct => "citations.evidence_quality.direct",
+        EvidenceQuality::Indirect => "citations.evidence_quality.indirect",
+        EvidenceQuality::Negative => "citations.evidence_quality.negative",
+    })
+}
+
+fn certainty_label(value: Certainty) -> String {
+    tr(match value {
+        Certainty::Unreliable => "citations.certainty_level_unreliable",
+        Certainty::Questionable => "citations.certainty_level_questionable",
+        Certainty::Secondary => "citations.certainty_level_secondary",
+        Certainty::Primary => "citations.certainty_level_primary",
+    })
+}
+
+fn certainty_description(value: Certainty) -> String {
+    tr(match value {
+        Certainty::Unreliable => "citations.certainty_hint_unreliable",
+        Certainty::Questionable => "citations.certainty_hint_questionable",
+        Certainty::Secondary => "citations.certainty_hint_secondary",
+        Certainty::Primary => "citations.certainty_hint_primary",
+    })
 }
 
 fn quality_summary(citation: &SourceCitation) -> String {
     let mut parts: Vec<String> = [
-        citation.quality_source.map(SourceQuality::label),
-        citation.quality_information.map(InformationQuality::label),
-        citation.quality_evidence.map(EvidenceQuality::label),
+        citation.quality_source.map(quality_source_label),
+        citation.quality_information.map(quality_information_label),
+        citation.quality_evidence.map(quality_evidence_label),
     ]
     .into_iter()
     .flatten()
-    .map(str::to_string)
     .collect();
     if let Some(certainty) = citation.quality_certainty {
-        parts.push(format!("certainty: {}", certainty.label()));
+        parts.push(tr_args(
+            "citations.certainty_prefix",
+            &[("certainty", certainty_label(certainty))],
+        ));
     }
     if parts.is_empty() {
-        "No quality ratings".to_string()
+        tr("citations.no_quality")
     } else {
         parts.join(" · ")
     }
@@ -465,15 +524,22 @@ fn quality_summary(citation: &SourceCitation) -> String {
 fn source_combo(ui: &mut egui::Ui, value: &mut Option<SourceQuality>) -> bool {
     let mut changed = false;
     egui::ComboBox::from_id_salt("citation_quality_source")
-        .selected_text(value.map(SourceQuality::label).unwrap_or("Don't know"))
+        .selected_text(
+            value
+                .map(quality_source_label)
+                .unwrap_or_else(|| tr("citations.dont_know")),
+        )
         .show_ui(ui, |ui| {
-            if ui.selectable_label(value.is_none(), "Don't know").clicked() {
+            if ui
+                .selectable_label(value.is_none(), tr("citations.dont_know"))
+                .clicked()
+            {
                 *value = None;
                 changed = true;
             }
             for option in SourceQuality::ALL {
                 if ui
-                    .selectable_label(*value == Some(option), option.label())
+                    .selectable_label(*value == Some(option), quality_source_label(option))
                     .clicked()
                 {
                     *value = Some(option);
@@ -487,15 +553,22 @@ fn source_combo(ui: &mut egui::Ui, value: &mut Option<SourceQuality>) -> bool {
 fn information_combo(ui: &mut egui::Ui, value: &mut Option<InformationQuality>) -> bool {
     let mut changed = false;
     egui::ComboBox::from_id_salt("citation_quality_information")
-        .selected_text(value.map(InformationQuality::label).unwrap_or("Don't know"))
+        .selected_text(
+            value
+                .map(quality_information_label)
+                .unwrap_or_else(|| tr("citations.dont_know")),
+        )
         .show_ui(ui, |ui| {
-            if ui.selectable_label(value.is_none(), "Don't know").clicked() {
+            if ui
+                .selectable_label(value.is_none(), tr("citations.dont_know"))
+                .clicked()
+            {
                 *value = None;
                 changed = true;
             }
             for option in InformationQuality::ALL {
                 if ui
-                    .selectable_label(*value == Some(option), option.label())
+                    .selectable_label(*value == Some(option), quality_information_label(option))
                     .clicked()
                 {
                     *value = Some(option);
@@ -509,15 +582,22 @@ fn information_combo(ui: &mut egui::Ui, value: &mut Option<InformationQuality>) 
 fn evidence_combo(ui: &mut egui::Ui, value: &mut Option<EvidenceQuality>) -> bool {
     let mut changed = false;
     egui::ComboBox::from_id_salt("citation_quality_evidence")
-        .selected_text(value.map(EvidenceQuality::label).unwrap_or("Don't know"))
+        .selected_text(
+            value
+                .map(quality_evidence_label)
+                .unwrap_or_else(|| tr("citations.dont_know")),
+        )
         .show_ui(ui, |ui| {
-            if ui.selectable_label(value.is_none(), "Don't know").clicked() {
+            if ui
+                .selectable_label(value.is_none(), tr("citations.dont_know"))
+                .clicked()
+            {
                 *value = None;
                 changed = true;
             }
             for option in EvidenceQuality::ALL {
                 if ui
-                    .selectable_label(*value == Some(option), option.label())
+                    .selectable_label(*value == Some(option), quality_evidence_label(option))
                     .clicked()
                 {
                     *value = Some(option);
@@ -531,12 +611,15 @@ fn evidence_combo(ui: &mut egui::Ui, value: &mut Option<EvidenceQuality>) -> boo
 fn certainty_combo(ui: &mut egui::Ui, value: &mut Option<Certainty>) -> bool {
     let mut changed = false;
     let selected = value
-        .map(|certainty| format!("{} ({})", certainty.label(), certainty.value()))
-        .unwrap_or_else(|| "Don't know".to_string());
+        .map(|certainty| format!("{} ({})", certainty_label(certainty), certainty.value()))
+        .unwrap_or_else(|| tr("citations.dont_know"));
     egui::ComboBox::from_id_salt("citation_quality_certainty")
         .selected_text(selected)
         .show_ui(ui, |ui| {
-            if ui.selectable_label(value.is_none(), "Don't know").clicked() {
+            if ui
+                .selectable_label(value.is_none(), tr("citations.dont_know"))
+                .clicked()
+            {
                 *value = None;
                 changed = true;
             }
@@ -544,9 +627,9 @@ fn certainty_combo(ui: &mut egui::Ui, value: &mut Option<Certainty>) -> bool {
                 let response = ui
                     .selectable_label(
                         *value == Some(option),
-                        format!("{} ({})", option.label(), option.value()),
+                        format!("{} ({})", certainty_label(option), option.value()),
                     )
-                    .on_hover_text(option.description());
+                    .on_hover_text(certainty_description(option));
                 if response.clicked() {
                     *value = Some(option);
                     changed = true;

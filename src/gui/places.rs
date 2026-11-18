@@ -6,6 +6,7 @@ use egui::{RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
 use crate::db::places::{PlaceDraft, PlaceRecord, PlaceSummary, PlaceUsage, reverse_name};
+use crate::i18n::{tr, tr_args, trn};
 
 /// What the user asked the shell to do from the places tab.
 #[derive(Debug, Clone, PartialEq)]
@@ -37,11 +38,11 @@ pub enum SortColumn {
 impl SortColumn {
     fn label(self) -> &'static str {
         match self {
-            Self::Name => "Name",
-            Self::Events => "Events",
-            Self::Latitude => "Latitude",
-            Self::Longitude => "Longitude",
-            Self::Notes => "Notes",
+            Self::Name => "places.column_name",
+            Self::Events => "places.column_events",
+            Self::Latitude => "places.column_latitude",
+            Self::Longitude => "places.column_longitude",
+            Self::Notes => "places.column_notes",
         }
     }
 }
@@ -85,8 +86,8 @@ impl PlaceEdit {
         Ok(PlaceDraft {
             id: self.id.clone(),
             name: self.name.clone(),
-            latitude: parse_coordinate(&self.latitude, 90.0, "Latitude")?,
-            longitude: parse_coordinate(&self.longitude, 180.0, "Longitude")?,
+            latitude: parse_coordinate(&self.latitude, 90.0, &tr("places.latitude"))?,
+            longitude: parse_coordinate(&self.longitude, 180.0, &tr("places.longitude"))?,
         })
     }
 }
@@ -102,9 +103,12 @@ fn parse_coordinate(text: &str, limit: f64, label: &str) -> Result<Option<f64>, 
     }
     let value = text
         .parse::<f64>()
-        .map_err(|_| format!("{label} must be a number"))?;
+        .map_err(|_| tr_args("places.number_required", &[("label", label.to_string())]))?;
     if !value.is_finite() || !(-limit..=limit).contains(&value) {
-        return Err(format!("{label} must be between -{limit} and {limit}"));
+        return Err(tr_args(
+            "places.number_range",
+            &[("label", label.to_string()), ("limit", limit.to_string())],
+        ));
     }
     Ok(Some(value))
 }
@@ -113,28 +117,31 @@ fn parse_coordinate(text: &str, limit: f64, label: &str) -> Result<Option<f64>, 
 pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<PlacesEvent> {
     let mut event = None;
     ui.horizontal(|ui| {
-        ui.label("Filter:");
-        ui.add(egui::TextEdit::singleline(&mut state.filter).hint_text("Filter by name or notes…"));
+        ui.label(tr("common.filter"));
+        ui.add(egui::TextEdit::singleline(&mut state.filter).hint_text(tr("places.filter_hint")));
         if ui
-            .add_enabled(!state.filter.is_empty(), egui::Button::new("Clear"))
+            .add_enabled(
+                !state.filter.is_empty(),
+                egui::Button::new(tr("common.clear")),
+            )
             .clicked()
         {
             state.filter.clear();
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
-                .add(egui::Button::new(RichText::new("+ New Place").strong()))
+                .add(egui::Button::new(RichText::new(tr("places.new")).strong()))
                 .clicked()
             {
                 event = Some(PlacesEvent::New);
             }
-            if ui.button("PlaceClean…").clicked() {
+            if ui.button(tr("places.placeclean")).clicked() {
                 event = Some(PlacesEvent::PlaceClean);
             }
-            if ui.button("Geocode…").clicked() {
+            if ui.button(tr("places.geocode")).clicked() {
                 event = Some(PlacesEvent::Geocode);
             }
-            if ui.button("Gazetteer…").clicked() {
+            if ui.button(tr("places.gazetteer")).clicked() {
                 event = Some(PlacesEvent::Gazetteer);
             }
         });
@@ -142,10 +149,12 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<Place
 
     let visible = visible_indices(state, reverse);
     ui.label(
-        RichText::new(format!(
-            "Showing {} of {} places",
-            visible.len(),
-            state.places.len()
+        RichText::new(tr_args(
+            "places.showing",
+            &[
+                ("visible", visible.len().to_string()),
+                ("total", state.places.len().to_string()),
+            ],
         ))
         .weak()
         .size(12.0),
@@ -155,11 +164,7 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<Place
     let grid_height = (available * 0.45).max(140.0).min(available.max(0.0));
     ui.allocate_ui(egui::vec2(ui.available_width(), grid_height), |ui| {
         if state.places.is_empty() {
-            ui.label(
-                RichText::new("No places yet — create one with the button above.")
-                    .weak()
-                    .size(13.0),
-            );
+            ui.label(RichText::new(tr("places.empty")).weak().size(13.0));
             return;
         }
         let mut sort_clicked = None;
@@ -191,7 +196,7 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<Place
                             _ => "",
                         };
                         let strong = state.sort.map(|(active, _)| active) == Some(column);
-                        let text = format!("{}{arrow}", column.label());
+                        let text = format!("{}{arrow}", tr(column.label()));
                         let label = egui::Label::new(if strong {
                             RichText::new(text).strong()
                         } else {
@@ -204,7 +209,7 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<Place
                     });
                 }
                 header.col(|ui| {
-                    ui.label(RichText::new("Actions").strong());
+                    ui.label(RichText::new(tr("common.actions")).strong());
                 });
             })
             .body(|body| {
@@ -253,24 +258,27 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<Place
                     });
                     row.col(|ui| {
                         ui.horizontal(|ui| {
-                            if ui.small_button("Edit").clicked() {
+                            if ui.small_button(tr("common.edit")).clicked() {
                                 event = Some(PlacesEvent::Select(place.id.clone()));
                             }
-                            ui.menu_button("Delete", |ui| {
-                                ui.label(format!("Delete {}?", place.name));
+                            ui.menu_button(tr("common.delete"), |ui| {
+                                ui.label(tr_args(
+                                    "places.delete_confirm",
+                                    &[("name", place.name.clone())],
+                                ));
                                 ui.label(
-                                    RichText::new(format!(
-                                        "{} events will lose their place.",
-                                        place.event_count
+                                    RichText::new(trn(
+                                        "places.events_lose_place",
+                                        place.event_count,
                                     ))
                                     .weak()
                                     .small(),
                                 );
-                                if ui.button("Confirm").clicked() {
+                                if ui.button(tr("common.confirm")).clicked() {
                                     event = Some(PlacesEvent::Delete(place.id.clone()));
                                     ui.close();
                                 }
-                                if ui.button("Cancel").clicked() {
+                                if ui.button(tr("common.cancel")).clicked() {
                                     ui.close();
                                 }
                             });
@@ -297,11 +305,7 @@ pub fn show(ui: &mut Ui, state: &mut PlacesState, reverse: bool) -> Option<Place
 
 fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>, reverse: bool) {
     if !state.editing {
-        ui.label(
-            RichText::new("Select a place or create a new one.")
-                .weak()
-                .size(13.0),
-        );
+        ui.label(RichText::new(tr("places.select_prompt")).weak().size(13.0));
         return;
     }
 
@@ -311,9 +315,9 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
         .show(ui, |ui| {
             ui.label(
                 RichText::new(if state.draft.id.is_some() {
-                    "Edit place"
+                    tr("places.edit_title")
                 } else {
-                    "New place"
+                    tr("places.new_title")
                 })
                 .strong(),
             );
@@ -324,7 +328,7 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
                 .map(|place| place.event_count);
             if let Some(count) = event_count {
                 ui.label(
-                    RichText::new(format!("{count} events use this place"))
+                    RichText::new(trn("places.events_use", count))
                         .weak()
                         .small(),
                 );
@@ -334,56 +338,62 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Name *").strong());
+                    ui.label(RichText::new(tr("places.name_required")).strong());
                     ui.text_edit_singleline(&mut state.draft.name);
                     ui.end_row();
 
-                    ui.label("Latitude:");
+                    ui.label(tr("places.latitude"));
                     ui.text_edit_singleline(&mut state.draft.latitude);
                     ui.end_row();
 
-                    ui.label("Longitude:");
+                    ui.label(tr("places.longitude"));
                     ui.text_edit_singleline(&mut state.draft.longitude);
                     ui.end_row();
                 });
             if let Some(id) = state.draft.id.clone() {
-                if ui.button("Notes\u{2026}").clicked() {
+                if ui.button(tr("places.notes")).clicked() {
                     *event = Some(PlacesEvent::Notes {
                         place_id: id.clone(),
-                        title: format!("Notes \u{2014} {}", state.draft.name.trim()),
+                        title: tr_args(
+                            "places.notes_title",
+                            &[("name", state.draft.name.trim().to_string())],
+                        ),
                     });
                 }
-                if ui.button("Media\u{2026}").clicked() {
+                if ui.button(tr("places.media")).clicked() {
                     *event = Some(PlacesEvent::Media {
                         place_id: id.clone(),
-                        title: format!("Media \u{2014} {}", state.draft.name.trim()),
+                        title: tr_args(
+                            "places.media_title",
+                            &[("name", state.draft.name.trim().to_string())],
+                        ),
                     });
                 }
-                if ui.button("Tasks\u{2026}").clicked() {
+                if ui.button(tr("places.tasks")).clicked() {
                     *event = Some(PlacesEvent::Tasks {
                         place_id: id,
-                        title: format!("Tasks \u{2014} {}", state.draft.name.trim()),
+                        title: tr_args(
+                            "places.tasks_title",
+                            &[("name", state.draft.name.trim().to_string())],
+                        ),
                     });
                 }
             }
-            ui.label(
-                RichText::new("Decimal degrees; leave blank when unknown.")
-                    .weak()
-                    .small(),
-            );
+            ui.label(RichText::new(tr("places.decimal_hint")).weak().small());
             if reverse && !state.draft.name.trim().is_empty() {
                 ui.label(
-                    RichText::new(format!(
-                        "Reversed name: {}",
-                        reverse_name(&state.draft.name)
+                    RichText::new(tr_args(
+                        "places.reversed_name",
+                        &[("name", reverse_name(&state.draft.name))],
                     ))
                     .weak()
                     .small(),
                 );
             }
 
-            let latitude = parse_coordinate(&state.draft.latitude, 90.0, "Latitude");
-            let longitude = parse_coordinate(&state.draft.longitude, 180.0, "Longitude");
+            let latitude = parse_coordinate(&state.draft.latitude, 90.0, &tr("places.latitude"));
+            let longitude =
+                parse_coordinate(&state.draft.longitude, 180.0, &tr("places.longitude"));
             for error in [latitude.as_ref().err(), longitude.as_ref().err()]
                 .into_iter()
                 .flatten()
@@ -405,7 +415,10 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
             let valid =
                 !state.draft.name.trim().is_empty() && latitude.is_ok() && longitude.is_ok();
             if ui
-                .add_enabled(valid, egui::Button::new(RichText::new("Save").strong()))
+                .add_enabled(
+                    valid,
+                    egui::Button::new(RichText::new(tr("common.save")).strong()),
+                )
                 .clicked()
                 && let (Ok(latitude), Ok(longitude)) = (latitude, longitude)
             {
@@ -418,12 +431,12 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
             }
 
             ui.separator();
-            ui.label(RichText::new(format!("Used by {} events", state.usage.len())).strong());
+            ui.label(RichText::new(trn("places.used_by", state.usage.len() as i64)).strong());
             if state.usage.is_empty() {
-                ui.label(RichText::new("No events use this place.").weak().small());
+                ui.label(RichText::new(tr("places.no_events")).weak().small());
             } else {
                 ui.label(
-                    RichText::new("Select a person to edit them.")
+                    RichText::new(tr("places.select_person_hint"))
                         .weak()
                         .small(),
                 );
@@ -447,14 +460,22 @@ fn usage_row(ui: &mut Ui, usage: &PlaceUsage, event: &mut Option<PlacesEvent>) {
         }
         if let Some(person_id) = &usage.person_id {
             let name = usage.person_name.as_deref().unwrap_or("(unnamed)");
-            if ui.button(name).on_hover_text("Edit this person").clicked() {
+            if ui
+                .button(name)
+                .on_hover_text(tr("places.edit_person_hint"))
+                .clicked()
+            {
                 *event = Some(PlacesEvent::SelectPerson(person_id.clone()));
             }
         } else if usage.family_id.is_some() {
             let mut shown = false;
             if let Some(husband_id) = &usage.husband_id {
                 let name = usage.husband_name.as_deref().unwrap_or("(unnamed)");
-                if ui.button(name).on_hover_text("Edit this person").clicked() {
+                if ui
+                    .button(name)
+                    .on_hover_text(tr("places.edit_person_hint"))
+                    .clicked()
+                {
                     *event = Some(PlacesEvent::SelectPerson(husband_id.clone()));
                 }
                 shown = true;
@@ -464,20 +485,24 @@ fn usage_row(ui: &mut Ui, usage: &PlaceUsage, event: &mut Option<PlacesEvent>) {
             }
             if let Some(wife_id) = &usage.wife_id {
                 let name = usage.wife_name.as_deref().unwrap_or("(unnamed)");
-                if ui.button(name).on_hover_text("Edit this person").clicked() {
+                if ui
+                    .button(name)
+                    .on_hover_text(tr("places.edit_person_hint"))
+                    .clicked()
+                {
                     *event = Some(PlacesEvent::SelectPerson(wife_id.clone()));
                 }
                 shown = true;
             }
             if !shown {
-                ui.label(RichText::new("Unnamed couple").weak().small());
+                ui.label(RichText::new(tr("places.unnamed_couple")).weak().small());
             }
         } else {
-            ui.label(RichText::new("Unlinked event").weak().small());
+            ui.label(RichText::new(tr("places.unlinked_event")).weak().small());
         }
         if ui
-            .button("Edit event")
-            .on_hover_text("Edit this event's date, description and privacy")
+            .button(tr("places.edit_event"))
+            .on_hover_text(tr("places.edit_event_hint"))
             .clicked()
         {
             *event = Some(PlacesEvent::EditEvent(usage.event_id.clone()));

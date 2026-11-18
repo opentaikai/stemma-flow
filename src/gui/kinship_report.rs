@@ -2,6 +2,8 @@
 
 use egui::{Context, RichText, Window};
 
+use crate::i18n::tr;
+
 use crate::db::Person;
 use crate::gui::inspector::person_label;
 
@@ -39,22 +41,20 @@ pub fn show(
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Kinship Report")
+    Window::new(tr("kinship_dialog.title"))
         .id(egui::Id::unique("kinship_report_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new(
-                    "Export every person's relationship to a chosen subject, with vital data.",
-                )
-                .weak()
-                .small(),
+                RichText::new(tr("kinship_dialog.description"))
+                    .weak()
+                    .small(),
             );
             if people.is_empty() {
-                ui.label(RichText::new("No people are available.").weak());
-                if ui.button("Close").clicked() {
+                ui.label(RichText::new(tr("common.no_people")).weak());
+                if ui.button(tr("common.close")).clicked() {
                     state.open = false;
                 }
                 return;
@@ -78,12 +78,15 @@ pub fn show(
                         }
                     }
                 });
-            ui.checkbox(&mut state.only_relatives, "Only relatives");
+            ui.checkbox(
+                &mut state.only_relatives,
+                tr("kinship_dialog.only_relatives"),
+            );
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
                         state.subject_id.is_some(),
-                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("common.export")).strong()),
                     )
                     .clicked()
                     && let Some(subject_id) = state.subject_id.clone()
@@ -94,7 +97,7 @@ pub fn show(
                         only_relatives: state.only_relatives,
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

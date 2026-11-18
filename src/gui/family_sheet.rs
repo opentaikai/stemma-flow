@@ -1,5 +1,7 @@
 //! Family group sheet export options.
 
+use crate::i18n::tr;
+
 use egui::{Context, RichText, Window};
 
 /// One selectable family in the family group sheet dialog.
@@ -33,23 +35,17 @@ pub fn show(ctx: &Context, state: &mut FamilySheetState) -> Option<String> {
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Family Group Sheet")
+    Window::new(tr("family_sheet.title"))
         .id(egui::Id::unique("family_sheet_window"))
         .collapsible(false)
         .resizable(true)
         .default_width(460.0)
         .open(&mut open)
         .show(ctx, |ui| {
-            ui.label(
-                RichText::new(
-                    "Export a printable sheet with spouses, parents, marriage, children and facts.",
-                )
-                .weak()
-                .small(),
-            );
+            ui.label(RichText::new(tr("family_sheet.description")).weak().small());
             if state.families.is_empty() {
-                ui.label(RichText::new("No families are available.").weak());
-                if ui.button("Close").clicked() {
+                ui.label(RichText::new(tr("common.no_families")).weak());
+                if ui.button(tr("common.close")).clicked() {
                     state.open = false;
                 }
                 return;
@@ -75,7 +71,7 @@ pub fn show(ctx: &Context, state: &mut FamilySheetState) -> Option<String> {
                 if ui
                     .add_enabled(
                         state.selected.is_some(),
-                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("common.export")).strong()),
                     )
                     .clicked()
                     && let Some(id) = state.selected.clone()
@@ -83,7 +79,7 @@ pub fn show(ctx: &Context, state: &mut FamilySheetState) -> Option<String> {
                     state.open = false;
                     event = Some(id);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

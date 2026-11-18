@@ -2,6 +2,8 @@
 
 use egui::{Context, RichText, Window};
 
+use crate::i18n::tr;
+
 use crate::db::FamilyTree;
 use crate::db::facts::FactTypeRole;
 use crate::db::participants::{EventContext, EventParticipant, ParticipantDraft};
@@ -75,7 +77,7 @@ pub fn show(
 ) -> Option<ParticipantOutcome> {
     let mut open = true;
     let mut outcome = None;
-    Window::new("Witnesses")
+    Window::new(tr("participants.title"))
         .id(egui::Id::unique("event_participants_window"))
         .collapsible(false)
         .resizable(true)
@@ -93,19 +95,25 @@ pub fn show(
                 ui.label(RichText::new(details).weak().small());
             }
             if let Some(principal) = &form.principal {
-                ui.label(RichText::new(format!("Principal: {principal}")).small());
+                ui.label(
+                    RichText::new(crate::i18n::tr_args(
+                        "participants.principal",
+                        &[("name", principal.to_string())],
+                    ))
+                    .small(),
+                );
             }
             ui.separator();
 
             if form.participants.is_empty() {
-                ui.label(RichText::new("No witnesses yet.").weak().small());
+                ui.label(RichText::new(tr("participants.none")).weak().small());
             }
             let mut remove = None;
             for (index, participant) in form.participants.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&participant.person_name).strong());
                     ui.label(RichText::new(&participant.role_label).weak().small());
-                    if ui.small_button("Remove").clicked() {
+                    if ui.small_button(tr("common.remove")).clicked() {
                         remove = Some(index);
                     }
                 });
@@ -124,11 +132,14 @@ pub fn show(
                     .small(),
                 );
             } else {
-                ui.label(RichText::new("Add person").strong());
-                ui.add(egui::TextEdit::singleline(&mut form.search).hint_text("Search people…"));
+                ui.label(RichText::new(tr("participants.add_person")).strong());
+                ui.add(
+                    egui::TextEdit::singleline(&mut form.search)
+                        .hint_text(tr("media.search_people_hint")),
+                );
                 let candidates = candidate_people(form, tree, surname_first);
                 if candidates.is_empty() {
-                    ui.label(RichText::new("No matching people.").weak().small());
+                    ui.label(RichText::new(tr("participants.no_matches")).weak().small());
                 } else {
                     egui::ScrollArea::vertical()
                         .id_salt("participant_people")
@@ -170,7 +181,10 @@ pub fn show(
                             }
                         });
                     let enabled = form.selected_person.is_some() && form.selected_role.is_some();
-                    if ui.add_enabled(enabled, egui::Button::new("Add")).clicked() {
+                    if ui
+                        .add_enabled(enabled, egui::Button::new(tr("common.add")))
+                        .clicked()
+                    {
                         add_selected(form, tree, surname_first);
                     }
                 });
@@ -187,7 +201,7 @@ pub fn show(
             ui.separator();
             ui.horizontal(|ui| {
                 if ui
-                    .add(egui::Button::new(RichText::new("Save").strong()))
+                    .add(egui::Button::new(RichText::new(tr("common.save")).strong()))
                     .clicked()
                 {
                     outcome = Some(ParticipantOutcome::Save {
@@ -195,7 +209,7 @@ pub fn show(
                         participants: form.to_drafts(),
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     outcome = Some(ParticipantOutcome::Cancel);
                 }
             });

@@ -1003,6 +1003,10 @@ selector update all windows without a restart. Missing keys and unsupported
 config codes fall back to English. Tests enforce key and placeholder parity
 between English and German.
 
+Core editors, status messages and chart/report dialogs use the catalogs.
+Generated report HTML and a few utility dialogs still carry English labels;
+those areas remain part of the ongoing localization work.
+
 Theme changes apply to the context immediately and persist to
 `<config_dir>/stemma-flow/config.toml` resolved with `dirs::config_dir()`
 (`~/.config/stemma-flow/config.toml` on Linux). The font-size slider stays

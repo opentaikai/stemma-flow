@@ -1,5 +1,7 @@
 //! Birthday, anniversary and year-calendar export options.
 
+use crate::i18n::tr;
+
 use egui::{Context, RichText, Window};
 
 use crate::model::date_calc;
@@ -43,51 +45,53 @@ pub fn show(ctx: &Context, state: &mut CalendarReportState) -> Option<CalendarRe
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Calendar Reports")
+    Window::new(tr("calendar_dialog.title"))
         .id(egui::Id::unique("calendar_report_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new(
-                    "Export upcoming birthdays, marriage anniversaries or a full year calendar.",
-                )
-                .weak()
-                .small(),
+                RichText::new(tr("calendar_dialog.description"))
+                    .weak()
+                    .small(),
             );
             ui.horizontal(|ui| {
-                ui.label("Report");
-                ui.selectable_value(&mut state.mode, CalendarMode::Birthdays, "Birthdays");
+                ui.label(tr("report_dialog.report"));
+                ui.selectable_value(
+                    &mut state.mode,
+                    CalendarMode::Birthdays,
+                    tr("report_dialog.birthdays"),
+                );
                 ui.selectable_value(
                     &mut state.mode,
                     CalendarMode::Anniversaries,
-                    "Anniversaries",
+                    tr("report_dialog.anniversaries"),
                 );
-                ui.selectable_value(&mut state.mode, CalendarMode::Year, "Year calendar");
+                ui.selectable_value(
+                    &mut state.mode,
+                    CalendarMode::Year,
+                    tr("report_dialog.year_calendar"),
+                );
             });
             match state.mode {
                 CalendarMode::Birthdays => {
                     ui.label(
-                        RichText::new(
-                            "Birthdays in the next twelve months with the age reached.",
-                        )
-                        .weak()
-                        .small(),
+                        RichText::new(tr("calendar_dialog.birthdays_hint"))
+                            .weak()
+                            .small(),
                     );
                 }
                 CalendarMode::Anniversaries => {
                     ui.label(
-                        RichText::new(
-                            "Marriage anniversaries in the next twelve months with the years reached.",
-                        )
-                        .weak()
-                        .small(),
+                        RichText::new(tr("calendar_dialog.anniversaries_hint"))
+                            .weak()
+                            .small(),
                     );
                 }
                 CalendarMode::Year => {
                     ui.horizontal(|ui| {
-                        ui.label("Year");
+                        ui.label(tr("report_dialog.year"));
                         ui.add(
                             egui::DragValue::new(&mut state.year)
                                 .range(1..=9999)
@@ -95,18 +99,16 @@ pub fn show(ctx: &Context, state: &mut CalendarReportState) -> Option<CalendarRe
                         );
                     });
                     ui.label(
-                        RichText::new(
-                            "Twelve month grids with births, marriages and deaths.",
-                        )
-                        .weak()
-                        .small(),
+                        RichText::new(tr("calendar_dialog.year_hint"))
+                            .weak()
+                            .small(),
                     );
                 }
             }
             ui.horizontal(|ui| {
                 if ui
                     .add(egui::Button::new(
-                        RichText::new("Export\u{2026}").strong(),
+                        RichText::new(tr("common.export")).strong(),
                     ))
                     .clicked()
                 {
@@ -116,7 +118,7 @@ pub fn show(ctx: &Context, state: &mut CalendarReportState) -> Option<CalendarRe
                         year: state.year,
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });

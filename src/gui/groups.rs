@@ -6,6 +6,7 @@ use crate::db::Person;
 use crate::db::groups::{GroupDraft, GroupMember, GroupSummary};
 use crate::gui::person_criteria::PersonCriteriaFields;
 use crate::gui::watchlist::PersonRow;
+use crate::i18n::{tr, tr_args};
 use crate::model::person_search::PersonSearchCriteria;
 
 /// A group buffered for editing.
@@ -103,16 +104,19 @@ pub fn show(
 ) -> Option<GroupEvent> {
     let mut event = None;
     ui.horizontal(|ui| {
-        ui.label("Filter:");
-        ui.add(egui::TextEdit::singleline(&mut state.filter).hint_text("Group name…"));
+        ui.label(tr("common.filter"));
+        ui.add(egui::TextEdit::singleline(&mut state.filter).hint_text(tr("groups.filter_hint")));
         if ui
-            .add_enabled(!state.filter.is_empty(), egui::Button::new("Clear"))
+            .add_enabled(
+                !state.filter.is_empty(),
+                egui::Button::new(tr("common.clear")),
+            )
             .clicked()
         {
             state.filter.clear();
         }
         if ui
-            .add(egui::Button::new(RichText::new("+ New Group").strong()))
+            .add(egui::Button::new(RichText::new(tr("groups.new")).strong()))
             .clicked()
         {
             event = Some(GroupEvent::New);
@@ -128,14 +132,20 @@ pub fn show(
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     if state.groups.is_empty() {
-                        ui.label(RichText::new("No groups yet.").weak().small());
+                        ui.label(RichText::new(tr("groups.empty")).weak().small());
                     }
                     for group in &state.groups {
                         if !needle.is_empty() && !group.name.to_lowercase().contains(&needle) {
                             continue;
                         }
                         let selected = state.selected.as_deref() == Some(group.id.as_str());
-                        let label = format!("{} ({} people)", group.name, group.member_count);
+                        let label = tr_args(
+                            "groups.list_item",
+                            &[
+                                ("name", group.name.clone()),
+                                ("count", group.member_count.to_string()),
+                            ],
+                        );
                         ui.horizontal(|ui| {
                             if let Some(color) = group.color {
                                 crate::gui::symbols::color_swatch(ui, color32(color));
@@ -181,23 +191,23 @@ fn group_editor(
     event: &mut Option<GroupEvent>,
 ) {
     if !state.editing {
-        ui.label(RichText::new("Select a group or create a new one.").weak());
+        ui.label(RichText::new(tr("groups.select_prompt")).weak());
         return;
     }
     ui.heading(if state.draft.id.is_some() {
-        "Edit group"
+        tr("groups.edit_title")
     } else {
-        "New group"
+        tr("groups.new_title")
     });
     egui::Grid::new("group_fields")
         .num_columns(2)
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
-            ui.label(RichText::new("Name *").strong());
+            ui.label(RichText::new(tr("groups.name_required")).strong());
             ui.text_edit_singleline(&mut state.draft.name);
             ui.end_row();
 
-            ui.label("Description:");
+            ui.label(tr("groups.description"));
             ui.add(
                 egui::TextEdit::multiline(&mut state.draft.description)
                     .desired_rows(3)
@@ -206,13 +216,17 @@ fn group_editor(
             ui.end_row();
         });
     ui.horizontal(|ui| {
-        ui.radio_value(&mut state.draft.rule_mode, false, "Manual members");
-        ui.radio_value(&mut state.draft.rule_mode, true, "Rule-based members");
+        ui.radio_value(
+            &mut state.draft.rule_mode,
+            false,
+            tr("groups.manual_members"),
+        );
+        ui.radio_value(&mut state.draft.rule_mode, true, tr("groups.rule_members"));
     });
     ui.horizontal(|ui| {
         let mut colored = state.draft.color.is_some();
         if ui
-            .checkbox(&mut colored, "Colour-code this group")
+            .checkbox(&mut colored, tr("groups.colour_code"))
             .changed()
         {
             state.draft.color = colored.then_some(0x3B82F6);
@@ -240,12 +254,12 @@ fn group_editor(
             Some(_) => {
                 state.rule_members.clear();
                 state.rule_signature = None;
-                rule_problem = Some("Add at least one criterion to this rule.");
+                rule_problem = Some(tr("groups.rule_need_criterion"));
             }
             None => {
                 state.rule_members.clear();
                 state.rule_signature = None;
-                rule_problem = Some("Fix the rule criteria before saving.");
+                rule_problem = Some(tr("groups.rule_invalid"));
             }
         }
     } else {
@@ -271,7 +285,7 @@ fn group_editor(
         if ui
             .add_enabled(
                 !state.draft.name.trim().is_empty() && (!state.draft.rule_mode || rule.is_some()),
-                egui::Button::new(RichText::new("Save").strong()),
+                egui::Button::new(RichText::new(tr("common.save")).strong()),
             )
             .clicked()
         {
@@ -280,7 +294,7 @@ fn group_editor(
             )));
         }
         if let Some(id) = state.draft.id.clone()
-            && ui.button("Delete").clicked()
+            && ui.button(tr("common.delete")).clicked()
         {
             *event = Some(GroupEvent::Delete(id));
         }
@@ -288,7 +302,7 @@ fn group_editor(
             && ui
                 .add_enabled(
                     !state.draft.rule_mode || rule.is_some(),
-                    egui::Button::new("Print group…"),
+                    egui::Button::new(tr("groups.print")),
                 )
                 .clicked()
         {
@@ -301,9 +315,15 @@ fn group_editor(
     }
     ui.separator();
     if state.draft.rule_mode {
-        ui.label(RichText::new(format!("Rule matches ({})", state.rule_members.len())).strong());
+        ui.label(
+            RichText::new(tr_args(
+                "groups.rule_matches",
+                &[("count", state.rule_members.len().to_string())],
+            ))
+            .strong(),
+        );
         if state.rule_members.is_empty() {
-            ui.label(RichText::new("(no matches)").weak().small());
+            ui.label(RichText::new(tr("common.no_matches")).weak().small());
         }
         for member in &state.rule_members {
             ui.label(RichText::new(&member.name).strong());
@@ -311,21 +331,27 @@ fn group_editor(
         return;
     }
 
-    ui.label(RichText::new(format!("Members ({})", state.members.len())).strong());
+    ui.label(
+        RichText::new(tr_args(
+            "groups.members",
+            &[("count", state.members.len().to_string())],
+        ))
+        .strong(),
+    );
     if state.members.is_empty() {
-        ui.label(RichText::new("(none)").weak().small());
+        ui.label(RichText::new(tr("inspector.none")).weak().small());
     }
     for member in &state.members {
         ui.horizontal(|ui| {
             ui.label(RichText::new(&member.name).strong());
-            if ui.small_button("Remove").clicked() {
+            if ui.small_button(tr("common.remove")).clicked() {
                 *event = Some(GroupEvent::RemoveMember(member.person_id.clone()));
             }
         });
     }
     ui.separator();
-    ui.label(RichText::new("Add person").strong());
-    ui.add(egui::TextEdit::singleline(&mut state.search).hint_text("Search people…"));
+    ui.label(RichText::new(tr("groups.add_person")).strong());
+    ui.add(egui::TextEdit::singleline(&mut state.search).hint_text(tr("media.search_people_hint")));
     let needle = state.search.trim().to_lowercase();
     let choices: Vec<&Person> = people
         .iter()
@@ -348,12 +374,12 @@ fn group_editor(
         .max_height(150.0)
         .show(ui, |ui| {
             if choices.is_empty() {
-                ui.label(RichText::new("(no matches)").weak().small());
+                ui.label(RichText::new(tr("common.no_matches")).weak().small());
             }
             for person in choices {
                 ui.horizontal(|ui| {
                     ui.label(crate::gui::inspector::person_label(person, surname_first));
-                    if ui.small_button("Add").clicked() {
+                    if ui.small_button(tr("common.add")).clicked() {
                         *event = Some(GroupEvent::AddMember(person.id.clone()));
                     }
                 });

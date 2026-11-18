@@ -1,5 +1,7 @@
 //! Ahnentafel list export options.
 
+use crate::i18n::tr;
+
 use egui::{Context, RichText, Window};
 
 use crate::db::Person;
@@ -50,20 +52,20 @@ pub fn show(
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Ahnentafel List")
+    Window::new(tr("ahnentafel_list.title"))
         .id(egui::Id::unique("ahnentafel_list_window"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new("Export numbered ancestors with birth, death and marriage details.")
+                RichText::new(tr("ahnentafel_list.description"))
                     .weak()
                     .small(),
             );
             if people.is_empty() {
-                ui.label(RichText::new("No people are available.").weak());
-                if ui.button("Close").clicked() {
+                ui.label(RichText::new(tr("common.no_people")).weak());
+                if ui.button(tr("common.close")).clicked() {
                     state.open = false;
                 }
                 return;
@@ -73,7 +75,7 @@ pub fn show(
                 .as_deref()
                 .and_then(|id| people.iter().find(|person| person.id == id))
                 .map(|person| person_label(person, surname_first))
-                .unwrap_or_else(|| "Select a person".to_string());
+                .unwrap_or_else(|| tr("report_dialog.select_person").to_string());
             egui::ComboBox::from_id_salt("ahnentafel_list_root")
                 .selected_text(current)
                 .show_ui(ui, |ui| {
@@ -87,12 +89,12 @@ pub fn show(
                         }
                     }
                 });
-            ui.add(egui::Slider::new(&mut state.generations, 2..=8).text("Generations"));
+            ui.add(egui::Slider::new(&mut state.generations, 2..=8).text(tr("common.generations")));
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
                         state.root_id.is_some(),
-                        egui::Button::new(RichText::new("Export\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("common.export")).strong()),
                     )
                     .clicked()
                     && let Some(root_id) = state.root_id.clone()
@@ -103,7 +105,7 @@ pub fn show(
                         generations: state.generations,
                     });
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     state.open = false;
                 }
             });
