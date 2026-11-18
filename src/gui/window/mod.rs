@@ -84,15 +84,25 @@ use crate::gedcom::ImportReport;
 use crate::i18n;
 use crate::model::navigation::NavigationHistory;
 use crate::model::person_badge::PersonBadge;
+use crate::model::relationship::Kinship;
 use eframe::{App, Frame};
 use egui::Color32;
 use egui::Ui;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 const HINT_TEXT: &str = "Import a GEDCOM file to begin";
 const HINT_COLOR: Color32 = Color32::from_gray(150);
 const RECENT_TREES_KEY: &str = "recent_trees";
+
+#[derive(Debug, Clone)]
+pub(super) struct RelationshipCache {
+    root_id: String,
+    person_id: String,
+    tree_revision: u64,
+    kinship: Option<Kinship>,
+}
 
 /// Root widget owning the canvas view state, the recent-trees list and the
 /// scene rebuilt from SQLite whenever the active tree changes.
@@ -103,6 +113,7 @@ pub struct TreeWindow {
     pub(super) connectors: ConnectorCache,
     pub(super) seen_db: Option<PathBuf>,
     pub(super) seen_generation: u64,
+    pub(super) tree_revision: u64,
     pub(super) recent: Vec<PathBuf>,
     pub(super) pending_framing: bool,
     pub(super) drag_started_on_node: bool,
@@ -161,6 +172,7 @@ pub struct TreeWindow {
     pub(super) citations: citations::CitationsState,
     pub(super) repositories: repositories::RepositoriesState,
     pub(super) tree: FamilyTree,
+    pub(super) relationship_cache: RefCell<Option<RelationshipCache>>,
     pub(super) dates: HashMap<String, VitalDates>,
     pub(super) marriages: HashMap<String, MarriageInfo>,
     pub(super) person_facts: HashMap<String, Vec<PersonFact>>,
@@ -203,6 +215,7 @@ impl TreeWindow {
             connectors: ConnectorCache::default(),
             seen_db: None,
             seen_generation: 0,
+            tree_revision: 0,
             recent,
             pending_framing: false,
             drag_started_on_node: false,
@@ -262,6 +275,7 @@ impl TreeWindow {
             citations: citations::CitationsState::default(),
             repositories: repositories::RepositoriesState::default(),
             tree: FamilyTree::default(),
+            relationship_cache: RefCell::new(None),
             dates: HashMap::new(),
             marriages: HashMap::new(),
             person_facts: HashMap::new(),
@@ -1635,6 +1649,79 @@ mod tests {
         window.set_root_person(None);
         assert!(window.tree_settings.root_person_id.is_none());
         assert_eq!(relation(&window, &ada), "");
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
+    fn root_relationship_is_cached_and_invalidated_by_reload() {
+        let db_file = temp_path("db");
+        import_people(
+            &db_file,
+            "0 HEAD\n\
+             0 @I1@ INDI\n1 NAME Ada /King/\n\
+             0 @I2@ INDI\n1 NAME Father /King/\n1 SEX M\n\
+             0 @I3@ INDI\n1 NAME Mother /King/\n1 SEX F\n\
+             0 @F1@ FAM\n1 HUSB @I2@\n1 WIFE @I3@\n1 CHIL @I1@\n0 TRLR\n",
+        );
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let id_for = |window: &TreeWindow, given: &str| {
+            window
+                .rows
+                .iter()
+                .find(|row| row.given_name == given)
+                .expect("person")
+                .id
+                .clone()
+        };
+        let ada = id_for(&window, "Ada");
+        let father = id_for(&window, "Father");
+
+        window.set_root_person(Some(&ada));
+        let label = window
+            .root_relationship(&father)
+            .map(|kinship| kinship.label());
+        assert_eq!(label.as_deref(), Some("Father"));
+
+        let cached_revision = {
+            let cache = window.relationship_cache.borrow();
+            let cached = cache.as_ref().expect("relationship cache");
+            assert_eq!(cached.root_id, ada);
+            assert_eq!(cached.person_id, father);
+            cached.tree_revision
+        };
+        assert_eq!(cached_revision, window.tree_revision);
+
+        window.root_relationship(&father);
+        assert_eq!(
+            window
+                .relationship_cache
+                .borrow()
+                .as_ref()
+                .expect("cache")
+                .tree_revision,
+            cached_revision,
+            "a cache hit keeps the tree revision"
+        );
+
+        window.reload_data();
+        assert_eq!(window.tree_revision, cached_revision.wrapping_add(1));
+        let label = window
+            .root_relationship(&father)
+            .map(|kinship| kinship.label());
+        assert_eq!(label.as_deref(), Some("Father"));
+        assert_eq!(
+            window
+                .relationship_cache
+                .borrow()
+                .as_ref()
+                .expect("cache")
+                .tree_revision,
+            window.tree_revision,
+            "a reload repopulates the cache at the new revision"
+        );
 
         let _ = std::fs::remove_file(&db_file);
     }

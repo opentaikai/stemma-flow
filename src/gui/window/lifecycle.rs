@@ -76,6 +76,7 @@ impl TreeWindow {
     }
 
     pub(super) fn reload_data(&mut self) {
+        self.tree_revision = self.tree_revision.wrapping_add(1);
         let switched = self.seen_db != self.app.active_db().map(Path::to_path_buf);
         let loaded = self
             .app

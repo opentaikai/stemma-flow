@@ -81,6 +81,7 @@ use crate::gui::welcome;
 use crate::model::dataclean::DataCleanPlan;
 use crate::model::geocode::GeocodeResult;
 use crate::model::media_repair::MediaRepairMatch;
+use crate::model::relationship::Kinship;
 use crate::report::research_log::ResearchLogReport;
 use eframe::Frame;
 use egui::Ui;
@@ -88,6 +89,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::RECENT_TREES_KEY;
+use super::RelationshipCache;
 use super::loading::{load_error, pan_centering};
 
 use super::TreeWindow;
@@ -2209,7 +2211,9 @@ impl TreeWindow {
         let associations = editor.associations.clone();
         let groups = editor.groups.clone();
         let dates = self.dates.get(&person_id).cloned();
-        let root_relationship = self.root_relationship(&person_id);
+        let root_relationship = self
+            .root_relationship(&person_id)
+            .map(|kinship| kinship.label());
         let is_root = self.tree_settings.root_person_id.as_deref() == Some(person_id.as_str());
         let surname_first = self.tree_settings.surname_first;
         let mut action = None;
@@ -2303,13 +2307,35 @@ impl TreeWindow {
         }
     }
 
-    fn root_relationship(&self, person_id: &str) -> Option<String> {
+    pub(super) fn root_relationship(&self, person_id: &str) -> Option<Kinship> {
         let root = self.tree_settings.root_person_id.as_deref()?;
         if root == person_id {
             return None;
         }
-        crate::model::relationship::relationship_to_root(&self.tree, root, person_id)
-            .map(|relationship| relationship.label())
+        let hit = self
+            .relationship_cache
+            .borrow()
+            .as_ref()
+            .is_some_and(|cached| {
+                cached.tree_revision == self.tree_revision
+                    && cached.root_id == root
+                    && cached.person_id == person_id
+            });
+        if !hit {
+            let kinship =
+                crate::model::relationship::relationship_to_root(&self.tree, root, person_id);
+            *self.relationship_cache.borrow_mut() = Some(RelationshipCache {
+                root_id: root.to_string(),
+                person_id: person_id.to_string(),
+                tree_revision: self.tree_revision,
+                kinship: kinship.clone(),
+            });
+            return kinship;
+        }
+        self.relationship_cache
+            .borrow()
+            .as_ref()
+            .and_then(|cached| cached.kinship.clone())
     }
 
     pub(super) fn set_root_person(&mut self, person_id: Option<&str>) {
@@ -5886,6 +5912,9 @@ impl TreeWindow {
         let Some(person_id) = self.app.selected_person_id() else {
             return;
         };
+        let root_relationship = self
+            .root_relationship(person_id)
+            .map(|kinship| kinship.label());
         let person = self
             .tree
             .people
@@ -5901,7 +5930,6 @@ impl TreeWindow {
             inspector::reverse_marriage_places(&mut connections);
         }
         let associations = &self.associations;
-        let root_relationship = self.root_relationship(person_id);
         let is_root = self.tree_settings.root_person_id.as_deref() == Some(person_id);
         let facts = self
             .person_facts
