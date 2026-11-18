@@ -330,22 +330,47 @@ pub fn share_folder(
     result
 }
 
+struct MediaCopy {
+    entries: Vec<ShareMediaEntry>,
+    rewritten_paths: Vec<(String, String)>,
+    missing: Vec<String>,
+    included: usize,
+}
+
 fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<ShareReport, String> {
     let database_name = format!("{name}.db");
     let snapshot_path = directory.join(&database_name);
     snapshot_database(db_path, &snapshot_path)?;
-    let schema_version: i64 = {
-        let conn = Connection::open(&snapshot_path).map_err(|error| error.to_string())?;
-        conn.query_row("PRAGMA user_version", [], |row| row.get(0))
-            .map_err(|error| error.to_string())?
-    };
-    let media = media_rows(&snapshot_path)?;
+    let schema_version = share_schema_version(&snapshot_path)?;
+    let media = copy_media(db_path, directory, media_rows(&snapshot_path)?)?;
+    rewrite_media_paths(&snapshot_path, &media.rewritten_paths)?;
+    write_share_manifest(directory, &database_name, schema_version, media.entries)?;
+    write_share_readme(
+        directory,
+        &database_name,
+        media.included,
+        media.missing.len(),
+    )?;
+    share_report(directory, &snapshot_path, media.included, media.missing)
+}
+
+fn share_schema_version(snapshot_path: &Path) -> Result<i64, String> {
+    let conn = Connection::open(snapshot_path).map_err(|error| error.to_string())?;
+    conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|error| error.to_string())
+}
+
+fn copy_media(
+    db_path: &Path,
+    directory: &Path,
+    media: Vec<(String, String)>,
+) -> Result<MediaCopy, String> {
     let media_dir = directory.join("media");
     fs::create_dir_all(&media_dir).map_err(|error| error.to_string())?;
     let mut archive_paths: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
     let mut entries = Vec::with_capacity(media.len());
     let mut missing: BTreeMap<PathBuf, String> = BTreeMap::new();
-    let mut rewritten_paths: Vec<(String, String)> = Vec::new();
+    let mut rewritten_paths: Vec<(String, String)> = Vec::with_capacity(media.len());
     for (id, stored_path) in media {
         let resolved = resolve_media_path(db_path, &stored_path);
         let exists = resolved.is_file();
@@ -394,49 +419,80 @@ fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<Sh
             missing: !exists,
         });
     }
-    if !rewritten_paths.is_empty() {
-        let mut conn = Connection::open(&snapshot_path).map_err(|error| error.to_string())?;
-        let tx = conn.transaction().map_err(|error| error.to_string())?;
-        for (id, path) in &rewritten_paths {
-            tx.execute(
-                "UPDATE media SET file_path = ?1 WHERE id = ?2",
-                params![path, id],
-            )
-            .map_err(|error| error.to_string())?;
-        }
-        tx.commit().map_err(|error| error.to_string())?;
-        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
-            .map_err(|error| error.to_string())?;
+    Ok(MediaCopy {
+        included: archive_paths.values().filter(|path| path.is_some()).count(),
+        entries,
+        rewritten_paths,
+        missing: missing.into_values().collect(),
+    })
+}
+
+fn rewrite_media_paths(snapshot_path: &Path, updates: &[(String, String)]) -> Result<(), String> {
+    if updates.is_empty() {
+        return Ok(());
     }
+    let mut conn = Connection::open(snapshot_path).map_err(|error| error.to_string())?;
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    for (id, path) in updates {
+        tx.execute(
+            "UPDATE media SET file_path = ?1 WHERE id = ?2",
+            params![path, id],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    tx.commit().map_err(|error| error.to_string())?;
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(|error| error.to_string())
+}
+
+fn write_share_manifest(
+    directory: &Path,
+    database_name: &str,
+    schema_version: i64,
+    media: Vec<ShareMediaEntry>,
+) -> Result<(), String> {
     let manifest = ShareManifest {
         format: SHARE_FORMAT.to_string(),
         version: SHARE_VERSION,
         created_at: timestamp_text()?,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         schema_version,
-        database: database_name.clone(),
-        media: entries,
+        database: database_name.to_string(),
+        media,
     };
     let manifest_text = toml::to_string_pretty(&manifest).map_err(|error| error.to_string())?;
     fs::write(directory.join("share-manifest.toml"), manifest_text)
-        .map_err(|error| error.to_string())?;
-    let missing_paths = missing.into_values().collect::<Vec<_>>();
+        .map_err(|error| error.to_string())
+}
+
+fn write_share_readme(
+    directory: &Path,
+    database_name: &str,
+    included: usize,
+    missing: usize,
+) -> Result<(), String> {
     let readme = format!(
-        "Stemma Flow family tree share\n=============================\n\nOpen \"{database_name}\" in Stemma Flow.\nKeep the \"media\" folder next to the database; its paths are relative.\nMissing media stay in the database as relative \"missing/...\" placeholders.\n\nGenerated: {}\nMedia included: {}\nMedia missing: {}\n",
+        "Stemma Flow family tree share\n=============================\n\nOpen \"{database_name}\" in Stemma Flow.\nKeep the \"media\" folder next to the database; its paths are relative.\nMissing media stay in the database as relative \"missing/...\" placeholders.\n\nGenerated: {}\nMedia included: {included}\nMedia missing: {missing}\n",
         timestamp_text()?,
-        archive_paths.values().filter(|path| path.is_some()).count(),
-        missing_paths.len()
     );
-    fs::write(directory.join("README.txt"), readme).map_err(|error| error.to_string())?;
-    let database_bytes = fs::metadata(&snapshot_path)
+    fs::write(directory.join("README.txt"), readme).map_err(|error| error.to_string())
+}
+
+fn share_report(
+    directory: &Path,
+    snapshot_path: &Path,
+    included: usize,
+    missing: Vec<String>,
+) -> Result<ShareReport, String> {
+    let database_bytes = fs::metadata(snapshot_path)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
     Ok(ShareReport {
         path: directory.to_path_buf(),
         database_bytes,
         total_bytes: bundle_bytes(directory)?,
-        media_included: archive_paths.values().filter(|path| path.is_some()).count(),
-        media_missing: missing_paths,
+        media_included: included,
+        media_missing: missing,
     })
 }
 
@@ -1014,6 +1070,55 @@ mod tests {
                     .any(|component| matches!(component, std::path::Component::ParentDir))
             );
         }
+    }
+
+    #[test]
+    fn copy_media_deduplicates_and_marks_missing() {
+        let dir = temp_dir();
+        let db_path = dir.join("tree.db");
+        let source = dir.join("photo.jpg");
+        fs::write(&source, b"photo").expect("source media");
+        let bundle = dir.join("bundle");
+        let media = vec![
+            ("m1".to_string(), source.to_string_lossy().to_string()),
+            ("m2".to_string(), source.to_string_lossy().to_string()),
+            ("m3".to_string(), "private/missing.jpg".to_string()),
+        ];
+        let copy = copy_media(&db_path, &bundle, media).expect("copy media");
+        assert_eq!(copy.included, 1, "shared files are copied once");
+        assert_eq!(copy.entries.len(), 3);
+        assert_eq!(copy.rewritten_paths.len(), 3);
+        assert_eq!(copy.missing, vec!["missing.jpg".to_string()]);
+        assert_eq!(
+            copy.entries[0].bundle_path, copy.entries[1].bundle_path,
+            "shared rows point at one bundled file"
+        );
+        assert!(copy.entries[2].missing);
+        assert!(copy.entries[2].bundle_path.is_none());
+        assert_eq!(
+            copy.rewritten_paths[2].1, "missing/m3_missing.jpg",
+            "missing rows use a relative placeholder"
+        );
+        let bundle_path = copy.entries[0]
+            .bundle_path
+            .as_deref()
+            .expect("bundled path");
+        let copied = crate::media_path::resolve(Some(&bundle), bundle_path);
+        assert!(copied.is_file());
+        assert_eq!(fs::read(copied).expect("copied bytes"), b"photo");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rewrite_media_paths_ignores_empty_updates() {
+        let dir = temp_dir();
+        let missing = dir.join("does-not-exist.db");
+        rewrite_media_paths(&missing, &[]).expect("empty update list");
+        assert!(
+            !missing.exists(),
+            "an empty update does not open the database"
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
