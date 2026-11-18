@@ -5,6 +5,7 @@ use egui::{Context, RichText, Window};
 use crate::db::FamilyTree;
 use crate::db::associations::{AssociationDraft, AssociationRecord};
 use crate::gui::inspector::person_label;
+use crate::i18n::{tr, tr_args};
 
 const MAX_CANDIDATES: usize = 12;
 
@@ -74,8 +75,8 @@ pub fn show(
     surname_first: bool,
 ) -> Option<AssociationOutcome> {
     let title = match &form.editing_label {
-        Some(name) => format!("Edit association — {name}"),
-        None => "Add association".to_string(),
+        Some(name) => tr_args("associations.edit_title", &[("name", name.to_string())]),
+        None => tr("associations.add_title"),
     };
     let mut open = true;
     let mut outcome = None;
@@ -86,10 +87,10 @@ pub fn show(
         .default_width(380.0)
         .open(&mut open)
         .show(ctx, |ui| {
-            ui.label(RichText::new("Relationship").strong());
+            ui.label(RichText::new(tr("associations.relationship")).strong());
             ui.add(
                 egui::TextEdit::singleline(&mut form.relationship)
-                    .hint_text("Friend, Associate, Neighbour…"),
+                    .hint_text(tr("associations.relationship_hint")),
             );
             ui.horizontal_wrapped(|ui| {
                 for preset in RELATIONSHIP_PRESETS {
@@ -101,7 +102,7 @@ pub fn show(
             ui.separator();
 
             if form.editing_label.is_none() {
-                ui.label(RichText::new("Associate").strong());
+                ui.label(RichText::new(tr("associations.associate")).strong());
                 let candidates = candidates(form, tree, surname_first);
                 let still_listed = form
                     .selected
@@ -110,13 +111,16 @@ pub fn show(
                 if !still_listed {
                     form.selected = None;
                 }
-                ui.add(egui::TextEdit::singleline(&mut form.search).hint_text("Search by name…"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut form.search)
+                        .hint_text(tr("people.search_hint")),
+                );
                 egui::ScrollArea::vertical()
                     .id_salt("association_candidates")
                     .max_height(150.0)
                     .show(ui, |ui| {
                         if candidates.is_empty() {
-                            ui.label(RichText::new("(no matches)").weak());
+                            ui.label(RichText::new(tr("common.no_matches")).weak());
                         }
                         for person in candidates.iter().take(MAX_CANDIDATES) {
                             let selected = form.selected.as_deref() == Some(person.id.as_str());
@@ -130,15 +134,18 @@ pub fn show(
                     });
                 if candidates.len() > MAX_CANDIDATES {
                     ui.label(
-                        RichText::new(format!("{} matches — refine the search", candidates.len()))
-                            .weak()
-                            .small(),
+                        RichText::new(tr_args(
+                            "people.matches_refine",
+                            &[("count", candidates.len().to_string())],
+                        ))
+                        .weak()
+                        .small(),
                     );
                 }
             } else if let Some(id) = form.selected.clone()
                 && let Some(person) = tree.people.iter().find(|person| person.id == id)
             {
-                ui.label(RichText::new("Associate").strong());
+                ui.label(RichText::new(tr("associations.associate")).strong());
                 ui.label(person_label(person, surname_first));
             }
 
@@ -153,12 +160,15 @@ pub fn show(
             let can_save = form.selected.is_some() && !form.relationship.trim().is_empty();
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(can_save, egui::Button::new(RichText::new("Save").strong()))
+                    .add_enabled(
+                        can_save,
+                        egui::Button::new(RichText::new(tr("common.save")).strong()),
+                    )
                     .clicked()
                 {
                     outcome = Some(AssociationOutcome::Save(form.to_draft()));
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("common.cancel")).clicked() {
                     outcome = Some(AssociationOutcome::Cancel);
                 }
             });

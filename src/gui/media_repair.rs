@@ -7,6 +7,8 @@ use std::thread;
 
 use egui::{Context, RichText, Window};
 
+use crate::i18n::{tr, tr_args, trn};
+
 use crate::db::media::MediaSummary;
 use crate::model::media_repair::{
     AmbiguousMediaMatch, MediaRepairMatch, MediaRepairPlan, find_matches,
@@ -117,7 +119,7 @@ pub fn show(ctx: &Context, state: &mut MediaRepairState) -> Option<MediaRepairEv
     }
     let mut open = true;
     let mut event = None;
-    Window::new("Repair missing media")
+    Window::new(tr("media_repair.title"))
         .id(egui::Id::unique("media_repair_window"))
         .collapsible(false)
         .resizable(true)
@@ -125,8 +127,8 @@ pub fn show(ctx: &Context, state: &mut MediaRepairState) -> Option<MediaRepairEv
         .open(&mut open)
         .show(ctx, |ui| {
             if state.missing.is_empty() {
-                ui.label(RichText::new("All media files are present.").weak());
-                if ui.button("Close").clicked() {
+                ui.label(RichText::new(tr("media_repair.all_present")).weak());
+                if ui.button(tr("common.close")).clicked() {
                     state.open = false;
                 }
                 return;
@@ -134,16 +136,15 @@ pub fn show(ctx: &Context, state: &mut MediaRepairState) -> Option<MediaRepairEv
 
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(format!("{} media files are missing.", state.missing.len()))
-                        .strong(),
+                    RichText::new(trn("media_repair.missing", state.missing.len() as i64)).strong(),
                 );
-                if ui.button("Refresh").clicked() {
+                if ui.button(tr("media_repair.refresh")).clicked() {
                     event = Some(MediaRepairEvent::Refresh);
                 }
                 if ui
                     .add_enabled(
                         !state.scanning,
-                        egui::Button::new(RichText::new("Search folder\u{2026}").strong()),
+                        egui::Button::new(RichText::new(tr("media_repair.search_folder")).strong()),
                     )
                     .clicked()
                 {
@@ -151,14 +152,14 @@ pub fn show(ctx: &Context, state: &mut MediaRepairState) -> Option<MediaRepairEv
                 }
                 if state.scanning {
                     ui.spinner();
-                    ui.label(RichText::new("Scanning\u{2026}").weak());
+                    ui.label(RichText::new(tr("media_repair.scanning")).weak());
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("Filter:");
+                ui.label(tr("common.filter"));
                 ui.add(
                     egui::TextEdit::singleline(&mut state.filter)
-                        .hint_text("Filter by caption or path\u{2026}"),
+                        .hint_text(tr("media_repair.filter_hint")),
                 );
             });
             ui.separator();
@@ -181,7 +182,7 @@ pub fn show(ctx: &Context, state: &mut MediaRepairState) -> Option<MediaRepairEv
                         }
                         ui.horizontal_wrapped(|ui| {
                             ui.label(
-                                RichText::new("MISSING")
+                                RichText::new(tr("media_repair.missing_badge"))
                                     .color(ui.visuals().error_fg_color)
                                     .small()
                                     .strong(),
@@ -189,21 +190,24 @@ pub fn show(ctx: &Context, state: &mut MediaRepairState) -> Option<MediaRepairEv
                             ui.label(RichText::new(caption).strong());
                             ui.label(RichText::new(&media.file_path).weak().small());
                             ui.label(
-                                RichText::new(format!("{} links", media.link_count))
+                                RichText::new(trn("media.links", media.link_count))
                                     .weak()
                                     .small(),
                             );
-                            if ui.small_button("Locate\u{2026}").clicked() {
+                            if ui.small_button(tr("media_repair.locate")).clicked() {
                                 event = Some(MediaRepairEvent::Locate(media.id.clone()));
                             }
-                            if ui.small_button("Edit").clicked() {
+                            if ui.small_button(tr("common.edit")).clicked() {
                                 event = Some(MediaRepairEvent::Edit(media.id.clone()));
                             }
                         });
                         ui.label(
-                            RichText::new(format!("Resolved: {}", media.resolved_path.display()))
-                                .weak()
-                                .small(),
+                            RichText::new(tr_args(
+                                "media_repair.resolved",
+                                &[("path", media.resolved_path.display().to_string())],
+                            ))
+                            .weak()
+                            .small(),
                         );
                         ui.separator();
                     }
@@ -226,7 +230,7 @@ pub fn show(ctx: &Context, state: &mut MediaRepairState) -> Option<MediaRepairEv
 
             if !state.preview.is_empty() {
                 ui.separator();
-                ui.label(RichText::new("Folder matches").strong());
+                ui.label(RichText::new(tr("media_repair.folder_matches")).strong());
                 let mut chosen = state.chosen.clone();
                 egui::ScrollArea::vertical()
                     .id_salt("media_repair_preview")
@@ -254,18 +258,22 @@ pub fn show(ctx: &Context, state: &mut MediaRepairState) -> Option<MediaRepairEv
                     if ui
                         .add_enabled(
                             !selected.is_empty(),
-                            egui::Button::new(RichText::new("Apply selected").strong()),
+                            egui::Button::new(
+                                RichText::new(tr("media_repair.apply_selected")).strong(),
+                            ),
                         )
                         .clicked()
                     {
                         event = Some(MediaRepairEvent::Apply(selected));
                     }
                     ui.label(
-                        RichText::new(format!(
-                            "{} unique, {} ambiguous, {} not found",
-                            state.preview.len(),
-                            state.ambiguous.len(),
-                            state.unmatched.len()
+                        RichText::new(tr_args(
+                            "media_repair.summary",
+                            &[
+                                ("unique", state.preview.len().to_string()),
+                                ("ambiguous", state.ambiguous.len().to_string()),
+                                ("unmatched", state.unmatched.len().to_string()),
+                            ],
                         ))
                         .weak()
                         .small(),

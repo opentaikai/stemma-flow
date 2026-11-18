@@ -574,6 +574,9 @@ from = "From"
 associate = "Associate"
 relationship = "Relationship"
 
+edit_title = "Edit association — {name}"
+add_title = "Add association"
+relationship_hint = "Friend, Associate, Neighbour…"
 [relationship]
 root = "Root"
 husband = "Husband"
@@ -1043,6 +1046,7 @@ description = "Export every person with their relationship to a chosen subject."
 only_relatives = "Only relatives"
 
 [participants]
+roles_hint = "Add roles for this fact type in Fact Types before adding witnesses."
 title = "Witnesses"
 principal = "Principal: {name}"
 none = "No witnesses yet."
@@ -1107,6 +1111,43 @@ no_linked_sources = "No linked sources."
 title = "Individual Summary"
 vital_data = "Vital data"
 no_facts = "No additional facts recorded."
+
+[notes]
+add = "+ Add note"
+empty = "No notes yet."
+text_hint = "Note text…"
+save = "Save note"
+
+[media_repair]
+title = "Repair missing media"
+all_present = "All media files are present."
+missing_one = "{count} media file is missing."
+missing_other = "{count} media files are missing."
+refresh = "Refresh"
+search_folder = "Search folder…"
+scanning = "Scanning…"
+filter_hint = "Filter by caption or path…"
+missing_badge = "MISSING"
+locate = "Locate…"
+resolved = "Resolved: {path}"
+folder_matches = "Folder matches"
+apply_selected = "Apply selected"
+summary = "{unique} unique, {ambiguous} ambiguous, {unmatched} not found"
+
+[print_settings]
+title = "Print Settings"
+description = "Customize headers, footers, margins and fonts for each printable report."
+report = "Report"
+save_format = "Save format"
+pdf_hint = "PDF export needs Chromium, Chrome, Edge or wkhtmltopdf; otherwise export HTML and print to PDF."
+header = "Header"
+footer = "Footer"
+margin = "Margin"
+override = "Override"
+font = "Font"
+body_size = "Body size"
+placeholders = "Placeholders: {report}, {tree} and {date}. Empty fields keep the report defaults."
+reset = "Reset this report"
 
 [replace]
 title = "Search and Replace"
