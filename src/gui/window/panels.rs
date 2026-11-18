@@ -1,10 +1,12 @@
 //! Menu bar, status bar and welcome dashboard.
 
-use crate::app::UiStatus;
+use crate::app::{JobOutcome, UiStatus};
+use crate::db::maintenance::MaintenanceKind;
 use crate::gui::tabs;
 use crate::gui::welcome;
 use crate::gui::welcome::WelcomeAction;
 use crate::i18n::{tr, tr_args};
+use crate::model::print_profile::ReportKind;
 use eframe::Frame;
 use egui::Color32;
 use egui::Ui;
@@ -391,6 +393,14 @@ impl TreeWindow {
             UiStatus::Success(message) => {
                 ui.colored_label(Color32::from_rgb(34, 197, 94), message);
             }
+            UiStatus::Job(outcome) => {
+                let color = if outcome.is_error() {
+                    Color32::from_rgb(239, 68, 68)
+                } else {
+                    Color32::from_rgb(34, 197, 94)
+                };
+                ui.colored_label(color, job_outcome_text(outcome));
+            }
             UiStatus::Cancelled => {
                 ui.colored_label(Color32::from_gray(150), tr("status.cancelled"));
             }
@@ -411,5 +421,215 @@ impl TreeWindow {
             WelcomeAction::RestoreBackup => self.app.begin_restore(),
             WelcomeAction::OpenRecent(path) => self.open_tree_at(path, frame),
         }
+    }
+}
+
+fn report_status_key(kind: ReportKind) -> &'static str {
+    match kind {
+        ReportKind::ResearchLog => "status.exported_tasks",
+        ReportKind::GroupRoster => "status.exported_members",
+        ReportKind::PhotoTree
+        | ReportKind::IndividualList
+        | ReportKind::FanChart
+        | ReportKind::HourglassChart
+        | ReportKind::WallChart => "status.exported_people",
+        ReportKind::Scrapbook => "status.exported_albums",
+        ReportKind::PedigreeChart | ReportKind::AhnentafelList => "status.exported_ancestors",
+        ReportKind::FamilyGroupSheet => "status.exported_children",
+        ReportKind::IndividualSummary => "status.exported_facts",
+        ReportKind::DescendantList => "status.exported_descendants",
+        ReportKind::KinshipReport => "status.exported_kinship",
+        ReportKind::RelationshipReport => "status.exported_steps",
+        ReportKind::CalendarReports | ReportKind::TimelineReport => "status.exported_events",
+        ReportKind::AdministrativeLists | ReportKind::CleanupReports => "status.exported_rows",
+        ReportKind::FamilyHistoryBook => "status.exported_chapters",
+    }
+}
+
+fn job_outcome_text(outcome: &JobOutcome) -> String {
+    match outcome {
+        JobOutcome::Imported {
+            people,
+            families,
+            events,
+            citations,
+            participants,
+            warnings,
+        } => tr_args(
+            "status.imported",
+            &[
+                ("people", people.to_string()),
+                ("families", families.to_string()),
+                ("events", events.to_string()),
+                ("citations", citations.to_string()),
+                ("participants", participants.to_string()),
+                ("warnings", warnings.to_string()),
+            ],
+        ),
+        JobOutcome::ExportedGedcom { path, bytes } => tr_args(
+            "status.exported_gedcom",
+            &[
+                ("bytes", bytes.to_string()),
+                ("path", path.display().to_string()),
+            ],
+        ),
+        JobOutcome::BackedUp {
+            path,
+            media_included,
+            media_missing,
+        } => {
+            let path = path.display().to_string();
+            let media = media_included.to_string();
+            match media_missing {
+                0 => tr_args("status.backed_up", &[("media", media), ("path", path)]),
+                1 => tr_args(
+                    "status.backed_up_missing_one",
+                    &[("media", media), ("path", path)],
+                ),
+                count => tr_args(
+                    "status.backed_up_missing_other",
+                    &[
+                        ("media", media),
+                        ("path", path),
+                        ("missing", count.to_string()),
+                    ],
+                ),
+            }
+        }
+        JobOutcome::Restored {
+            path,
+            media_missing,
+        } => {
+            let path = path.display().to_string();
+            match media_missing {
+                0 => tr_args("status.restored", &[("path", path)]),
+                1 => tr_args("status.restored_missing_one", &[("path", path)]),
+                count => tr_args(
+                    "status.restored_missing_other",
+                    &[("path", path), ("missing", count.to_string())],
+                ),
+            }
+        }
+        JobOutcome::Maintenance {
+            kind,
+            healthy,
+            issues,
+            foreign_keys,
+            indexes_rebuilt,
+            size_before,
+            size_after,
+        } => match kind {
+            MaintenanceKind::Integrity if !healthy => tr_args(
+                "status.integrity_failed",
+                &[
+                    ("issues", issues.to_string()),
+                    ("foreign_keys", foreign_keys.to_string()),
+                ],
+            ),
+            MaintenanceKind::Integrity => tr("status.integrity_passed"),
+            MaintenanceKind::RebuildIndexes => tr_args(
+                "status.indexes_rebuilt",
+                &[("count", indexes_rebuilt.to_string())],
+            ),
+            MaintenanceKind::Compress => tr_args(
+                "status.compressed",
+                &[
+                    ("before", size_before.to_string()),
+                    ("after", size_after.to_string()),
+                ],
+            ),
+        },
+        JobOutcome::ReportExported {
+            kind,
+            path,
+            bytes,
+            count,
+        } => tr_args(
+            report_status_key(*kind),
+            &[
+                ("count", count.to_string()),
+                ("bytes", bytes.to_string()),
+                ("path", path.display().to_string()),
+            ],
+        ),
+        JobOutcome::SvgExported { path, bytes } => tr_args(
+            "status.exported_svg",
+            &[
+                ("bytes", bytes.to_string()),
+                ("path", path.display().to_string()),
+            ],
+        ),
+        JobOutcome::WebsiteExported {
+            path,
+            bytes,
+            pages,
+            media,
+        } => tr_args(
+            "status.exported_website",
+            &[
+                ("pages", pages.to_string()),
+                ("media", media.to_string()),
+                ("bytes", bytes.to_string()),
+                ("path", path.display().to_string()),
+            ],
+        ),
+        JobOutcome::ShareBundleExported {
+            path,
+            media,
+            total_bytes,
+            database_bytes,
+        } => tr_args(
+            "status.shared_bundle",
+            &[
+                ("media", media.to_string()),
+                ("total_bytes", total_bytes.to_string()),
+                ("database_bytes", database_bytes.to_string()),
+                ("path", path.display().to_string()),
+            ],
+        ),
+        JobOutcome::Geocoded { found } => {
+            tr_args("status.geocoded", &[("count", found.to_string())])
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn job_outcomes_substitute_all_placeholders() {
+        let imported = job_outcome_text(&JobOutcome::Imported {
+            people: 5,
+            families: 2,
+            events: 3,
+            citations: 1,
+            participants: 0,
+            warnings: 2,
+        });
+        assert!(imported.contains('5'));
+        assert!(!imported.contains('{'), "{imported}");
+
+        let backed_up = job_outcome_text(&JobOutcome::BackedUp {
+            path: "/tmp/tree-backup.zip".into(),
+            media_included: 2,
+            media_missing: 1,
+        });
+        assert!(backed_up.contains('2'));
+        assert!(backed_up.contains('1'));
+        assert!(backed_up.contains("tree-backup.zip"));
+        assert!(!backed_up.contains('{'), "{backed_up}");
+
+        let bundle = job_outcome_text(&JobOutcome::ShareBundleExported {
+            path: "/tmp/family-share".into(),
+            media: 3,
+            total_bytes: 4096,
+            database_bytes: 1024,
+        });
+        assert!(bundle.contains('3'));
+        assert!(bundle.contains("4096"));
+        assert!(bundle.contains("1024"));
+        assert!(bundle.contains("family-share"));
+        assert!(!bundle.contains('{'), "{bundle}");
     }
 }

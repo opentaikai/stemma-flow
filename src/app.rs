@@ -62,7 +62,7 @@ use crate::gui::dialogs;
 use crate::model::book::BookDefinition;
 use crate::model::dataclean::{DataCleanPlan, build_plan};
 use crate::model::geocode::{GeocodeReport, GeocodeRequest, GeocodeResult};
-use crate::model::print_profile::PrintProfiles;
+use crate::model::print_profile::{PrintProfiles, ReportKind};
 use crate::model::report_format::ReportFormat;
 use crate::model::search_replace::{ReplacePlan, ReplaceRequest};
 use crate::model::source_template::SourceTemplate;
@@ -246,12 +246,87 @@ pub struct MaintenanceResult {
     pub backup_path: Option<PathBuf>,
 }
 
+/// Structured completion data for a background job.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobOutcome {
+    Imported {
+        people: usize,
+        families: usize,
+        events: usize,
+        citations: usize,
+        participants: usize,
+        warnings: usize,
+    },
+    ExportedGedcom {
+        path: PathBuf,
+        bytes: usize,
+    },
+    BackedUp {
+        path: PathBuf,
+        media_included: usize,
+        media_missing: usize,
+    },
+    Restored {
+        path: PathBuf,
+        media_missing: usize,
+    },
+    Maintenance {
+        kind: MaintenanceKind,
+        healthy: bool,
+        issues: usize,
+        foreign_keys: usize,
+        indexes_rebuilt: i64,
+        size_before: u64,
+        size_after: u64,
+    },
+    ReportExported {
+        kind: ReportKind,
+        path: PathBuf,
+        bytes: usize,
+        count: usize,
+    },
+    SvgExported {
+        path: PathBuf,
+        bytes: usize,
+    },
+    WebsiteExported {
+        path: PathBuf,
+        bytes: usize,
+        pages: usize,
+        media: usize,
+    },
+    ShareBundleExported {
+        path: PathBuf,
+        media: usize,
+        total_bytes: u64,
+        database_bytes: u64,
+    },
+    Geocoded {
+        found: usize,
+    },
+}
+
+impl JobOutcome {
+    /// Whether this completion should be shown as an error.
+    pub fn is_error(&self) -> bool {
+        matches!(
+            self,
+            Self::Maintenance {
+                kind: MaintenanceKind::Integrity,
+                healthy: false,
+                ..
+            }
+        )
+    }
+}
+
 /// Presentation state derived from the most recent job event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiStatus {
     Idle,
     Running(&'static str),
     Success(String),
+    Job(JobOutcome),
     Cancelled,
     Error(String),
 }
@@ -1957,261 +2032,133 @@ impl StemmaApp {
         self.busy = false;
         self.maintenance = false;
         self.status = match event {
-            JobEvent::Imported(report) => {
-                self.import_generation += 1;
-                self.new_import_report = Some(report.clone());
-                UiStatus::Success(import_summary(&report))
-            }
-            JobEvent::TreeReady { report, path } => {
-                self.activate_tree(path);
-                self.import_generation += 1;
-                self.new_import_report = Some(report.clone());
-                UiStatus::Success(import_summary(&report))
-            }
+            JobEvent::Imported(report) => self.apply_imported(report),
+            JobEvent::TreeReady { report, path } => self.apply_tree_ready(report, path),
             JobEvent::Exported { bytes, path } => {
-                UiStatus::Success(format!("Exported {bytes} bytes to {}", path.display()))
+                UiStatus::Job(JobOutcome::ExportedGedcom { path, bytes })
             }
-            JobEvent::BackedUp { path, report } => {
-                let missing = report.media_missing.len();
-                let suffix = match missing {
-                    0 => String::new(),
-                    1 => ", 1 media file missing".to_string(),
-                    count => format!(", {count} media files missing"),
-                };
-                UiStatus::Success(format!(
-                    "Backed up {} media files to {}{suffix}",
-                    report.media_included,
-                    path.display()
-                ))
-            }
-            JobEvent::Restored { path, report } => {
-                self.activate_tree(path.clone());
-                self.import_generation += 1;
-                self.restored_path = Some(path.clone());
-                let missing = report.media_missing;
-                let suffix = match missing {
-                    0 => String::new(),
-                    1 => ", 1 media file missing".to_string(),
-                    count => format!(", {count} media files missing"),
-                };
-                UiStatus::Success(format!("Restored tree to {}{suffix}", path.display()))
-            }
+            JobEvent::BackedUp { path, report } => self.apply_backed_up(path, report),
+            JobEvent::Restored { path, report } => self.apply_restored(path, report),
             JobEvent::Maintenance {
                 report,
                 backup_path,
-            } => {
-                let status = if report.kind == MaintenanceKind::Integrity && !report.healthy {
-                    UiStatus::Error(format!(
-                        "Integrity check found {} issues and {} foreign key violations",
-                        report.issues.len(),
-                        report.foreign_key_violations
-                    ))
-                } else {
-                    match report.kind {
-                        MaintenanceKind::Integrity => {
-                            UiStatus::Success("Database integrity check passed".to_string())
-                        }
-                        MaintenanceKind::RebuildIndexes => UiStatus::Success(format!(
-                            "Rebuilt {} database indexes",
-                            report.indexes_rebuilt
-                        )),
-                        MaintenanceKind::Compress => UiStatus::Success(format!(
-                            "Compressed database from {} to {} bytes",
-                            report.size_before, report.size_after
-                        )),
-                    }
-                };
-                self.maintenance_result = Some(MaintenanceResult {
-                    report,
-                    backup_path,
-                });
-                self.maintenance_error = None;
-                status
+            } => self.apply_maintenance(report, backup_path),
+            JobEvent::ResearchLogExported { path, bytes, tasks } => {
+                report_status(ReportKind::ResearchLog, path, bytes, tasks)
             }
-            JobEvent::ResearchLogExported { path, bytes, tasks } => UiStatus::Success(format!(
-                "Exported {tasks} tasks ({bytes} bytes) to {}",
-                path.display()
-            )),
             JobEvent::GroupRosterExported {
                 path,
                 bytes,
                 members,
-            } => UiStatus::Success(format!(
-                "Exported {members} group members ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::GroupRoster, path, bytes, members),
             JobEvent::PhotoTreeExported {
                 path,
                 bytes,
                 people,
-            } => UiStatus::Success(format!(
-                "Exported {people} people ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::PhotoTree, path, bytes, people),
             JobEvent::ScrapbookExported {
                 path,
                 bytes,
                 albums,
-            } => UiStatus::Success(format!(
-                "Exported {albums} albums ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::Scrapbook, path, bytes, albums),
             JobEvent::PedigreeExported {
                 path,
                 bytes,
                 people,
-            } => UiStatus::Success(format!(
-                "Exported {people} ancestors ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::PedigreeChart, path, bytes, people),
             JobEvent::FamilySheetExported {
                 path,
                 bytes,
                 children,
-            } => UiStatus::Success(format!(
-                "Exported family sheet with {children} children ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::FamilyGroupSheet, path, bytes, children),
             JobEvent::IndividualSummaryExported { path, bytes, facts } => {
-                UiStatus::Success(format!(
-                    "Exported individual summary with {facts} facts ({bytes} bytes) to {}",
-                    path.display()
-                ))
+                report_status(ReportKind::IndividualSummary, path, bytes, facts)
             }
             JobEvent::IndividualListExported {
                 path,
                 bytes,
                 people,
-            } => UiStatus::Success(format!(
-                "Exported {people} people ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::IndividualList, path, bytes, people),
             JobEvent::AhnentafelListExported {
                 path,
                 bytes,
                 people,
-            } => UiStatus::Success(format!(
-                "Exported {people} ancestors ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::AhnentafelList, path, bytes, people),
             JobEvent::DescendantListExported {
                 path,
                 bytes,
                 people,
-            } => UiStatus::Success(format!(
-                "Exported {people} descendants ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::DescendantList, path, bytes, people),
             JobEvent::KinshipReportExported {
                 path,
                 bytes,
                 people,
-            } => UiStatus::Success(format!(
-                "Exported kinship report for {people} people ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::KinshipReport, path, bytes, people),
+            JobEvent::RelationshipReportExported { path, bytes, steps } => {
+                report_status(ReportKind::RelationshipReport, path, bytes, steps)
+            }
             JobEvent::CalendarReportExported {
                 path,
                 bytes,
                 events,
-            } => UiStatus::Success(format!(
-                "Exported calendar report with {events} events ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::CalendarReports, path, bytes, events),
             JobEvent::TimelineExported {
                 path,
                 bytes,
                 entries,
-            } => UiStatus::Success(format!(
-                "Exported timeline with {entries} events ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::TimelineReport, path, bytes, entries),
             JobEvent::AdministrativeListExported { path, bytes, rows } => {
-                UiStatus::Success(format!(
-                    "Exported list with {rows} rows ({bytes} bytes) to {}",
-                    path.display()
-                ))
+                report_status(ReportKind::AdministrativeLists, path, bytes, rows)
             }
-            JobEvent::CleanupReportExported { path, bytes, rows } => UiStatus::Success(format!(
-                "Exported cleanup report with {rows} rows ({bytes} bytes) to {}",
-                path.display()
-            )),
+            JobEvent::CleanupReportExported { path, bytes, rows } => {
+                report_status(ReportKind::CleanupReports, path, bytes, rows)
+            }
             JobEvent::FanChartExported {
                 path,
                 bytes,
                 people,
-            } => UiStatus::Success(format!(
-                "Exported fan chart with {people} people ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::FanChart, path, bytes, people),
             JobEvent::CombinedChartExported {
                 path,
                 bytes,
                 people,
-            } => UiStatus::Success(format!(
-                "Exported combined chart with {people} people ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::HourglassChart, path, bytes, people),
             JobEvent::WallChartExported {
                 path,
                 bytes,
                 people,
-            } => UiStatus::Success(format!(
-                "Exported wall chart with {people} people ({bytes} bytes) to {}",
-                path.display()
-            )),
-            JobEvent::SvgExported { path, bytes } => UiStatus::Success(format!(
-                "Exported SVG chart ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::WallChart, path, bytes, people),
+            JobEvent::SvgExported { path, bytes } => {
+                UiStatus::Job(JobOutcome::SvgExported { path, bytes })
+            }
             JobEvent::BookExported {
                 path,
                 bytes,
                 chapters,
-            } => UiStatus::Success(format!(
-                "Exported book with {chapters} chapters ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => report_status(ReportKind::FamilyHistoryBook, path, bytes, chapters),
             JobEvent::WebsiteExported {
                 path,
                 pages,
                 media,
                 bytes,
-            } => UiStatus::Success(format!(
-                "Exported {pages} pages and {media} media files ({bytes} bytes) to {}",
-                path.display()
-            )),
+            } => UiStatus::Job(JobOutcome::WebsiteExported {
+                path,
+                pages,
+                media,
+                bytes,
+            }),
             JobEvent::ShareBundleExported {
                 path,
                 media,
                 total_bytes,
                 database_bytes,
-            } => UiStatus::Success(format!(
-                "Shared tree with {media} media files ({total_bytes} total bytes, \
-                 {database_bytes} database bytes) to {}",
-                path.display()
-            )),
-            JobEvent::RelationshipReportExported { path, bytes, steps } => {
-                UiStatus::Success(format!(
-                    "Exported relationship report with {steps} steps ({bytes} bytes) to {}",
-                    path.display()
-                ))
-            }
-            JobEvent::Geocoded(report) => {
-                let found = report.found_count();
-                let error = report.error.clone();
-                let cancelled = report.cancelled;
-                self.geocode_progress = None;
-                self.geocode_cancel = None;
-                self.geocode_report = Some(*report);
-                if let Some(error) = error {
-                    UiStatus::Error(error)
-                } else if cancelled {
-                    UiStatus::Cancelled
-                } else {
-                    UiStatus::Success(format!("Geocoded {found} places"))
-                }
-            }
+            } => UiStatus::Job(JobOutcome::ShareBundleExported {
+                path,
+                media,
+                total_bytes,
+                database_bytes,
+            }),
+            JobEvent::Geocoded(report) => self.apply_geocoded(*report),
             JobEvent::GeocodeProgress { .. } => {
                 unreachable!("geocode progress is handled before the status update")
             }
@@ -2245,6 +2192,77 @@ impl StemmaApp {
         };
     }
 
+    fn apply_imported(&mut self, report: ImportReport) -> UiStatus {
+        self.import_generation += 1;
+        let outcome = import_outcome(&report);
+        self.new_import_report = Some(report);
+        UiStatus::Job(outcome)
+    }
+
+    fn apply_tree_ready(&mut self, report: ImportReport, path: PathBuf) -> UiStatus {
+        self.activate_tree(path);
+        self.import_generation += 1;
+        let outcome = import_outcome(&report);
+        self.new_import_report = Some(report);
+        UiStatus::Job(outcome)
+    }
+
+    fn apply_backed_up(&mut self, path: PathBuf, report: BackupReport) -> UiStatus {
+        UiStatus::Job(JobOutcome::BackedUp {
+            path,
+            media_included: report.media_included,
+            media_missing: report.media_missing.len(),
+        })
+    }
+
+    fn apply_restored(&mut self, path: PathBuf, report: RestoreReport) -> UiStatus {
+        self.activate_tree(path.clone());
+        self.import_generation += 1;
+        self.restored_path = Some(path.clone());
+        UiStatus::Job(JobOutcome::Restored {
+            path,
+            media_missing: report.media_missing,
+        })
+    }
+
+    fn apply_maintenance(
+        &mut self,
+        report: MaintenanceReport,
+        backup_path: Option<PathBuf>,
+    ) -> UiStatus {
+        let outcome = JobOutcome::Maintenance {
+            kind: report.kind,
+            healthy: report.healthy,
+            issues: report.issues.len(),
+            foreign_keys: report.foreign_key_violations,
+            indexes_rebuilt: report.indexes_rebuilt,
+            size_before: report.size_before,
+            size_after: report.size_after,
+        };
+        self.maintenance_result = Some(MaintenanceResult {
+            report,
+            backup_path,
+        });
+        self.maintenance_error = None;
+        UiStatus::Job(outcome)
+    }
+
+    fn apply_geocoded(&mut self, report: GeocodeReport) -> UiStatus {
+        let found = report.found_count();
+        let error = report.error.clone();
+        let cancelled = report.cancelled;
+        self.geocode_progress = None;
+        self.geocode_cancel = None;
+        self.geocode_report = Some(report);
+        if let Some(error) = error {
+            UiStatus::Error(error)
+        } else if cancelled {
+            UiStatus::Cancelled
+        } else {
+            UiStatus::Job(JobOutcome::Geocoded { found })
+        }
+    }
+
     /// Returns the path of a tree restored since the last UI pass.
     pub fn take_restored_path(&mut self) -> Option<PathBuf> {
         self.restored_path.take()
@@ -2257,18 +2275,25 @@ impl StemmaApp {
     }
 }
 
-/// Status-bar line for a finished import, warning count included so the
-/// user always sees whether anything was skipped.
-fn import_summary(report: &ImportReport) -> String {
-    format!(
-        "Imported {} people, {} families, {} events, {} citations, {} witnesses, {} warnings",
-        report.people,
-        report.families,
-        report.events,
-        report.citations,
-        report.participants,
-        report.warnings.len()
-    )
+/// Typed status-bar outcome for a finished import.
+fn import_outcome(report: &ImportReport) -> JobOutcome {
+    JobOutcome::Imported {
+        people: report.people,
+        families: report.families,
+        events: report.events,
+        citations: report.citations,
+        participants: report.participants,
+        warnings: report.warnings.len(),
+    }
+}
+
+fn report_status(kind: ReportKind, path: PathBuf, bytes: usize, count: usize) -> UiStatus {
+    UiStatus::Job(JobOutcome::ReportExported {
+        kind,
+        path,
+        bytes,
+        count,
+    })
 }
 
 impl Default for StemmaApp {
@@ -3221,7 +3246,10 @@ mod tests {
             1,
             "the fresh import marks the scene stale"
         );
-        assert!(matches!(app.status(), UiStatus::Success(_)));
+        assert!(matches!(
+            app.status(),
+            UiStatus::Job(JobOutcome::Imported { people: 4, .. })
+        ));
     }
 
     #[test]
@@ -3281,7 +3309,10 @@ mod tests {
             warnings: Vec::new(),
         }));
         assert!(!app.is_busy());
-        assert!(matches!(app.status(), UiStatus::Success(message) if message.contains("3 people")));
+        assert!(matches!(
+            app.status(),
+            UiStatus::Job(JobOutcome::Imported { people: 3, .. })
+        ));
 
         app.busy = true;
         app.apply_event(JobEvent::Cancelled);
@@ -3429,9 +3460,16 @@ mod tests {
         });
         assert!(!app.is_busy());
         assert!(!app.is_maintenance());
-        assert!(
-            matches!(app.status(), UiStatus::Success(message) if message.contains("Compressed"))
-        );
+        assert!(matches!(
+            app.status(),
+            UiStatus::Job(JobOutcome::Maintenance {
+                kind: MaintenanceKind::Compress,
+                healthy: true,
+                size_before: 4096,
+                size_after: 2048,
+                ..
+            })
+        ));
         let result = app.take_maintenance_result().expect("result");
         assert_eq!(result.report.kind, MaintenanceKind::Compress);
         assert_eq!(
@@ -3457,7 +3495,16 @@ mod tests {
             },
             backup_path: None,
         });
-        assert!(matches!(app.status(), UiStatus::Error(message) if message.contains("Integrity")));
+        assert!(matches!(
+            app.status(),
+            UiStatus::Job(JobOutcome::Maintenance {
+                kind: MaintenanceKind::Integrity,
+                healthy: false,
+                issues: 1,
+                foreign_keys: 1,
+                ..
+            })
+        ));
 
         app.maintenance = true;
         app.busy = true;
@@ -3481,9 +3528,15 @@ mod tests {
             tasks: 4,
         });
         assert!(!app.is_busy());
-        assert!(
-            matches!(app.status(), UiStatus::Success(message) if message.contains("4 tasks") && message.contains("research-log.html"))
-        );
+        assert!(matches!(
+            app.status(),
+            UiStatus::Job(JobOutcome::ReportExported {
+                kind: ReportKind::ResearchLog,
+                bytes: 2048,
+                count: 4,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -3496,9 +3549,15 @@ mod tests {
             members: 3,
         });
         assert!(!app.is_busy());
-        assert!(
-            matches!(app.status(), UiStatus::Success(message) if message.contains("3 group members") && message.contains("group-roster.html"))
-        );
+        assert!(matches!(
+            app.status(),
+            UiStatus::Job(JobOutcome::ReportExported {
+                kind: ReportKind::GroupRoster,
+                bytes: 2048,
+                count: 3,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -3513,9 +3572,14 @@ mod tests {
                 database_bytes: 1024,
             },
         });
-        assert!(
-            matches!(app.status(), UiStatus::Success(message) if message.contains("2 media") && message.contains("1 media file missing"))
-        );
+        assert!(matches!(
+            app.status(),
+            UiStatus::Job(JobOutcome::BackedUp {
+                media_included: 2,
+                media_missing: 1,
+                ..
+            })
+        ));
 
         app.busy = true;
         app.apply_event(JobEvent::Restored {
@@ -3527,9 +3591,13 @@ mod tests {
         });
         assert!(!app.is_busy());
         assert_eq!(app.active_db(), Some(Path::new("/tmp/restored.db")));
-        assert!(
-            matches!(app.status(), UiStatus::Success(message) if message.contains("Restored tree"))
-        );
+        assert!(matches!(
+            app.status(),
+            UiStatus::Job(JobOutcome::Restored {
+                media_missing: 0,
+                ..
+            })
+        ));
         assert_eq!(
             app.take_restored_path(),
             Some(PathBuf::from("/tmp/restored.db"))
@@ -3554,11 +3622,12 @@ mod tests {
         assert!(!app.is_busy());
         assert!(matches!(
             app.status(),
-            UiStatus::Success(message)
-                if message.contains("3 media files")
-                    && message.contains("4096 total bytes")
-                    && message.contains("1024 database bytes")
-                    && message.contains("Family-share-20260101")
+            UiStatus::Job(JobOutcome::ShareBundleExported {
+                media: 3,
+                total_bytes: 4096,
+                database_bytes: 1024,
+                ..
+            })
         ));
     }
 
@@ -3577,11 +3646,12 @@ mod tests {
         }));
 
         match app.status() {
-            UiStatus::Success(message) => {
-                assert!(message.contains("5 people"), "{message}");
-                assert!(message.contains("2 warnings"), "{message}");
-            }
-            other => panic!("expected success, got {other:?}"),
+            UiStatus::Job(JobOutcome::Imported {
+                people: 5,
+                warnings: 2,
+                ..
+            }) => {}
+            other => panic!("expected import outcome, got {other:?}"),
         }
 
         let report = app
