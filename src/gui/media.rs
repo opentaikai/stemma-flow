@@ -11,6 +11,7 @@ use crate::db::Person;
 use crate::db::albums::{AlbumDraft, AlbumSummary};
 use crate::db::media::{MediaDraft, MediaLinkSummary, MediaOwner, MediaRecord, MediaSummary};
 use crate::gui::inspector::person_label;
+use crate::i18n::{tr, tr_args, trn};
 
 const THUMB_SIZE: f32 = 64.0;
 const MAX_CHOICES: usize = 24;
@@ -191,13 +192,16 @@ pub fn show(
             albums_section(ui, state, people, surname_first, &mut event);
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label("Filter:");
+                ui.label(tr("common.filter"));
                 ui.add(
                     egui::TextEdit::singleline(&mut state.filter)
-                        .hint_text("Filter by caption, path or format…"),
+                        .hint_text(tr("media.filter_hint")),
                 );
                 if ui
-                    .add_enabled(!state.filter.is_empty(), egui::Button::new("Clear"))
+                    .add_enabled(
+                        !state.filter.is_empty(),
+                        egui::Button::new(tr("common.clear")),
+                    )
                     .clicked()
                 {
                     state.filter.clear();
@@ -205,12 +209,14 @@ pub fn show(
             });
             ui.horizontal(|ui| {
                 if ui
-                    .add(egui::Button::new(RichText::new("+ New Media").strong()))
+                    .add(egui::Button::new(
+                        RichText::new(tr("media.new_media")).strong(),
+                    ))
                     .clicked()
                 {
                     event = Some(MediaEvent::New);
                 }
-                if ui.button("Repair missing\u{2026}").clicked() {
+                if ui.button(tr("media.repair_missing")).clicked() {
                     event = Some(MediaEvent::RepairMissing);
                 }
             });
@@ -280,17 +286,18 @@ pub fn show(
                                         clicked = ui.selectable_label(selected, label).clicked();
                                         if media.missing {
                                             ui.label(
-                                                RichText::new("missing")
+                                                RichText::new(tr("media.missing"))
                                                     .color(Color32::from_rgb(239, 68, 68))
                                                     .small(),
                                             );
                                         }
                                         ui.label(
-                                            RichText::new(format!("{} links", media.link_count))
+                                            RichText::new(trn("media.links", media.link_count))
                                                 .weak()
                                                 .small(),
                                         );
-                                        if album_id.is_some() && ui.small_button("Remove").clicked()
+                                        if album_id.is_some()
+                                            && ui.small_button(tr("media.remove")).clicked()
                                         {
                                             remove = true;
                                         }
@@ -343,39 +350,39 @@ pub fn show(
 
     egui::CentralPanel::default().show(ui, |ui| {
         if !state.editing {
-            ui.label(RichText::new("Select a media record or add a new one.").weak());
+            ui.label(RichText::new(tr("media.select_prompt")).weak());
             return;
         }
         ui.heading(if state.draft.id.is_some() {
-            "Edit media"
+            tr("media.edit_media")
         } else {
-            "New media"
+            tr("media.new_media_heading")
         });
-        if ui.button("Browse\u{2026}").clicked() {
+        if ui.button(tr("media.browse")).clicked() {
             event = Some(MediaEvent::Browse);
         }
         let missing_path = !state.draft.file_path.trim().is_empty()
             && !crate::media_path::resolve(db_path, &state.draft.file_path).is_file();
-        if missing_path && ui.button("Locate\u{2026}").clicked() {
+        if missing_path && ui.button(tr("media.locate")).clicked() {
             event = Some(MediaEvent::Browse);
         }
         egui::Grid::new("media_fields")
             .num_columns(2)
             .spacing([10.0, 6.0])
             .show(ui, |ui| {
-                ui.label(RichText::new("File *").strong());
+                ui.label(RichText::new(tr("media.file_required")).strong());
                 ui.text_edit_singleline(&mut state.draft.file_path);
                 ui.end_row();
 
-                ui.label("Format:");
+                ui.label(tr("media.format"));
                 ui.text_edit_singleline(&mut state.draft.format);
                 ui.end_row();
 
-                ui.label("Caption:");
+                ui.label(tr("media.caption"));
                 ui.text_edit_singleline(&mut state.draft.caption);
                 ui.end_row();
 
-                ui.label("Notes:");
+                ui.label(tr("media.notes"));
                 ui.add(
                     egui::TextEdit::multiline(&mut state.draft.notes)
                         .desired_rows(3)
@@ -387,7 +394,7 @@ pub fn show(
             && !crate::media_path::resolve(db_path, &state.draft.file_path).is_file()
         {
             ui.label(
-                RichText::new("File not found; the path is stored as entered.")
+                RichText::new(tr("media.file_not_found"))
                     .color(Color32::from_rgb(239, 68, 68))
                     .small(),
             );
@@ -395,11 +402,7 @@ pub fn show(
         if !state.draft.file_path.trim().is_empty()
             && Path::new(state.draft.file_path.trim()).is_relative()
         {
-            ui.label(
-                RichText::new("Stored relative to the tree folder.")
-                    .weak()
-                    .small(),
-            );
+            ui.label(RichText::new(tr("media.stored_relative")).weak().small());
         }
         if let Some(error) = &state.error {
             ui.label(
@@ -412,14 +415,14 @@ pub fn show(
             if ui
                 .add_enabled(
                     !state.draft.file_path.trim().is_empty(),
-                    egui::Button::new(RichText::new("Save").strong()),
+                    egui::Button::new(RichText::new(tr("common.save")).strong()),
                 )
                 .clicked()
             {
                 event = Some(MediaEvent::Save(Box::new(state.draft.to_draft())));
             }
             if let Some(id) = state.draft.id.clone()
-                && ui.button("Tasks\u{2026}").clicked()
+                && ui.button(tr("media.tasks")).clicked()
             {
                 let label = if state.draft.caption.trim().is_empty() {
                     state.draft.file_path.trim()
@@ -428,32 +431,35 @@ pub fn show(
                 };
                 event = Some(MediaEvent::Tasks {
                     media_id: id,
-                    title: format!("Tasks \u{2014} {label}"),
+                    title: tr_args("media.tasks_title", &[("label", label.to_string())]),
                 });
             }
             if let Some(id) = state.draft.id.clone()
-                && ui.button("Delete").clicked()
+                && ui.button(tr("common.delete")).clicked()
             {
                 event = Some(MediaEvent::Delete(id));
             }
         });
         ui.separator();
-        ui.label(RichText::new("Linked to").strong());
+        ui.label(RichText::new(tr("media.linked_to")).strong());
         if state.links.is_empty() {
-            ui.label(RichText::new("(not attached)").weak().small());
+            ui.label(RichText::new(tr("media.not_attached")).weak().small());
         }
         for link in &state.links {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(format!("{}:", link.owner_type))
-                        .weak()
-                        .small(),
+                    RichText::new(tr_args(
+                        "media.owner_line",
+                        &[("kind", owner_type_label(&link.owner_type))],
+                    ))
+                    .weak()
+                    .small(),
                 );
                 ui.label(&link.label);
                 if link.owner_type == "person" {
                     if link.portrait {
-                        ui.label(RichText::new("Portrait").weak().small());
-                        if ui.small_button("Clear").clicked() {
+                        ui.label(RichText::new(tr("media.portrait")).weak().small());
+                        if ui.small_button(tr("common.clear")).clicked() {
                             event = Some(MediaEvent::ClearPortrait {
                                 person_id: link.owner_id.clone(),
                             });
@@ -462,7 +468,7 @@ pub fn show(
                         &state.draft.file_path,
                         Some(state.draft.format.as_str()),
                     ) && let Some(media_id) = state.draft.id.clone()
-                        && ui.small_button("Set portrait").clicked()
+                        && ui.small_button(tr("media.set_portrait")).clicked()
                     {
                         event = Some(MediaEvent::SetPortrait {
                             person_id: link.owner_id.clone(),
@@ -470,7 +476,7 @@ pub fn show(
                         });
                     }
                 }
-                if ui.small_button("Detach").clicked() {
+                if ui.small_button(tr("media.detach")).clicked() {
                     event = Some(MediaEvent::Detach {
                         owner_type: link.owner_type.clone(),
                         owner_id: link.owner_id.clone(),
@@ -480,14 +486,14 @@ pub fn show(
         }
 
         ui.separator();
-        ui.label(RichText::new("Albums").strong());
+        ui.label(RichText::new(tr("media.albums")).strong());
         if state.media_albums.is_empty() {
-            ui.label(RichText::new("(not in an album)").weak().small());
+            ui.label(RichText::new(tr("media.not_in_album")).weak().small());
         }
         for album in &state.media_albums {
             ui.horizontal(|ui| {
                 ui.label(&album.name);
-                if ui.small_button("Remove").clicked()
+                if ui.small_button(tr("media.remove")).clicked()
                     && let Some(media_id) = &state.selected
                 {
                     event = Some(MediaEvent::RemoveFromAlbum {
@@ -528,6 +534,18 @@ pub fn show(
     event
 }
 
+fn owner_type_label(kind: &str) -> String {
+    tr(match kind {
+        "person" => "media.owner.person",
+        "family" => "media.owner.family",
+        "fact" => "media.owner.fact",
+        "source" => "media.owner.source",
+        "citation" => "media.owner.citation",
+        "place" => "media.owner.place",
+        _ => "media.owner.other",
+    })
+}
+
 fn albums_section(
     ui: &mut Ui,
     state: &mut MediaState,
@@ -535,12 +553,12 @@ fn albums_section(
     surname_first: bool,
     event: &mut Option<MediaEvent>,
 ) {
-    ui.label(RichText::new("Albums").strong());
-    if ui.button("+ New album").clicked() {
+    ui.label(RichText::new(tr("media.albums")).strong());
+    if ui.button(tr("media.new_album")).clicked() {
         *event = Some(MediaEvent::NewAlbum);
     }
     if ui
-        .selectable_label(state.selected_album.is_none(), "All media")
+        .selectable_label(state.selected_album.is_none(), tr("media.all_media"))
         .clicked()
         && state.selected_album.is_some()
     {
@@ -619,9 +637,9 @@ fn album_form(
     ui.separator();
     ui.label(
         RichText::new(if state.album_edit.id.is_some() {
-            "Edit album"
+            tr("media.edit_album")
         } else {
-            "New album"
+            tr("media.new_album_heading")
         })
         .strong(),
     );
@@ -629,11 +647,11 @@ fn album_form(
         .num_columns(2)
         .spacing([8.0, 4.0])
         .show(ui, |ui| {
-            ui.label(RichText::new("Name *").strong());
+            ui.label(RichText::new(tr("media.name_required")).strong());
             ui.text_edit_singleline(&mut state.album_edit.name);
             ui.end_row();
 
-            ui.label("Description:");
+            ui.label(tr("media.description"));
             ui.add(
                 egui::TextEdit::multiline(&mut state.album_edit.description)
                     .desired_rows(2)
@@ -649,20 +667,20 @@ fn album_form(
         .and_then(|id| people.iter().find(|person| person.id == id))
         .map(|person| person_label(person, surname_first));
     ui.horizontal(|ui| {
-        ui.label("Person:");
+        ui.label(tr("media.person"));
         if let Some(name) = &selected_name {
             ui.label(name);
-            if ui.small_button("Clear").clicked() {
+            if ui.small_button(tr("common.clear")).clicked() {
                 state.album_edit.person_id = None;
             }
         } else {
-            ui.label(RichText::new("General album").weak().small());
+            ui.label(RichText::new(tr("media.general_album")).weak().small());
         }
     });
 
     ui.add(
         egui::TextEdit::singleline(&mut state.album_person_search)
-            .hint_text("Search people\u{2026}"),
+            .hint_text(tr("media.search_people_hint")),
     );
     let needle = state.album_person_search.trim().to_lowercase();
     if !needle.is_empty() {
@@ -701,7 +719,7 @@ fn album_form(
         if ui
             .add_enabled(
                 !state.album_edit.name.trim().is_empty(),
-                egui::Button::new(RichText::new("Save").strong()),
+                egui::Button::new(RichText::new(tr("common.save")).strong()),
             )
             .clicked()
         {
@@ -709,19 +727,19 @@ fn album_form(
         }
         if state.album_edit.id.is_some() {
             if state.album_confirm_delete {
-                if ui.button("Delete album").clicked()
+                if ui.button(tr("media.delete_album")).clicked()
                     && let Some(id) = &state.album_edit.id
                 {
                     *event = Some(MediaEvent::DeleteAlbum(id.clone()));
                 }
-                if ui.button("Cancel delete").clicked() {
+                if ui.button(tr("media.cancel_delete")).clicked() {
                     state.album_confirm_delete = false;
                 }
-            } else if ui.button("Delete").clicked() {
+            } else if ui.button(tr("common.delete")).clicked() {
                 state.album_confirm_delete = true;
             }
         }
-        if ui.button("Cancel").clicked() {
+        if ui.button(tr("common.cancel")).clicked() {
             state.album_form = false;
             state.album_confirm_delete = false;
             state.album_error = None;
@@ -729,7 +747,7 @@ fn album_form(
     });
     if state.album_confirm_delete {
         ui.label(
-            RichText::new("Delete this album? Media records stay in the library.")
+            RichText::new(tr("media.delete_album_confirm"))
                 .color(ui.visuals().error_fg_color)
                 .small(),
         );
@@ -781,11 +799,11 @@ pub fn show_attach(ctx: &Context, state: &mut MediaAttachState) -> Option<MediaA
         .default_width(460.0)
         .open(&mut open)
         .show(ctx, |ui| {
-            if ui.button("Add from file…").clicked() {
+            if ui.button(tr("media.add_from_file")).clicked() {
                 outcome = Some(MediaAttachOutcome::AddFromFile);
             }
             if state.attached.is_empty() {
-                ui.label(RichText::new("No media attached.").weak().small());
+                ui.label(RichText::new(tr("media.no_media_attached")).weak().small());
             }
             for media in &state.attached {
                 ui.horizontal(|ui| {
@@ -803,21 +821,23 @@ pub fn show_attach(ctx: &Context, state: &mut MediaAttachState) -> Option<MediaA
                         ui.label(RichText::new(&media.file_path).weak().small());
                         if media.missing {
                             ui.label(
-                                RichText::new("file missing")
+                                RichText::new(tr("media.file_missing"))
                                     .color(Color32::from_rgb(239, 68, 68))
                                     .small(),
                             );
                         }
                     });
-                    if ui.small_button("Detach").clicked() {
+                    if ui.small_button(tr("media.detach")).clicked() {
                         outcome = Some(MediaAttachOutcome::Detach(media.id.clone()));
                     }
                 });
                 ui.separator();
             }
 
-            ui.label(RichText::new("Attach existing").strong());
-            ui.add(egui::TextEdit::singleline(&mut state.search).hint_text("Search media…"));
+            ui.label(RichText::new(tr("media.attach_existing")).strong());
+            ui.add(
+                egui::TextEdit::singleline(&mut state.search).hint_text(tr("media.search_hint")),
+            );
             let needle = state.search.trim().to_lowercase();
             let choices: Vec<MediaSummary> = state
                 .choices
@@ -840,7 +860,7 @@ pub fn show_attach(ctx: &Context, state: &mut MediaAttachState) -> Option<MediaA
                 .max_height(180.0)
                 .show(ui, |ui| {
                     if choices.is_empty() {
-                        ui.label(RichText::new("(no matches)").weak().small());
+                        ui.label(RichText::new(tr("common.no_matches")).weak().small());
                     }
                     for media in choices {
                         ui.horizontal(|ui| {
@@ -851,7 +871,7 @@ pub fn show_attach(ctx: &Context, state: &mut MediaAttachState) -> Option<MediaA
                                     .clone()
                                     .unwrap_or_else(|| display_path(&media.file_path)),
                             );
-                            if ui.small_button("Attach").clicked() {
+                            if ui.small_button(tr("media.attach")).clicked() {
                                 outcome = Some(MediaAttachOutcome::Attach(media.id.clone()));
                             }
                         });
