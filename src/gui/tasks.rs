@@ -4,13 +4,14 @@ use egui::{Context, RichText, Ui, Window};
 
 use crate::db::tasks::{TaskDraft, TaskOwner, TaskStatus, TaskSummary};
 use crate::gui::date_picker::date_edit;
+use crate::i18n::{tr, tr_args, trn};
 
 const PRIORITIES: [(Option<i64>, &str); 5] = [
-    (None, "None"),
-    (Some(1), "Low"),
-    (Some(2), "Normal"),
-    (Some(3), "High"),
-    (Some(4), "Urgent"),
+    (None, "tasks.priority_none"),
+    (Some(1), "tasks.priority_low"),
+    (Some(2), "tasks.priority_normal"),
+    (Some(3), "tasks.priority_high"),
+    (Some(4), "tasks.priority_urgent"),
 ];
 
 /// Which tasks the log shows.
@@ -25,9 +26,9 @@ pub enum TaskFilter {
 impl TaskFilter {
     pub fn label(self) -> &'static str {
         match self {
-            Self::All => "All",
-            Self::Open => "Open",
-            Self::Done => "Done",
+            Self::All => "tasks.filter_all",
+            Self::Open => "tasks.filter_open",
+            Self::Done => "tasks.filter_done",
         }
     }
 }
@@ -147,27 +148,33 @@ pub fn filtered_tasks(state: &TasksState) -> Vec<&TaskSummary> {
 pub fn show(ui: &mut Ui, state: &mut TasksState) -> Option<TaskEvent> {
     let mut event = None;
     ui.horizontal(|ui| {
-        ui.label("Filter:");
-        ui.add(egui::TextEdit::singleline(&mut state.filter).hint_text("Title or folder…"));
+        ui.label(tr("common.filter"));
+        ui.add(egui::TextEdit::singleline(&mut state.filter).hint_text(tr("tasks.filter_hint")));
         if ui
-            .add_enabled(!state.filter.is_empty(), egui::Button::new("Clear"))
+            .add_enabled(
+                !state.filter.is_empty(),
+                egui::Button::new(tr("common.clear")),
+            )
             .clicked()
         {
             state.filter.clear();
         }
         egui::ComboBox::from_id_salt("task_status_filter")
-            .selected_text(state.status_filter.label())
+            .selected_text(tr(state.status_filter.label()))
             .show_ui(ui, |ui| {
                 for filter in [TaskFilter::All, TaskFilter::Open, TaskFilter::Done] {
-                    ui.selectable_value(&mut state.status_filter, filter, filter.label());
+                    ui.selectable_value(&mut state.status_filter, filter, tr(filter.label()));
                 }
             });
-        let folder_label = state.folder_filter.as_deref().unwrap_or("All folders");
+        let folder_label = state
+            .folder_filter
+            .clone()
+            .unwrap_or_else(|| tr("tasks.all_folders"));
         egui::ComboBox::from_id_salt("task_folder_filter")
             .selected_text(folder_label)
             .show_ui(ui, |ui| {
                 if ui
-                    .selectable_label(state.folder_filter.is_none(), "All folders")
+                    .selectable_label(state.folder_filter.is_none(), tr("tasks.all_folders"))
                     .clicked()
                 {
                     state.folder_filter = None;
@@ -185,7 +192,7 @@ pub fn show(ui: &mut Ui, state: &mut TasksState) -> Option<TaskEvent> {
                 }
             });
         if ui
-            .add(egui::Button::new(RichText::new("+ New Task").strong()))
+            .add(egui::Button::new(RichText::new(tr("tasks.new")).strong()))
             .clicked()
         {
             event = Some(TaskEvent::New);
@@ -207,7 +214,7 @@ pub fn show(ui: &mut Ui, state: &mut TasksState) -> Option<TaskEvent> {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     if visible.is_empty() {
-                        ui.label(RichText::new("No tasks yet.").weak().small());
+                        ui.label(RichText::new(tr("tasks.empty")).weak().small());
                     }
                     for task in visible {
                         let selected = state.selected.as_deref() == Some(task.id.as_str());
@@ -215,9 +222,11 @@ pub fn show(ui: &mut Ui, state: &mut TasksState) -> Option<TaskEvent> {
                             if ui.selectable_label(selected, &task.title).clicked() {
                                 event = Some(TaskEvent::Select(task.id.clone()));
                             }
-                            ui.label(RichText::new(task.status.label()).weak().small());
+                            ui.label(RichText::new(task_status_label(task.status)).weak().small());
                             if let Some(priority) = task.priority {
-                                ui.label(RichText::new(priority_label(priority)).weak().small());
+                                ui.label(
+                                    RichText::new(priority_text(Some(priority))).weak().small(),
+                                );
                             }
                             if let Some(folder) = &task.folder {
                                 ui.label(RichText::new(folder).weak().small());
@@ -226,7 +235,7 @@ pub fn show(ui: &mut Ui, state: &mut TasksState) -> Option<TaskEvent> {
                                 ui.label(RichText::new(due).weak().small());
                             }
                             ui.label(
-                                RichText::new(format!("{} links", task.link_count))
+                                RichText::new(trn("tasks.links", task.link_count))
                                     .weak()
                                     .small(),
                             );
@@ -247,38 +256,38 @@ pub fn show(ui: &mut Ui, state: &mut TasksState) -> Option<TaskEvent> {
 
 fn task_editor(ui: &mut Ui, state: &mut TasksState, event: &mut Option<TaskEvent>) {
     if !state.editing {
-        ui.label(RichText::new("Select a task or create a new one.").weak());
+        ui.label(RichText::new(tr("tasks.select_prompt")).weak());
         return;
     }
     ui.heading(if state.draft.id.is_some() {
-        "Edit task"
+        tr("tasks.edit_title")
     } else {
-        "New task"
+        tr("tasks.new_title")
     });
     egui::Grid::new("task_fields")
         .num_columns(2)
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
-            ui.label(RichText::new("Title *").strong());
+            ui.label(RichText::new(tr("tasks.title_required")).strong());
             ui.text_edit_singleline(&mut state.draft.title);
             ui.end_row();
 
-            ui.label("Status:");
+            ui.label(tr("tasks.status"));
             ui.horizontal(|ui| {
                 ui.selectable_value(
                     &mut state.draft.status,
                     TaskStatus::Open,
-                    TaskStatus::Open.label(),
+                    tr("tasks.status_open"),
                 );
                 ui.selectable_value(
                     &mut state.draft.status,
                     TaskStatus::Done,
-                    TaskStatus::Done.label(),
+                    tr("tasks.status_done"),
                 );
             });
             ui.end_row();
 
-            ui.label("Priority:");
+            ui.label(tr("tasks.priority"));
             egui::ComboBox::from_id_salt("task_priority")
                 .selected_text(priority_text(state.draft.priority))
                 .show_ui(ui, |ui| {
@@ -288,7 +297,7 @@ fn task_editor(ui: &mut Ui, state: &mut TasksState, event: &mut Option<TaskEvent
                 });
             ui.end_row();
 
-            ui.label("Folder:");
+            ui.label(tr("tasks.folder"));
             ui.horizontal(|ui| {
                 ui.text_edit_singleline(&mut state.draft.folder);
                 egui::ComboBox::from_id_salt("task_folder_choices")
@@ -303,18 +312,21 @@ fn task_editor(ui: &mut Ui, state: &mut TasksState, event: &mut Option<TaskEvent
             });
             ui.end_row();
 
-            ui.label("Due date:");
+            ui.label(tr("tasks.due_date"));
             date_edit(ui, &mut state.draft.due_date, "task_due_date");
             ui.end_row();
         });
     if let Some(completed) = &state.draft.completed_at {
         ui.label(
-            RichText::new(format!("Completed: {completed}"))
-                .weak()
-                .small(),
+            RichText::new(tr_args(
+                "tasks.completed",
+                &[("date", completed.to_string())],
+            ))
+            .weak()
+            .small(),
         );
     }
-    ui.label("Research log / results:");
+    ui.label(tr("tasks.research_log"));
     ui.add(
         egui::TextEdit::multiline(&mut state.draft.description)
             .desired_rows(8)
@@ -331,32 +343,35 @@ fn task_editor(ui: &mut Ui, state: &mut TasksState, event: &mut Option<TaskEvent
         if ui
             .add_enabled(
                 !state.draft.title.trim().is_empty(),
-                egui::Button::new(RichText::new("Save").strong()),
+                egui::Button::new(RichText::new(tr("common.save")).strong()),
             )
             .clicked()
         {
             *event = Some(TaskEvent::Save(Box::new(state.draft.to_draft())));
         }
         if let Some(id) = state.draft.id.clone()
-            && ui.button("Delete").clicked()
+            && ui.button(tr("common.delete")).clicked()
         {
             *event = Some(TaskEvent::Delete(id));
         }
     });
     ui.separator();
-    ui.label(RichText::new("Linked records").strong());
+    ui.label(RichText::new(tr("tasks.linked_records")).strong());
     if state.links.is_empty() {
-        ui.label(RichText::new("(none)").weak().small());
+        ui.label(RichText::new(tr("inspector.none")).weak().small());
     }
     for link in &state.links {
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(format!("{}:", link.owner_type))
-                    .weak()
-                    .small(),
+                RichText::new(tr_args(
+                    "tasks.owner_line",
+                    &[("kind", owner_type_label(&link.owner_type))],
+                ))
+                .weak()
+                .small(),
             );
             ui.label(&link.label);
-            if ui.small_button("Detach").clicked() {
+            if ui.small_button(tr("tasks.detach")).clicked() {
                 *event = Some(TaskEvent::Detach {
                     owner_type: link.owner_type.clone(),
                     owner_id: link.owner_id.clone(),
@@ -370,15 +385,35 @@ pub fn priority_label(priority: i64) -> String {
     PRIORITIES
         .iter()
         .find(|(value, _)| *value == Some(priority))
-        .map(|(_, label)| (*label).to_string())
+        .map(|(_, key)| tr(key))
         .unwrap_or_else(|| priority.to_string())
 }
 
 fn priority_text(priority: Option<i64>) -> String {
     match priority {
         Some(value) => priority_label(value),
-        None => "None".to_string(),
+        None => tr("tasks.priority_none"),
     }
+}
+
+fn task_status_label(status: TaskStatus) -> String {
+    tr(match status {
+        TaskStatus::Open => "tasks.status_open",
+        TaskStatus::Done => "tasks.status_done",
+    })
+}
+
+fn owner_type_label(kind: &str) -> String {
+    tr(match kind {
+        "person" => "tasks.owner.person",
+        "family" => "tasks.owner.family",
+        "event" => "tasks.owner.event",
+        "source" => "tasks.owner.source",
+        "citation" => "tasks.owner.citation",
+        "place" => "tasks.owner.place",
+        "media" => "tasks.owner.media",
+        _ => "tasks.owner.other",
+    })
 }
 
 /// State owned by the reusable task attachment dialog.
@@ -424,23 +459,25 @@ pub fn show_attach(ctx: &Context, state: &mut TaskAttachState) -> Option<TaskAtt
         .open(&mut open)
         .show(ctx, |ui| {
             if state.attached.is_empty() {
-                ui.label(RichText::new("No tasks attached.").weak().small());
+                ui.label(RichText::new(tr("tasks.none_attached")).weak().small());
             }
             for task in &state.attached {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&task.title).strong());
-                    ui.label(RichText::new(task.status.label()).weak().small());
+                    ui.label(RichText::new(task_status_label(task.status)).weak().small());
                     if let Some(due) = &task.due_date {
                         ui.label(RichText::new(due).weak().small());
                     }
-                    if ui.small_button("Detach").clicked() {
+                    if ui.small_button(tr("tasks.detach")).clicked() {
                         outcome = Some(TaskAttachOutcome::Detach(task.id.clone()));
                     }
                 });
             }
             ui.separator();
-            ui.label(RichText::new("Attach existing").strong());
-            ui.add(egui::TextEdit::singleline(&mut state.search).hint_text("Search tasks…"));
+            ui.label(RichText::new(tr("tasks.attach_existing")).strong());
+            ui.add(
+                egui::TextEdit::singleline(&mut state.search).hint_text(tr("tasks.search_hint")),
+            );
             let needle = state.search.trim().to_lowercase();
             let choices: Vec<TaskSummary> = state
                 .choices
@@ -463,13 +500,13 @@ pub fn show_attach(ctx: &Context, state: &mut TaskAttachState) -> Option<TaskAtt
                 .max_height(180.0)
                 .show(ui, |ui| {
                     if choices.is_empty() {
-                        ui.label(RichText::new("(no matches)").weak().small());
+                        ui.label(RichText::new(tr("common.no_matches")).weak().small());
                     }
                     for task in choices {
                         ui.horizontal(|ui| {
                             ui.label(&task.title);
-                            ui.label(RichText::new(task.status.label()).weak().small());
-                            if ui.small_button("Attach").clicked() {
+                            ui.label(RichText::new(task_status_label(task.status)).weak().small());
+                            if ui.small_button(tr("tasks.attach")).clicked() {
                                 outcome = Some(TaskAttachOutcome::Attach(task.id.clone()));
                             }
                         });

@@ -10,6 +10,7 @@ use crate::db::repositories::{
     RepositoryDraft, RepositoryLinkDraft, RepositoryRecord, RepositorySummary,
 };
 use crate::db::sources::SourceSummary;
+use crate::i18n::{tr, tr_args, trn};
 
 /// What the user asked the shell to do from the repositories tab.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,9 +32,9 @@ pub enum SortColumn {
 impl SortColumn {
     fn label(self) -> &'static str {
         match self {
-            Self::Name => "Name",
-            Self::Address => "Address",
-            Self::Sources => "Sources",
+            Self::Name => "repositories.column_name",
+            Self::Address => "repositories.column_address",
+            Self::Sources => "repositories.column_sources",
         }
     }
 }
@@ -78,12 +79,15 @@ pub fn draft_from_record(record: &RepositoryRecord) -> RepositoryDraft {
 pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEvent> {
     let mut event = None;
     ui.horizontal(|ui| {
-        ui.label("Filter:");
+        ui.label(tr("common.filter"));
         ui.add(
-            egui::TextEdit::singleline(&mut state.filter).hint_text("Filter by name or address…"),
+            egui::TextEdit::singleline(&mut state.filter).hint_text(tr("repositories.filter_hint")),
         );
         if ui
-            .add_enabled(!state.filter.is_empty(), egui::Button::new("Clear"))
+            .add_enabled(
+                !state.filter.is_empty(),
+                egui::Button::new(tr("common.clear")),
+            )
             .clicked()
         {
             state.filter.clear();
@@ -91,7 +95,7 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .add(egui::Button::new(
-                    RichText::new("+ New Repository").strong(),
+                    RichText::new(tr("repositories.new")).strong(),
                 ))
                 .clicked()
             {
@@ -102,10 +106,12 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
 
     let visible = visible_indices(state);
     ui.label(
-        RichText::new(format!(
-            "Showing {} of {} repositories",
-            visible.len(),
-            state.repositories.len()
+        RichText::new(tr_args(
+            "repositories.showing",
+            &[
+                ("visible", visible.len().to_string()),
+                ("total", state.repositories.len().to_string()),
+            ],
         ))
         .weak()
         .size(12.0),
@@ -115,11 +121,7 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
     let grid_height = (available * 0.45).max(140.0).min(available.max(0.0));
     ui.allocate_ui(egui::vec2(ui.available_width(), grid_height), |ui| {
         if state.repositories.is_empty() {
-            ui.label(
-                RichText::new("No repositories yet — create one with the button above.")
-                    .weak()
-                    .size(13.0),
-            );
+            ui.label(RichText::new(tr("repositories.empty")).weak().size(13.0));
             return;
         }
         let mut sort_clicked = None;
@@ -143,7 +145,7 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
                             _ => "",
                         };
                         let strong = state.sort.map(|(active, _)| active) == Some(column);
-                        let text = format!("{}{arrow}", column.label());
+                        let text = format!("{}{arrow}", tr(column.label()));
                         let label = egui::Label::new(if strong {
                             RichText::new(text).strong()
                         } else {
@@ -156,7 +158,7 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
                     });
                 }
                 header.col(|ui| {
-                    ui.label(RichText::new("Actions").strong());
+                    ui.label(RichText::new(tr("common.actions")).strong());
                 });
             })
             .body(|body| {
@@ -198,24 +200,27 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
                     });
                     row.col(|ui| {
                         ui.horizontal(|ui| {
-                            if ui.small_button("Edit").clicked() {
+                            if ui.small_button(tr("common.edit")).clicked() {
                                 event = Some(RepositoriesEvent::Select(repository.id.clone()));
                             }
-                            ui.menu_button("Delete", |ui| {
-                                ui.label(format!("Delete {}?", repository.name));
+                            ui.menu_button(tr("common.delete"), |ui| {
+                                ui.label(tr_args(
+                                    "repositories.delete_confirm",
+                                    &[("name", repository.name.clone())],
+                                ));
                                 ui.label(
-                                    RichText::new(format!(
-                                        "{} source links will be removed.",
-                                        repository.source_count
+                                    RichText::new(trn(
+                                        "repositories.source_links_removed",
+                                        repository.source_count,
                                     ))
                                     .weak()
                                     .small(),
                                 );
-                                if ui.button("Confirm").clicked() {
+                                if ui.button(tr("common.confirm")).clicked() {
                                     event = Some(RepositoriesEvent::Delete(repository.id.clone()));
                                     ui.close();
                                 }
-                                if ui.button("Cancel").clicked() {
+                                if ui.button(tr("common.cancel")).clicked() {
                                     ui.close();
                                 }
                             });
@@ -243,7 +248,7 @@ pub fn show(ui: &mut Ui, state: &mut RepositoriesState) -> Option<RepositoriesEv
 fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<RepositoriesEvent>) {
     if !state.editing {
         ui.label(
-            RichText::new("Select a repository or create a new one.")
+            RichText::new(tr("repositories.select_prompt"))
                 .weak()
                 .size(13.0),
         );
@@ -256,9 +261,9 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
         .show(ui, |ui| {
             ui.label(
                 RichText::new(if state.draft.id.is_some() {
-                    "Edit repository"
+                    tr("repositories.edit_title")
                 } else {
-                    "New repository"
+                    tr("repositories.new_title")
                 })
                 .strong(),
             );
@@ -266,11 +271,11 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Name *").strong());
+                    ui.label(RichText::new(tr("repositories.name_required")).strong());
                     ui.text_edit_singleline(&mut state.draft.name);
                     ui.end_row();
 
-                    ui.label("Address:");
+                    ui.label(tr("repositories.address"));
                     ui.add(
                         egui::TextEdit::multiline(&mut state.draft.address)
                             .desired_rows(2)
@@ -278,7 +283,7 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                     );
                     ui.end_row();
 
-                    ui.label("Notes:");
+                    ui.label(tr("common.notes"));
                     ui.add(
                         egui::TextEdit::multiline(&mut state.draft.notes)
                             .desired_rows(3)
@@ -288,9 +293,9 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                 });
 
             ui.separator();
-            ui.label(RichText::new("Linked sources").strong());
+            ui.label(RichText::new(tr("repositories.linked_sources")).strong());
             if state.draft.links.is_empty() {
-                ui.label(RichText::new("No sources linked.").weak().small());
+                ui.label(RichText::new(tr("repositories.no_sources")).weak().small());
             }
             let mut remove = None;
             let titles: std::collections::BTreeMap<String, String> = state
@@ -306,11 +311,11 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                             .map(String::as_str)
                             .unwrap_or("(missing source)");
                         ui.label(title);
-                        ui.label("Call:");
+                        ui.label(tr("repositories.call"));
                         ui.text_edit_singleline(&mut link.call_number);
-                        ui.label("Media:");
+                        ui.label(tr("repositories.media"));
                         ui.text_edit_singleline(&mut link.media_type);
-                        if ui.small_button("Remove").clicked() {
+                        if ui.small_button(tr("common.remove")).clicked() {
                             remove = Some(index);
                         }
                     });
@@ -328,7 +333,7 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                 .collect();
             if state.sources.is_empty() {
                 ui.label(
-                    RichText::new("Create a source in the Sources tab to link it here.")
+                    RichText::new(tr("repositories.create_source_hint"))
                         .weak()
                         .small(),
                 );
@@ -351,7 +356,7 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                     .map(|(_, title)| title.clone())
                     .unwrap_or_else(|| "Select a source".to_string());
                 ui.horizontal(|ui| {
-                    ui.label("Add source:");
+                    ui.label(tr("repositories.add_source"));
                     egui::ComboBox::from_id_salt("repository_add_source")
                         .selected_text(current)
                         .show_ui(ui, |ui| {
@@ -367,13 +372,13 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
                                 }
                             }
                         });
-                    ui.label("Call:");
+                    ui.label(tr("repositories.call"));
                     ui.text_edit_singleline(&mut state.add_call_number);
-                    ui.label("Media:");
+                    ui.label(tr("repositories.media"));
                     ui.text_edit_singleline(&mut state.add_media_type);
                     let enabled = state.add_source.is_some();
                     if ui
-                        .add_enabled(enabled, egui::Button::new("Add link"))
+                        .add_enabled(enabled, egui::Button::new(tr("repositories.add_link")))
                         .clicked()
                     {
                         add_link(state);
@@ -391,7 +396,10 @@ fn editor(ui: &mut Ui, state: &mut RepositoriesState, event: &mut Option<Reposit
 
             let valid = !state.draft.name.trim().is_empty();
             if ui
-                .add_enabled(valid, egui::Button::new(RichText::new("Save").strong()))
+                .add_enabled(
+                    valid,
+                    egui::Button::new(RichText::new(tr("common.save")).strong()),
+                )
                 .clicked()
             {
                 *event = Some(RepositoriesEvent::Save(Box::new(state.draft.clone())));
