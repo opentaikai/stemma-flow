@@ -1,0 +1,14 @@
+name: Localization audit
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report hardcoded UI strings
+        run: python3 scripts/i18n_audit.py
+        continue-on-error: true
