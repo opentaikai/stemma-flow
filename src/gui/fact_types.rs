@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use crate::i18n::fact_label;
+use crate::i18n::{fact_label, tr, tr_args};
 use egui::{RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
@@ -31,9 +31,9 @@ pub enum SortColumn {
 impl SortColumn {
     fn label(self) -> &'static str {
         match self {
-            Self::Label => "Label",
-            Self::Category => "Category",
-            Self::Events => "Events",
+            Self::Label => "fact_types.column_label",
+            Self::Category => "fact_types.column_category",
+            Self::Events => "fact_types.column_events",
         }
     }
 }
@@ -78,20 +78,24 @@ pub fn draft_from_record(record: &FactTypeRecord) -> FactTypeDraft {
 pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
     let mut event = None;
     ui.horizontal(|ui| {
-        ui.label("Filter:");
+        ui.label(tr("common.filter"));
         ui.add(
-            egui::TextEdit::singleline(&mut state.filter)
-                .hint_text("Filter label, category or tag…"),
+            egui::TextEdit::singleline(&mut state.filter).hint_text(tr("fact_types.filter_hint")),
         );
         if ui
-            .add_enabled(!state.filter.is_empty(), egui::Button::new("Clear"))
+            .add_enabled(
+                !state.filter.is_empty(),
+                egui::Button::new(tr("common.clear")),
+            )
             .clicked()
         {
             state.filter.clear();
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
-                .add(egui::Button::new(RichText::new("+ New Fact Type").strong()))
+                .add(egui::Button::new(
+                    RichText::new(tr("fact_types.new")).strong(),
+                ))
                 .clicked()
             {
                 event = Some(FactTypesEvent::New);
@@ -101,10 +105,12 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
 
     let visible = visible_indices(state);
     ui.label(
-        RichText::new(format!(
-            "Showing {} of {} fact types",
-            visible.len(),
-            state.types.len()
+        RichText::new(tr_args(
+            "fact_types.showing",
+            &[
+                ("visible", visible.len().to_string()),
+                ("total", state.types.len().to_string()),
+            ],
         ))
         .weak()
         .size(12.0),
@@ -114,11 +120,7 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
     let grid_height = (available * 0.45).max(140.0).min(available.max(0.0));
     ui.allocate_ui(egui::vec2(ui.available_width(), grid_height), |ui| {
         if state.types.is_empty() {
-            ui.label(
-                RichText::new("No fact types yet — create one with the button above.")
-                    .weak()
-                    .size(13.0),
-            );
+            ui.label(RichText::new(tr("fact_types.empty")).weak().size(13.0));
             return;
         }
         let mut sort_clicked = None;
@@ -146,7 +148,7 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                             _ => "",
                         };
                         let strong = state.sort.map(|(active, _)| active) == Some(column);
-                        let text = format!("{}{arrow}", column.label());
+                        let text = format!("{}{arrow}", tr(column.label()));
                         let label = egui::Label::new(if strong {
                             RichText::new(text).strong()
                         } else {
@@ -158,7 +160,12 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                         }
                     });
                 }
-                for title in ["Scope", "Kind", "GEDCOM tag", "Roles"] {
+                for title in [
+                    tr("fact_types.column_scope"),
+                    tr("fact_types.column_kind"),
+                    tr("fact_types.column_gedcom"),
+                    tr("fact_types.column_roles"),
+                ] {
                     header.col(|ui| {
                         ui.label(RichText::new(title).strong());
                     });
@@ -170,7 +177,7 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                         _ => "",
                     };
                     let strong = state.sort.map(|(active, _)| active) == Some(SortColumn::Events);
-                    let text = format!("Events{arrow}");
+                    let text = format!("{}{arrow}", tr("fact_types.column_events"));
                     let label = egui::Label::new(if strong {
                         RichText::new(text).strong()
                     } else {
@@ -182,7 +189,7 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                     }
                 });
                 header.col(|ui| {
-                    ui.label(RichText::new("Actions").strong());
+                    ui.label(RichText::new(tr("common.actions")).strong());
                 });
             })
             .body(|body| {
@@ -200,7 +207,7 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                             let label = fact_label(&fact.key, &fact.label);
                             selectable_cell(ui, &label, &fact.key, &mut event);
                             if fact.is_builtin {
-                                ui.label(RichText::new("built-in").weak().small());
+                                ui.label(RichText::new(tr("fact_types.built_in")).weak().small());
                             }
                         });
                     });
@@ -259,27 +266,27 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
                     });
                     row.col(|ui| {
                         ui.horizontal(|ui| {
-                            if ui.small_button("Edit").clicked() {
+                            if ui.small_button(tr("common.edit")).clicked() {
                                 event = Some(FactTypesEvent::Select(fact.key.clone()));
                             }
                             if !fact.is_builtin {
                                 if fact.event_count > 0 {
-                                    ui.add_enabled(false, egui::Button::new("Delete"))
-                                        .on_hover_text(format!(
-                                            "{} events still use this fact type",
-                                            fact.event_count
+                                    ui.add_enabled(false, egui::Button::new(tr("common.delete")))
+                                        .on_hover_text(tr_args(
+                                            "fact_types.delete_in_use",
+                                            &[("count", fact.event_count.to_string())],
                                         ));
                                 } else {
-                                    ui.menu_button("Delete", |ui| {
-                                        ui.label(format!(
-                                            "Delete {}?",
-                                            fact_label(&fact.key, &fact.label)
+                                    ui.menu_button(tr("common.delete"), |ui| {
+                                        ui.label(tr_args(
+                                            "fact_types.delete_confirm",
+                                            &[("label", fact_label(&fact.key, &fact.label))],
                                         ));
-                                        if ui.button("Confirm").clicked() {
+                                        if ui.button(tr("common.confirm")).clicked() {
                                             event = Some(FactTypesEvent::Delete(fact.key.clone()));
                                             ui.close();
                                         }
-                                        if ui.button("Cancel").clicked() {
+                                        if ui.button(tr("common.cancel")).clicked() {
                                             ui.close();
                                         }
                                     });
@@ -309,7 +316,7 @@ pub fn show(ui: &mut Ui, state: &mut FactTypesState) -> Option<FactTypesEvent> {
 fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesEvent>) {
     if !state.editing {
         ui.label(
-            RichText::new("Select a fact type or create a new one.")
+            RichText::new(tr("fact_types.select_prompt"))
                 .weak()
                 .size(13.0),
         );
@@ -322,9 +329,9 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
         .show(ui, |ui| {
             ui.label(
                 RichText::new(if state.draft.key.is_some() {
-                    "Edit fact type"
+                    tr("fact_types.edit_title")
                 } else {
-                    "New fact type"
+                    tr("fact_types.new_title")
                 })
                 .strong(),
             );
@@ -335,7 +342,7 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Label *").strong());
+                    ui.label(RichText::new(tr("fact_types.label_required")).strong());
                     if state.builtin {
                         ui.label(&state.draft.label);
                     } else {
@@ -347,17 +354,17 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
                         state.draft.gedcom_tag = auto_tag(&state.draft.label);
                     }
 
-                    ui.label("Key:");
+                    ui.label(tr("fact_types.key"));
                     match state.draft.key.as_deref() {
                         Some(key) => ui.label(key),
-                        None => ui.label(format!(
-                            "{} (generated on save)",
-                            suggested_key(&state.draft.label)
+                        None => ui.label(tr_args(
+                            "fact_types.generated_key",
+                            &[("key", suggested_key(&state.draft.label))],
                         )),
                     };
                     ui.end_row();
 
-                    ui.label("Category:");
+                    ui.label(tr("fact_types.category"));
                     if state.builtin {
                         ui.label(state.draft.category.as_str());
                     } else {
@@ -365,14 +372,15 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
                     }
                     ui.end_row();
 
-                    ui.label("Scope:");
+                    ui.label(tr("fact_types.scope"));
                     if state.builtin {
                         ui.label(scope_label(state.draft.scope));
                     } else {
                         egui::ComboBox::from_id_salt("fact_scope")
                             .selected_text(scope_label(state.draft.scope))
                             .show_ui(ui, |ui| {
-                                for scope in [FactScope::Person, FactScope::Family, FactScope::Both] {
+                                for scope in [FactScope::Person, FactScope::Family, FactScope::Both]
+                                {
                                     ui.selectable_value(
                                         &mut state.draft.scope,
                                         scope,
@@ -383,7 +391,7 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
                     }
                     ui.end_row();
 
-                    ui.label("Kind:");
+                    ui.label(tr("fact_types.kind"));
                     if state.builtin {
                         ui.label(kind_label(state.draft.kind));
                     } else {
@@ -401,7 +409,7 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
                     }
                     ui.end_row();
 
-                    ui.label("GEDCOM tag:");
+                    ui.label(tr("fact_types.gedcom_tag"));
                     if state.builtin {
                         ui.label(state.draft.gedcom_tag.as_str());
                     } else {
@@ -415,19 +423,13 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
                     ui.end_row();
                 });
             if !state.builtin {
-                ui.label(
-                    RichText::new(
-                        "Custom tags are uppercase and unique; an underscore prefix avoids standard tags.",
-                    )
-                    .weak()
-                    .small(),
-                );
+                ui.label(RichText::new(tr("fact_types.tag_hint")).weak().small());
             }
 
             ui.separator();
-            ui.label(RichText::new("Roles").strong());
+            ui.label(RichText::new(tr("fact_types.roles")).strong());
             if state.draft.roles.is_empty() {
-                ui.label(RichText::new("No roles defined.").weak().small());
+                ui.label(RichText::new(tr("fact_types.no_roles")).weak().small());
             }
             for (index, role) in state.draft.roles.iter_mut().enumerate() {
                 ui.push_id(index, |ui| {
@@ -438,10 +440,10 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
                                 ui.label(RichText::new(key).weak().small());
                             }
                             None => {
-                                ui.label(RichText::new("new key").weak().small());
+                                ui.label(RichText::new(tr("fact_types.new_key")).weak().small());
                             }
                         }
-                        if ui.small_button("Remove").clicked() {
+                        if ui.small_button(tr("common.remove")).clicked() {
                             remove_role = Some(index);
                         }
                     });
@@ -451,12 +453,12 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
                 state.draft.roles.remove(index);
             }
             ui.horizontal(|ui| {
-                ui.label("Add role:");
+                ui.label(tr("fact_types.add_role"));
                 ui.text_edit_singleline(&mut state.add_role);
                 if ui
                     .add_enabled(
                         !state.add_role.trim().is_empty(),
-                        egui::Button::new("Add"),
+                        egui::Button::new(tr("common.add")),
                     )
                     .clicked()
                 {
@@ -475,7 +477,10 @@ fn editor(ui: &mut Ui, state: &mut FactTypesState, event: &mut Option<FactTypesE
             let valid = !state.draft.label.trim().is_empty()
                 && (state.builtin || !state.draft.gedcom_tag.trim().is_empty());
             if ui
-                .add_enabled(valid, egui::Button::new(RichText::new("Save").strong()))
+                .add_enabled(
+                    valid,
+                    egui::Button::new(RichText::new(tr("common.save")).strong()),
+                )
                 .clicked()
             {
                 *event = Some(FactTypesEvent::Save(Box::new(state.draft.clone())));
@@ -506,19 +511,19 @@ fn auto_tag(label: &str) -> String {
     tag
 }
 
-fn scope_label(scope: FactScope) -> &'static str {
-    match scope {
-        FactScope::Person => "Person",
-        FactScope::Family => "Family",
-        FactScope::Both => "Both",
-    }
+fn scope_label(scope: FactScope) -> String {
+    tr(match scope {
+        FactScope::Person => "fact_types.scope_person",
+        FactScope::Family => "fact_types.scope_family",
+        FactScope::Both => "fact_types.scope_both",
+    })
 }
 
-fn kind_label(kind: FactKind) -> &'static str {
-    match kind {
-        FactKind::Event => "Event",
-        FactKind::Attribute => "Attribute",
-    }
+fn kind_label(kind: FactKind) -> String {
+    tr(match kind {
+        FactKind::Event => "fact_types.kind_event",
+        FactKind::Attribute => "fact_types.kind_attribute",
+    })
 }
 
 fn visible_indices(state: &FactTypesState) -> Vec<usize> {
