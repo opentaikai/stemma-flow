@@ -301,13 +301,17 @@ pub fn share_folder(
         safe_name
     };
     let directory = parent.join(format!("{safe_name}-share-{timestamp}"));
-    if directory.exists() {
-        return Err(format!(
-            "share bundle already exists: {}",
-            directory.display()
-        ));
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    match fs::create_dir(&directory) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            return Err(format!(
+                "share bundle already exists: {}",
+                directory.display()
+            ));
+        }
+        Err(error) => return Err(error.to_string()),
     }
-    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let result = write_share_folder(db_path, &directory, &safe_name);
     if result.is_err() {
         let _ = fs::remove_dir_all(&directory);
@@ -471,8 +475,8 @@ fn share_report(
     missing: Vec<String>,
 ) -> Result<ShareReport, String> {
     let database_bytes = fs::metadata(snapshot_path)
-        .map(|metadata| metadata.len())
-        .unwrap_or(0);
+        .map_err(|error| error.to_string())?
+        .len();
     Ok(ShareReport {
         path: directory.to_path_buf(),
         database_bytes,
@@ -920,10 +924,38 @@ mod tests {
         assert_eq!(entry.file_name.as_deref(), Some("missing.jpg"));
         assert!(entry.bundle_path.is_none());
         assert!(entry.missing);
-        assert!(
-            share_folder(&db_path, &parent, "Tree", "20260101").is_err(),
-            "existing bundle is not overwritten"
+        let error = share_folder(&db_path, &parent, "Tree", "20260101")
+            .expect_err("existing bundle is not overwritten");
+        assert!(error.contains("already exists"), "{error}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn share_folder_refuses_an_existing_directory_without_touching_it() {
+        let dir = temp_dir();
+        let db_path = dir.join("tree.db");
+        drop(connection(&db_path));
+        let parent = dir.join("usb");
+        fs::create_dir_all(&parent).expect("usb dir");
+        let existing = parent.join("Tree-share-20260101");
+        fs::create_dir(&existing).expect("existing bundle dir");
+        fs::write(existing.join("sentinel.txt"), b"keep").expect("sentinel");
+        let error = share_folder(&db_path, &parent, "Tree", "20260101")
+            .expect_err("existing bundle is rejected");
+        assert!(error.contains("already exists"), "{error}");
+        assert_eq!(
+            fs::read(existing.join("sentinel.txt")).expect("sentinel survives"),
+            b"keep"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn share_report_rejects_missing_snapshot_metadata() {
+        let dir = temp_dir();
+        let missing = dir.join("missing.db");
+        let result = share_report(&dir, &missing, 0, Vec::new());
+        assert!(result.is_err(), "missing snapshot metadata is an error");
         let _ = fs::remove_dir_all(dir);
     }
 
