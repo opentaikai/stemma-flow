@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::sources::{SourceDraft, SourceSummary};
-use crate::i18n::template_label;
+use crate::i18n::{template_label, tr, tr_args, trn, trn_args};
 use crate::model::source_template::{
     FieldScope, SourceTemplate, TemplateField, gedcom_columns, render_citation, render_free_form,
 };
@@ -51,11 +51,11 @@ pub fn show(ui: &mut egui::Ui, state: &mut SourcesState) -> Option<SourcesEvent>
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(250.0);
-            ui.label(egui::RichText::new("Sources").strong());
+            ui.label(egui::RichText::new(tr("sources.heading")).strong());
             ui.add(
-                egui::TextEdit::singleline(&mut state.search).hint_text("Filter sources\u{2026}"),
+                egui::TextEdit::singleline(&mut state.search).hint_text(tr("sources.filter_hint")),
             );
-            if ui.button("+ New Source").clicked() {
+            if ui.button(tr("sources.new")).clicked() {
                 event = Some(SourcesEvent::New);
             }
             ui.separator();
@@ -64,7 +64,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut SourcesState) -> Option<SourcesEvent>
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     if state.list.is_empty() {
-                        ui.label(egui::RichText::new("No sources yet.").weak());
+                        ui.label(egui::RichText::new(tr("sources.empty")).weak());
                     }
                     let needle = state.search.trim().to_lowercase();
                     for summary in &state.list {
@@ -72,8 +72,11 @@ pub fn show(ui: &mut egui::Ui, state: &mut SourcesState) -> Option<SourcesEvent>
                             continue;
                         }
                         let selected = state.selected.as_deref() == Some(summary.id.as_str());
-                        let label =
-                            format!("{}  ({} citations)", summary.title, summary.citation_count);
+                        let label = format!(
+                            "{}  ({})",
+                            summary.title,
+                            trn("sources.citations", summary.citation_count)
+                        );
                         if ui.selectable_label(selected, label).clicked() {
                             event = Some(SourcesEvent::Select(summary.id.clone()));
                         }
@@ -104,7 +107,7 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
                 template_label(&template.key, &template.name)
             )
         })
-        .unwrap_or_else(|| "Free-form".to_string());
+        .unwrap_or_else(|| tr("sources.free_form"));
     let choices: Vec<(String, String)> = state
         .templates
         .iter()
@@ -117,12 +120,12 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
         .collect();
 
     ui.horizontal(|ui| {
-        ui.label("Template:");
+        ui.label(tr("sources.template"));
         egui::ComboBox::from_id_salt("source_template_picker")
             .selected_text(current_name)
             .show_ui(ui, |ui| {
                 if ui
-                    .selectable_label(current_key.is_none(), "Free-form")
+                    .selectable_label(current_key.is_none(), tr("sources.free_form"))
                     .clicked()
                 {
                     set_template(state, None);
@@ -136,11 +139,9 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
             });
     });
     ui.label(
-        egui::RichText::new(
-            "Switching templates carries matching values; free-form citation text is replaced by the template rendering.",
-        )
-        .weak()
-        .small(),
+        egui::RichText::new(tr("sources.template_hint"))
+            .weak()
+            .small(),
     );
 
     let template = state
@@ -168,7 +169,7 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
                 });
             if template.citation_fields().next().is_some() {
                 ui.separator();
-                ui.label(egui::RichText::new("Citation detail (preview)").strong());
+                ui.label(egui::RichText::new(tr("sources.citation_preview")).strong());
                 egui::Grid::new("source_citation_fields")
                     .num_columns(2)
                     .spacing([10.0, 6.0])
@@ -183,58 +184,58 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
             }
         }
         None => {
-            ui.label(egui::RichText::new("Source name *").strong());
+            ui.label(egui::RichText::new(tr("sources.source_name_required")).strong());
             ui.text_edit_singleline(&mut state.draft.title);
-            ui.label("Footnote:");
+            ui.label(tr("sources.footnote"));
             ui.add(
                 egui::TextEdit::multiline(&mut state.draft.footnote)
                     .desired_rows(3)
                     .desired_width(f32::INFINITY),
             );
-            ui.label("Short footnote:");
+            ui.label(tr("sources.short_footnote"));
             ui.add(
                 egui::TextEdit::multiline(&mut state.draft.short_footnote)
                     .desired_rows(2)
                     .desired_width(f32::INFINITY),
             );
-            ui.label("Bibliography:");
+            ui.label(tr("sources.bibliography"));
             ui.add(
                 egui::TextEdit::multiline(&mut state.draft.bibliography)
                     .desired_rows(3)
                     .desired_width(f32::INFINITY),
             );
             ui.horizontal(|ui| {
-                ui.label("Specific item (page):");
+                ui.label(tr("sources.specific_item"));
                 ui.text_edit_singleline(state.preview.entry("page".to_string()).or_default());
             });
 
             ui.separator();
-            ui.label(egui::RichText::new("GEDCOM fields").strong());
+            ui.label(egui::RichText::new(tr("sources.gedcom_fields")).strong());
             egui::Grid::new("source_free_fields")
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("Author:");
+                    ui.label(tr("sources.author"));
                     ui.text_edit_singleline(&mut state.draft.author);
                     ui.end_row();
 
-                    ui.label("Publication:");
+                    ui.label(tr("sources.publication"));
                     ui.text_edit_singleline(&mut state.draft.publication);
                     ui.end_row();
 
-                    ui.label("Abbreviation:");
+                    ui.label(tr("sources.abbreviation"));
                     ui.text_edit_singleline(&mut state.draft.abbreviation);
                     ui.end_row();
 
-                    ui.label("Data date:");
+                    ui.label(tr("sources.data_date"));
                     ui.text_edit_singleline(&mut state.draft.data_date);
                     ui.end_row();
 
-                    ui.label("Data text:");
+                    ui.label(tr("sources.data_text"));
                     ui.text_edit_singleline(&mut state.draft.data_text);
                     ui.end_row();
                 });
-            ui.label("Notes:");
+            ui.label(tr("common.notes"));
             ui.add(
                 egui::TextEdit::multiline(&mut state.draft.notes)
                     .desired_rows(3)
@@ -253,7 +254,7 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
         ),
     };
     ui.separator();
-    ui.label(egui::RichText::new("Preview").strong());
+    ui.label(egui::RichText::new(tr("sources.preview")).strong());
     preview_line(ui, "Footnote", &rendered.footnote);
     preview_line(ui, "Short footnote", &rendered.short_footnote);
     preview_line(ui, "Bibliography", &rendered.bibliography);
@@ -286,35 +287,43 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
         if ui
             .add_enabled(
                 valid,
-                egui::Button::new(egui::RichText::new("Save").strong()),
+                egui::Button::new(egui::RichText::new(tr("common.save")).strong()),
             )
             .clicked()
         {
             *event = Some(SourcesEvent::Save(Box::new(state.draft.clone())));
         }
-        if state.selected.is_some() && state.list.len() > 1 && ui.button("Merge\u{2026}").clicked()
+        if state.selected.is_some()
+            && state.list.len() > 1
+            && ui.button(tr("sources.merge")).clicked()
         {
             state.merge_open = true;
             state.merge_target = None;
         }
         if let Some(id) = state.selected.clone()
-            && ui.button("Media\u{2026}").clicked()
+            && ui.button(tr("sources.media")).clicked()
         {
             *event = Some(SourcesEvent::Media {
                 source_id: id,
-                title: format!("Media \u{2014} {}", state.draft.title.trim()),
+                title: tr_args(
+                    "sources.media_title",
+                    &[("title", state.draft.title.trim().to_string())],
+                ),
             });
         }
         if let Some(id) = state.selected.clone()
-            && ui.button("Tasks\u{2026}").clicked()
+            && ui.button(tr("sources.tasks")).clicked()
         {
             *event = Some(SourcesEvent::Tasks {
                 source_id: id,
-                title: format!("Tasks \u{2014} {}", state.draft.title.trim()),
+                title: tr_args(
+                    "sources.tasks_title",
+                    &[("title", state.draft.title.trim().to_string())],
+                ),
             });
         }
         if let Some(id) = state.selected.clone()
-            && ui.button("Delete").clicked()
+            && ui.button(tr("common.delete")).clicked()
         {
             *event = Some(SourcesEvent::Delete(id));
         }
@@ -354,13 +363,16 @@ fn merge_panel(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<S
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Merge source").strong());
-            if ui.small_button("Cancel").clicked() {
+            ui.label(egui::RichText::new(tr("sources.merge_title")).strong());
+            if ui.small_button(tr("common.cancel")).clicked() {
                 state.merge_open = false;
                 state.merge_target = None;
             }
         });
-        ui.label(format!("Merge \"{}\" into:", source.title));
+        ui.label(tr_args(
+            "sources.merge_into",
+            &[("title", source.title.clone())],
+        ));
         egui::ComboBox::from_id_salt("source_merge_target")
             .selected_text(&target.title)
             .show_ui(ui, |ui| {
@@ -374,40 +386,42 @@ fn merge_panel(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<S
                 }
             });
         ui.label(
-            egui::RichText::new(format!(
-                "{}: {} citations",
-                template_name(state, target.template_key.as_deref()),
-                target.citation_count
+            egui::RichText::new(trn_args(
+                "sources.merge_target_count",
+                target.citation_count,
+                &[(
+                    "template",
+                    template_name(state, target.template_key.as_deref()),
+                )],
             ))
             .weak()
             .small(),
         );
         ui.label(
-            egui::RichText::new(format!(
-                "{}: {} citations will move",
-                template_name(state, source.template_key.as_deref()),
-                source.citation_count
+            egui::RichText::new(trn_args(
+                "sources.merge_moving_count",
+                source.citation_count,
+                &[(
+                    "template",
+                    template_name(state, source.template_key.as_deref()),
+                )],
             ))
             .weak()
             .small(),
         );
         if source.template_key != target.template_key {
             ui.label(
-                egui::RichText::new(
-                    "The survivor's template and citation style will be kept.",
-                )
-                .color(ui.visuals().warn_fg_color)
-                .small(),
+                egui::RichText::new(tr("sources.survivor_style_hint"))
+                    .color(ui.visuals().warn_fg_color)
+                    .small(),
             );
         }
         ui.label(
-            egui::RichText::new(
-                "Citations, repositories, fields and media/task links move; the absorbed source is deleted. Saved versions are merged.",
-            )
-            .weak()
-            .small(),
+            egui::RichText::new(tr("sources.merge_detail"))
+                .weak()
+                .small(),
         );
-        if ui.button("Merge").clicked() {
+        if ui.button(tr("sources.merge_action")).clicked() {
             *event = Some(SourcesEvent::Merge {
                 source_id: source.id.clone(),
                 target_id: target.id.clone(),
@@ -440,7 +454,7 @@ fn field_label(ui: &mut egui::Ui, field: &TemplateField) {
 fn preview_line(ui: &mut egui::Ui, title: &str, text: &str) {
     ui.label(egui::RichText::new(title).weak().small());
     if text.is_empty() {
-        ui.label(egui::RichText::new("(empty)").weak());
+        ui.label(egui::RichText::new(tr("sources.empty_preview")).weak());
     } else {
         ui.label(text);
     }
