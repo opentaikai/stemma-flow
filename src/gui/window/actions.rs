@@ -210,10 +210,10 @@ impl TreeWindow {
                 self.config.upsert_saved_search(*saved);
                 self.advanced_search.selected_saved = Some(name.clone());
                 match self.config.save() {
-                    Ok(()) => self.app.set_status(UiStatus::Success(crate::i18n::tr_args(
-                        "people.search_saved_status",
+                    Ok(()) => self.app.set_status(UiStatus::success_args(
+                        "status.search_saved",
                         &[("name", name)],
-                    ))),
+                    )),
                     Err(error) => self.app.set_status(UiStatus::Error(error)),
                 }
             }
@@ -236,10 +236,10 @@ impl TreeWindow {
             self.advanced_search.save_name.clear();
         }
         match self.config.save() {
-            Ok(()) => self.app.set_status(UiStatus::Success(crate::i18n::tr_args(
-                "people.search_deleted_status",
+            Ok(()) => self.app.set_status(UiStatus::success_args(
+                "status.search_deleted",
                 &[("name", name.to_string())],
-            ))),
+            )),
             Err(error) => self.app.set_status(UiStatus::Error(error)),
         }
     }
@@ -5247,9 +5247,7 @@ impl TreeWindow {
                     Ok(report) => self.app.begin_book_export(report),
                     Err(message) => self.app.set_status(UiStatus::Error(message)),
                 },
-                None => self
-                    .app
-                    .set_status(UiStatus::Success("Books saved".to_string())),
+                None => self.app.set_status(UiStatus::success("status.books_saved")),
             }
         }
     }
@@ -5833,10 +5831,13 @@ impl TreeWindow {
                     let next = self.build_person_editor(&keep_id);
                     self.person_editor = next;
                 }
-                self.app.set_status(UiStatus::Success(format!(
-                    "Merged duplicate: {} facts and {} families moved",
-                    report.events_moved, report.families_merged
-                )));
+                self.app.set_status(UiStatus::success_args(
+                    "status.duplicate_merged",
+                    &[
+                        ("facts", report.events_moved.to_string()),
+                        ("families", report.families_merged.to_string()),
+                    ],
+                ));
             }
             Err(message) => {
                 self.merge.error = Some(message);

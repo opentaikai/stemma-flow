@@ -1,11 +1,11 @@
 //! Menu bar, status bar and welcome dashboard.
 
-use crate::app::{JobOutcome, UiStatus};
+use crate::app::{JobOutcome, RunningJob, StatusMessage, UiStatus};
 use crate::db::maintenance::MaintenanceKind;
 use crate::gui::tabs;
 use crate::gui::welcome;
 use crate::gui::welcome::WelcomeAction;
-use crate::i18n::{tr, tr_args};
+use crate::i18n::{tr, tr_args, trn_args};
 use crate::model::print_profile::ReportKind;
 use eframe::Frame;
 use egui::Color32;
@@ -386,12 +386,12 @@ impl TreeWindow {
             UiStatus::Idle => {
                 ui.label(tr("status.ready"));
             }
-            UiStatus::Running(text) => {
+            UiStatus::Running(job) => {
                 ui.spinner();
-                ui.label(*text);
+                ui.label(running_text(*job));
             }
             UiStatus::Success(message) => {
-                ui.colored_label(Color32::from_rgb(34, 197, 94), message);
+                ui.colored_label(Color32::from_rgb(34, 197, 94), status_message_text(message));
             }
             UiStatus::Job(outcome) => {
                 let color = if outcome.is_error() {
@@ -422,6 +422,28 @@ impl TreeWindow {
             WelcomeAction::OpenRecent(path) => self.open_tree_at(path, frame),
         }
     }
+}
+
+fn status_message_text(message: &StatusMessage) -> String {
+    match message.plural {
+        Some(count) => trn_args(message.key, count, &message.args),
+        None => tr_args(message.key, &message.args),
+    }
+}
+
+fn running_text(job: RunningJob) -> String {
+    tr(match job {
+        RunningJob::ChoosingImportFile => "running.choosing_import_file",
+        RunningJob::ChoosingExportDestination => "running.choosing_export_destination",
+        RunningJob::ChoosingBackupDestination => "running.choosing_backup_destination",
+        RunningJob::ChoosingRestoreSource => "running.choosing_restore_source",
+        RunningJob::RunningMaintenance => "running.running_maintenance",
+        RunningJob::ChoosingReportDestination => "running.choosing_report_destination",
+        RunningJob::ChoosingSvgDestination => "running.choosing_svg_destination",
+        RunningJob::ChoosingWebsiteDestination => "running.choosing_website_destination",
+        RunningJob::ChoosingShareBundleDestination => "running.choosing_share_bundle_destination",
+        RunningJob::Geocoding => "running.geocoding",
+    })
 }
 
 fn report_status_key(kind: ReportKind) -> &'static str {
@@ -631,5 +653,45 @@ mod tests {
         assert!(bundle.contains("1024"));
         assert!(bundle.contains("family-share"));
         assert!(!bundle.contains('{'), "{bundle}");
+    }
+
+    #[test]
+    fn status_messages_render_arguments_and_plurals() {
+        let added = status_message_text(&StatusMessage {
+            key: "status.person_added",
+            args: vec![("name", "Ada King".to_string())],
+            plural: None,
+        });
+        assert!(added.contains("Ada King"), "{added}");
+        assert!(!added.contains('{'), "{added}");
+
+        let replaced = status_message_text(&StatusMessage {
+            key: "status.fields_replaced",
+            args: Vec::new(),
+            plural: Some(3),
+        });
+        assert!(replaced.contains('3'), "{replaced}");
+        assert!(!replaced.contains('{'), "{replaced}");
+    }
+
+    #[test]
+    fn every_running_job_has_localized_text() {
+        let jobs = [
+            RunningJob::ChoosingImportFile,
+            RunningJob::ChoosingExportDestination,
+            RunningJob::ChoosingBackupDestination,
+            RunningJob::ChoosingRestoreSource,
+            RunningJob::RunningMaintenance,
+            RunningJob::ChoosingReportDestination,
+            RunningJob::ChoosingSvgDestination,
+            RunningJob::ChoosingWebsiteDestination,
+            RunningJob::ChoosingShareBundleDestination,
+            RunningJob::Geocoding,
+        ];
+        for job in jobs {
+            let text = running_text(job);
+            assert!(!text.is_empty(), "{job:?}");
+            assert!(!text.contains('{'), "{job:?}: {text}");
+        }
     }
 }

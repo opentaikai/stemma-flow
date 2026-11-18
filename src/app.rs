@@ -320,15 +320,64 @@ impl JobOutcome {
     }
 }
 
+/// Short-running background-job phase shown in the status bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunningJob {
+    ChoosingImportFile,
+    ChoosingExportDestination,
+    ChoosingBackupDestination,
+    ChoosingRestoreSource,
+    RunningMaintenance,
+    ChoosingReportDestination,
+    ChoosingSvgDestination,
+    ChoosingWebsiteDestination,
+    ChoosingShareBundleDestination,
+    Geocoding,
+}
+
+/// Localized status text for a completed synchronous action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusMessage {
+    pub(crate) key: &'static str,
+    pub(crate) args: Vec<(&'static str, String)>,
+    pub(crate) plural: Option<i64>,
+}
+
 /// Presentation state derived from the most recent job event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiStatus {
     Idle,
-    Running(&'static str),
-    Success(String),
+    Running(RunningJob),
+    Success(StatusMessage),
     Job(JobOutcome),
     Cancelled,
     Error(String),
+}
+
+impl UiStatus {
+    pub fn success(key: &'static str) -> Self {
+        Self::Success(StatusMessage {
+            key,
+            args: Vec::new(),
+            plural: None,
+        })
+    }
+
+    pub fn success_args(key: &'static str, args: &[(&'static str, String)]) -> Self {
+        Self::Success(StatusMessage {
+            key,
+            args: args.to_vec(),
+            plural: None,
+        })
+    }
+
+    pub fn success_plural(key: &'static str, count: i64) -> Self {
+        Self::Success(StatusMessage {
+            key,
+            args: Vec::new(),
+            plural: Some(count),
+        })
+    }
 }
 
 enum Job {
@@ -702,9 +751,10 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let removed = db::geocode_cache::clear(&conn)?;
-        self.set_status(UiStatus::Success(format!(
-            "Cleared {removed} cached place lookups"
-        )));
+        self.set_status(UiStatus::success_plural(
+            "status.geocode_cache_cleared",
+            removed as i64,
+        ));
         Ok(removed)
     }
 
@@ -721,9 +771,10 @@ impl StemmaApp {
             }
         }
         tx.commit().map_err(|error| error.to_string())?;
-        self.set_status(UiStatus::Success(format!(
-            "Updated coordinates for {changed} places"
-        )));
+        self.set_status(UiStatus::success_plural(
+            "status.coordinates_updated",
+            changed as i64,
+        ));
         Ok(changed)
     }
 
@@ -759,10 +810,10 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let person_id = people::insert_person(&mut conn, details)?;
         self.import_generation += 1;
-        self.set_status(UiStatus::Success(format!(
-            "Added {}",
-            details.display_name()
-        )));
+        self.set_status(UiStatus::success_args(
+            "status.person_added",
+            &[("name", details.display_name())],
+        ));
         Ok(person_id)
     }
 
@@ -786,10 +837,10 @@ impl StemmaApp {
             self.selected_person_id = Some(draft.keep_id.clone());
         }
         self.import_generation += 1;
-        self.set_status(UiStatus::Success(format!(
-            "Merged duplicate into {}",
-            draft.details.display_name()
-        )));
+        self.set_status(UiStatus::success_args(
+            "status.person_merged",
+            &[("name", draft.details.display_name())],
+        ));
         Ok(report)
     }
 
@@ -802,7 +853,7 @@ impl StemmaApp {
             self.selected_person_id = None;
         }
         self.import_generation += 1;
-        self.set_status(UiStatus::Success("Person deleted".to_string()));
+        self.set_status(UiStatus::success("status.person_deleted"));
         Ok(())
     }
 
@@ -818,10 +869,10 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         people::update_person(&mut conn, person_id, details)?;
         self.import_generation += 1;
-        self.set_status(UiStatus::Success(format!(
-            "Saved {}",
-            details.display_name()
-        )));
+        self.set_status(UiStatus::success_args(
+            "status.person_saved",
+            &[("name", details.display_name())],
+        ));
         Ok(())
     }
 
@@ -836,10 +887,10 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let person_id = people::link_parent(&mut conn, child_id, role, details)?;
         self.import_generation += 1;
-        self.set_status(UiStatus::Success(format!(
-            "Added {}",
-            details.display_name()
-        )));
+        self.set_status(UiStatus::success_args(
+            "status.person_added",
+            &[("name", details.display_name())],
+        ));
         Ok(person_id)
     }
 
@@ -853,10 +904,10 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let spouse_id = people::link_spouse(&mut conn, person_id, details)?;
         self.import_generation += 1;
-        self.set_status(UiStatus::Success(format!(
-            "Added {}",
-            details.display_name()
-        )));
+        self.set_status(UiStatus::success_args(
+            "status.person_added",
+            &[("name", details.display_name())],
+        ));
         Ok(spouse_id)
     }
 
@@ -870,10 +921,10 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let child_id = people::link_child(&mut conn, person_id, details)?;
         self.import_generation += 1;
-        self.set_status(UiStatus::Success(format!(
-            "Added {}",
-            details.display_name()
-        )));
+        self.set_status(UiStatus::success_args(
+            "status.person_added",
+            &[("name", details.display_name())],
+        ));
         Ok(child_id)
     }
 
@@ -908,7 +959,7 @@ impl StemmaApp {
 
     fn finish_link(&mut self) -> Result<(), String> {
         self.import_generation += 1;
-        self.set_status(UiStatus::Success("Linked existing person".to_string()));
+        self.set_status(UiStatus::success("status.linked_existing_person"));
         Ok(())
     }
 
@@ -924,7 +975,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         citation_store::save_citation(&conn, edit)?;
-        self.set_status(UiStatus::Success("Citation saved".to_string()));
+        self.set_status(UiStatus::success("status.citation_saved"));
         Ok(())
     }
 
@@ -953,7 +1004,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = citation_store::add_citation(&mut conn, source_id, person_id, target, page)?;
-        self.set_status(UiStatus::Success("Citation added".to_string()));
+        self.set_status(UiStatus::success("status.citation_added"));
         Ok(id)
     }
 
@@ -967,10 +1018,10 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let added = citation_store::attach_citation(&mut conn, citation_id, person_id, target)?;
-        self.set_status(UiStatus::Success(if added {
-            "Citation attached".to_string()
+        self.set_status(UiStatus::success(if added {
+            "status.citation_attached"
         } else {
-            "Citation already attached".to_string()
+            "status.citation_already_attached"
         }));
         Ok(added)
     }
@@ -980,7 +1031,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         citation_store::detach_citation(&conn, citation_id, event_id)?;
-        self.set_status(UiStatus::Success("Citation detached".to_string()));
+        self.set_status(UiStatus::success("status.citation_detached"));
         Ok(())
     }
 
@@ -989,7 +1040,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         citation_store::delete_citation(&conn, id)?;
-        self.set_status(UiStatus::Success("Citation deleted".to_string()));
+        self.set_status(UiStatus::success("status.citation_deleted"));
         Ok(())
     }
 
@@ -1033,7 +1084,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = source_store::save_source(&mut conn, draft)?;
-        self.set_status(UiStatus::Success("Source saved".to_string()));
+        self.set_status(UiStatus::success("status.source_saved"));
         Ok(id)
     }
 
@@ -1046,15 +1097,10 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let report = source_store::merge_sources(&mut conn, source_id, target_id)?;
-        let noun = if report.citations == 1 {
-            "citation"
-        } else {
-            "citations"
-        };
-        self.set_status(UiStatus::Success(format!(
-            "Merged {} {noun}",
-            report.citations
-        )));
+        self.set_status(UiStatus::success_plural(
+            "status.source_merged",
+            report.citations as i64,
+        ));
         Ok(report)
     }
 
@@ -1063,7 +1109,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         source_store::delete_source(&mut conn, id)?;
-        self.set_status(UiStatus::Success("Source deleted".to_string()));
+        self.set_status(UiStatus::success("status.source_deleted"));
         Ok(())
     }
 
@@ -1093,7 +1139,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = group_store::save_group(&conn, draft)?;
-        self.set_status(UiStatus::Success("Group saved".to_string()));
+        self.set_status(UiStatus::success("status.group_saved"));
         Ok(id)
     }
 
@@ -1102,7 +1148,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         group_store::delete_group(&conn, id)?;
-        self.set_status(UiStatus::Success("Group deleted".to_string()));
+        self.set_status(UiStatus::success("status.group_deleted"));
         Ok(())
     }
 
@@ -1160,7 +1206,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = label_store::save_label(&conn, draft)?;
-        self.set_status(UiStatus::Success("Label saved".to_string()));
+        self.set_status(UiStatus::success("status.label_saved"));
         Ok(id)
     }
 
@@ -1169,7 +1215,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         label_store::delete_label(&conn, id)?;
-        self.set_status(UiStatus::Success("Label deleted".to_string()));
+        self.set_status(UiStatus::success("status.label_deleted"));
         Ok(())
     }
 
@@ -1230,7 +1276,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         group_store::add_member(&conn, group_id, person_id)?;
-        self.set_status(UiStatus::Success("Group member added".to_string()));
+        self.set_status(UiStatus::success("status.group_member_added"));
         Ok(())
     }
 
@@ -1239,7 +1285,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         group_store::remove_member(&conn, group_id, person_id)?;
-        self.set_status(UiStatus::Success("Group member removed".to_string()));
+        self.set_status(UiStatus::success("status.group_member_removed"));
         Ok(())
     }
 
@@ -1262,7 +1308,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = task_store::save_task(&conn, draft)?;
-        self.set_status(UiStatus::Success("Task saved".to_string()));
+        self.set_status(UiStatus::success("status.task_saved"));
         Ok(id)
     }
 
@@ -1271,7 +1317,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         task_store::delete_task(&conn, id)?;
-        self.set_status(UiStatus::Success("Task deleted".to_string()));
+        self.set_status(UiStatus::success("status.task_deleted"));
         Ok(())
     }
 
@@ -1295,12 +1341,20 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let report = dataclean_store::apply_plan(&mut conn, plan, selection)?;
         self.import_generation += 1;
-        self.set_status(UiStatus::Success(format!(
-            "DataClean applied: {} names, {} alternate names, {} places",
-            report.names_changed,
-            report.alternate_names_changed,
-            report.places_renamed + report.places_merged
-        )));
+        self.set_status(UiStatus::success_args(
+            "status.dataclean_applied",
+            &[
+                ("names", report.names_changed.to_string()),
+                (
+                    "alternate_names",
+                    report.alternate_names_changed.to_string(),
+                ),
+                (
+                    "places",
+                    (report.places_renamed + report.places_merged).to_string(),
+                ),
+            ],
+        ));
         Ok(report)
     }
 
@@ -1314,10 +1368,13 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let report = dataclean_store::apply_plan(&mut conn, plan, selection)?;
         self.import_generation += 1;
-        self.set_status(UiStatus::Success(format!(
-            "PlaceClean applied: {} places, {} merges",
-            report.places_renamed, report.places_merged
-        )));
+        self.set_status(UiStatus::success_args(
+            "status.placeclean_applied",
+            &[
+                ("places", report.places_renamed.to_string()),
+                ("merges", report.places_merged.to_string()),
+            ],
+        ));
         Ok(report)
     }
 
@@ -1342,10 +1399,10 @@ impl StemmaApp {
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let report = replace_store::apply_plan(&mut conn, plan, selection)?;
         self.import_generation += 1;
-        self.set_status(UiStatus::Success(format!(
-            "Replaced {} fields",
-            report.total()
-        )));
+        self.set_status(UiStatus::success_plural(
+            "status.fields_replaced",
+            report.total() as i64,
+        ));
         Ok(report)
     }
 
@@ -1396,7 +1453,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         task_store::attach_task(&conn, task_id, owner)?;
-        self.set_status(UiStatus::Success("Task attached".to_string()));
+        self.set_status(UiStatus::success("status.task_attached"));
         Ok(())
     }
 
@@ -1405,7 +1462,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         task_store::detach_task(&conn, task_id, owner)?;
-        self.set_status(UiStatus::Success("Task detached".to_string()));
+        self.set_status(UiStatus::success("status.task_detached"));
         Ok(())
     }
 
@@ -1439,7 +1496,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(&path).map_err(|error| error.to_string())?;
         let id = media_store::save_media_with_base(&conn, draft, path.parent())?;
-        self.set_status(UiStatus::Success("Media saved".to_string()));
+        self.set_status(UiStatus::success("status.media_saved"));
         Ok(id)
     }
 
@@ -1460,7 +1517,7 @@ impl StemmaApp {
             notes: record.notes.unwrap_or_default(),
         };
         media_store::save_media_with_base(&conn, &draft, path.parent())?;
-        self.set_status(UiStatus::Success("Media relinked".to_string()));
+        self.set_status(UiStatus::success("status.media_relinked"));
         Ok(())
     }
 
@@ -1469,7 +1526,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         media_store::set_portrait(&conn, person_id, media_id)?;
-        self.set_status(UiStatus::Success("Portrait updated".to_string()));
+        self.set_status(UiStatus::success("status.portrait_updated"));
         Ok(())
     }
 
@@ -1485,7 +1542,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         media_store::delete_media(&conn, id)?;
-        self.set_status(UiStatus::Success("Media deleted".to_string()));
+        self.set_status(UiStatus::success("status.media_deleted"));
         Ok(())
     }
 
@@ -1508,7 +1565,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = album_store::save_album(&conn, draft)?;
-        self.set_status(UiStatus::Success("Album saved".to_string()));
+        self.set_status(UiStatus::success("status.album_saved"));
         Ok(id)
     }
 
@@ -1517,7 +1574,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         album_store::delete_album(&conn, id)?;
-        self.set_status(UiStatus::Success("Album deleted".to_string()));
+        self.set_status(UiStatus::success("status.album_deleted"));
         Ok(())
     }
 
@@ -1533,7 +1590,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         album_store::add_to_album(&conn, album_id, media_id)?;
-        self.set_status(UiStatus::Success("Added to album".to_string()));
+        self.set_status(UiStatus::success("status.added_to_album"));
         Ok(())
     }
 
@@ -1546,7 +1603,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         album_store::remove_from_album(&conn, album_id, media_id)?;
-        self.set_status(UiStatus::Success("Removed from album".to_string()));
+        self.set_status(UiStatus::success("status.removed_from_album"));
         Ok(())
     }
 
@@ -1560,7 +1617,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         album_store::move_album_media(&conn, album_id, media_id, before_id)?;
-        self.set_status(UiStatus::Success("Album order updated".to_string()));
+        self.set_status(UiStatus::success("status.album_order_updated"));
         Ok(())
     }
 
@@ -1587,7 +1644,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         media_store::attach_media(&conn, media_id, owner)?;
-        self.set_status(UiStatus::Success("Media attached".to_string()));
+        self.set_status(UiStatus::success("status.media_attached"));
         Ok(())
     }
 
@@ -1596,7 +1653,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         media_store::detach_media(&conn, media_id, owner)?;
-        self.set_status(UiStatus::Success("Media detached".to_string()));
+        self.set_status(UiStatus::success("status.media_detached"));
         Ok(())
     }
 
@@ -1637,7 +1694,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = associations::save_association(&mut conn, draft)?;
-        self.set_status(UiStatus::Success("Association saved".to_string()));
+        self.set_status(UiStatus::success("status.association_saved"));
         Ok(id)
     }
 
@@ -1646,7 +1703,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         associations::delete_association(&conn, id)?;
-        self.set_status(UiStatus::Success("Association deleted".to_string()));
+        self.set_status(UiStatus::success("status.association_deleted"));
         Ok(())
     }
 
@@ -1662,7 +1719,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         note_store::add_note(&conn, owner, body)?;
-        self.set_status(UiStatus::Success("Note added".to_string()));
+        self.set_status(UiStatus::success("status.note_added"));
         Ok(())
     }
 
@@ -1671,7 +1728,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         note_store::update_note(&conn, id, body)?;
-        self.set_status(UiStatus::Success("Note saved".to_string()));
+        self.set_status(UiStatus::success("status.note_saved"));
         Ok(())
     }
 
@@ -1680,7 +1737,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         note_store::delete_note(&conn, id)?;
-        self.set_status(UiStatus::Success("Note deleted".to_string()));
+        self.set_status(UiStatus::success("status.note_deleted"));
         Ok(())
     }
 
@@ -1696,7 +1753,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         settings_store::set_surname_first(&conn, surname_first)?;
-        self.set_status(UiStatus::Success("Display preference updated".to_string()));
+        self.set_status(UiStatus::success("status.display_preference_updated"));
         Ok(())
     }
 
@@ -1723,7 +1780,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = name_store::save_alternate_name(&mut conn, person_id, draft)?;
-        self.set_status(UiStatus::Success("Alternate name saved".to_string()));
+        self.set_status(UiStatus::success("status.alternate_name_saved"));
         Ok(id)
     }
 
@@ -1732,7 +1789,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         name_store::delete_alternate_name(&conn, id)?;
-        self.set_status(UiStatus::Success("Alternate name deleted".to_string()));
+        self.set_status(UiStatus::success("status.alternate_name_deleted"));
         Ok(())
     }
 
@@ -1759,7 +1816,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         privacy_store::set_person_private(&conn, person_id, private)?;
-        self.set_status(UiStatus::Success("Privacy updated".to_string()));
+        self.set_status(UiStatus::success("status.privacy_updated"));
         Ok(())
     }
 
@@ -1772,7 +1829,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         privacy_store::set_living_override(&conn, person_id, override_value)?;
-        self.set_status(UiStatus::Success("Living status updated".to_string()));
+        self.set_status(UiStatus::success("status.living_status_updated"));
         Ok(())
     }
 
@@ -1781,7 +1838,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         privacy_store::set_event_private(&conn, event_id, private)?;
-        self.set_status(UiStatus::Success("Fact privacy updated".to_string()));
+        self.set_status(UiStatus::success("status.fact_privacy_updated"));
         Ok(())
     }
 
@@ -1805,7 +1862,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         participant_store::save_event_participants(&mut conn, event_id, participants)?;
-        self.set_status(UiStatus::Success("Witnesses saved".to_string()));
+        self.set_status(UiStatus::success("status.witnesses_saved"));
         Ok(())
     }
 
@@ -1828,7 +1885,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let key = fact_store::save_fact_type(&mut conn, draft)?;
-        self.set_status(UiStatus::Success("Fact type saved".to_string()));
+        self.set_status(UiStatus::success("status.fact_type_saved"));
         Ok(key)
     }
 
@@ -1837,7 +1894,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         fact_store::save_fact_roles(&mut conn, key, roles)?;
-        self.set_status(UiStatus::Success("Fact roles saved".to_string()));
+        self.set_status(UiStatus::success("status.fact_roles_saved"));
         Ok(())
     }
 
@@ -1846,7 +1903,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         fact_store::delete_fact_type(&mut conn, key)?;
-        self.set_status(UiStatus::Success("Fact type deleted".to_string()));
+        self.set_status(UiStatus::success("status.fact_type_deleted"));
         Ok(())
     }
 
@@ -1893,7 +1950,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let conn = db::open_connection(path).map_err(|error| error.to_string())?;
         event_store::save_event(&conn, draft)?;
-        self.set_status(UiStatus::Success("Event saved".to_string()));
+        self.set_status(UiStatus::success("status.event_saved"));
         Ok(())
     }
 
@@ -1902,7 +1959,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = place_store::save_place(&mut conn, draft)?;
-        self.set_status(UiStatus::Success("Place saved".to_string()));
+        self.set_status(UiStatus::success("status.place_saved"));
         Ok(id)
     }
 
@@ -1911,7 +1968,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         place_store::delete_place(&mut conn, id)?;
-        self.set_status(UiStatus::Success("Place deleted".to_string()));
+        self.set_status(UiStatus::success("status.place_deleted"));
         Ok(())
     }
 
@@ -1934,7 +1991,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         let id = repository_store::save_repository(&mut conn, draft)?;
-        self.set_status(UiStatus::Success("Repository saved".to_string()));
+        self.set_status(UiStatus::success("status.repository_saved"));
         Ok(id)
     }
 
@@ -1943,7 +2000,7 @@ impl StemmaApp {
         let path = self.require_active_db()?;
         let mut conn = db::open_connection(path).map_err(|error| error.to_string())?;
         repository_store::delete_repository(&mut conn, id)?;
-        self.set_status(UiStatus::Success("Repository deleted".to_string()));
+        self.set_status(UiStatus::success("status.repository_deleted"));
         Ok(())
     }
 
@@ -1953,35 +2010,35 @@ impl StemmaApp {
         }
         self.busy = true;
         self.status = UiStatus::Running(match job {
-            Job::Import | Job::ImportNew => "Choosing file to import\u{2026}",
-            Job::Export(_) => "Choosing export destination\u{2026}",
-            Job::Backup => "Choosing backup destination\u{2026}",
-            Job::Restore => "Choosing backup to restore\u{2026}",
-            Job::Maintenance { .. } => "Running database maintenance\u{2026}",
-            Job::ResearchLog(_) => "Choosing research log destination\u{2026}",
-            Job::GroupRoster(_) => "Choosing group report destination\u{2026}",
-            Job::PhotoTree(_) => "Choosing photo tree destination\u{2026}",
-            Job::Scrapbook(_) => "Choosing scrapbook destination\u{2026}",
-            Job::Pedigree(_) => "Choosing pedigree chart destination\u{2026}",
-            Job::FamilySheet(_) => "Choosing family group sheet destination\u{2026}",
-            Job::IndividualSummary(_) => "Choosing individual summary destination\u{2026}",
-            Job::IndividualList(_) => "Choosing individual list destination\u{2026}",
-            Job::AhnentafelList(_) => "Choosing Ahnentafel list destination\u{2026}",
-            Job::DescendantList(_) => "Choosing descendant list destination\u{2026}",
-            Job::KinshipReport(_) => "Choosing kinship report destination\u{2026}",
-            Job::RelationshipReport(_) => "Choosing relationship report destination\u{2026}",
-            Job::CalendarReport(_) => "Choosing calendar report destination\u{2026}",
-            Job::Timeline(_) => "Choosing timeline destination\u{2026}",
-            Job::AdministrativeList(_) => "Choosing list destination\u{2026}",
-            Job::CleanupReport(_) => "Choosing cleanup report destination\u{2026}",
-            Job::FanChart(_) => "Choosing fan chart destination\u{2026}",
-            Job::CombinedChart(_) => "Choosing combined chart destination\u{2026}",
-            Job::WallChart(_) => "Choosing wall chart destination\u{2026}",
-            Job::Svg { .. } => "Choosing SVG destination\u{2026}",
-            Job::Book(_) => "Choosing book destination\u{2026}",
-            Job::Website(_) => "Choosing website destination\u{2026}",
-            Job::ShareBundle { .. } => "Choosing share bundle destination\u{2026}",
-            Job::Geocode { .. } => "Looking up place coordinates\u{2026}",
+            Job::Import | Job::ImportNew => RunningJob::ChoosingImportFile,
+            Job::Export(_) => RunningJob::ChoosingExportDestination,
+            Job::Backup => RunningJob::ChoosingBackupDestination,
+            Job::Restore => RunningJob::ChoosingRestoreSource,
+            Job::Maintenance { .. } => RunningJob::RunningMaintenance,
+            Job::ResearchLog(_)
+            | Job::GroupRoster(_)
+            | Job::PhotoTree(_)
+            | Job::Scrapbook(_)
+            | Job::Pedigree(_)
+            | Job::FamilySheet(_)
+            | Job::IndividualSummary(_)
+            | Job::IndividualList(_)
+            | Job::AhnentafelList(_)
+            | Job::DescendantList(_)
+            | Job::KinshipReport(_)
+            | Job::RelationshipReport(_)
+            | Job::CalendarReport(_)
+            | Job::Timeline(_)
+            | Job::AdministrativeList(_)
+            | Job::CleanupReport(_)
+            | Job::FanChart(_)
+            | Job::CombinedChart(_)
+            | Job::WallChart(_)
+            | Job::Book(_) => RunningJob::ChoosingReportDestination,
+            Job::Svg { .. } => RunningJob::ChoosingSvgDestination,
+            Job::Website(_) => RunningJob::ChoosingWebsiteDestination,
+            Job::ShareBundle { .. } => RunningJob::ChoosingShareBundleDestination,
+            Job::Geocode { .. } => RunningJob::Geocoding,
         });
         let (tx, rx) = channel();
         self.rx = Some(rx);
