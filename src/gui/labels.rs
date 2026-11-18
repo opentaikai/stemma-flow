@@ -4,6 +4,7 @@ use egui::{Color32, RichText, Ui};
 
 use crate::db::Person;
 use crate::db::labels::{LabelDraft, LabelMember, LabelRecord, LabelSummary};
+use crate::i18n::{tr, tr_args};
 
 /// A label buffered for editing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,16 +76,19 @@ pub fn show(
 ) -> Option<LabelEvent> {
     let mut event = None;
     ui.horizontal(|ui| {
-        ui.label("Filter:");
-        ui.add(egui::TextEdit::singleline(&mut state.filter).hint_text("Label name…"));
+        ui.label(tr("common.filter"));
+        ui.add(egui::TextEdit::singleline(&mut state.filter).hint_text(tr("labels.filter_hint")));
         if ui
-            .add_enabled(!state.filter.is_empty(), egui::Button::new("Clear"))
+            .add_enabled(
+                !state.filter.is_empty(),
+                egui::Button::new(tr("common.clear")),
+            )
             .clicked()
         {
             state.filter.clear();
         }
         if ui
-            .add(egui::Button::new(RichText::new("+ New Label").strong()))
+            .add(egui::Button::new(RichText::new(tr("labels.new")).strong()))
             .clicked()
         {
             event = Some(LabelEvent::New);
@@ -100,14 +104,20 @@ pub fn show(
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     if state.labels.is_empty() {
-                        ui.label(RichText::new("No labels yet.").weak().small());
+                        ui.label(RichText::new(tr("labels.empty")).weak().small());
                     }
                     for label in &state.labels {
                         if !needle.is_empty() && !label.name.to_lowercase().contains(&needle) {
                             continue;
                         }
                         let selected = state.selected.as_deref() == Some(label.id.as_str());
-                        let text = format!("{} ({} people)", label.name, label.member_count);
+                        let text = tr_args(
+                            "labels.list_item",
+                            &[
+                                ("name", label.name.clone()),
+                                ("count", label.member_count.to_string()),
+                            ],
+                        );
                         ui.horizontal(|ui| {
                             crate::gui::symbols::color_swatch(ui, color32(label.color));
                             if ui.selectable_label(selected, text).clicked() {
@@ -138,7 +148,7 @@ fn label_editor(
     event: &mut Option<LabelEvent>,
 ) {
     if !state.editing {
-        ui.label(RichText::new("Select a label or create a new one.").weak());
+        ui.label(RichText::new(tr("labels.select_prompt")).weak());
         return;
     }
     ui.heading(if state.draft.id.is_some() {
@@ -150,11 +160,11 @@ fn label_editor(
         .num_columns(2)
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
-            ui.label(RichText::new("Name *").strong());
+            ui.label(RichText::new(tr("labels.name_required")).strong());
             ui.text_edit_singleline(&mut state.draft.name);
             ui.end_row();
 
-            ui.label("Colour:");
+            ui.label(tr("labels.colour"));
             let mut color = color32(state.draft.color);
             if ui.color_edit_button_srgba(&mut color).changed() {
                 state.draft.color = color_value(color);
@@ -172,14 +182,14 @@ fn label_editor(
         if ui
             .add_enabled(
                 !state.draft.name.trim().is_empty(),
-                egui::Button::new(RichText::new("Save").strong()),
+                egui::Button::new(RichText::new(tr("common.save")).strong()),
             )
             .clicked()
         {
             *event = Some(LabelEvent::Save(Box::new(state.draft.to_draft())));
         }
         if let Some(id) = state.draft.id.clone()
-            && ui.button("Delete").clicked()
+            && ui.button(tr("common.delete")).clicked()
         {
             *event = Some(LabelEvent::Delete(id));
         }
@@ -189,21 +199,27 @@ fn label_editor(
         return;
     }
     ui.separator();
-    ui.label(RichText::new(format!("Members ({})", state.members.len())).strong());
+    ui.label(
+        RichText::new(tr_args(
+            "labels.members",
+            &[("count", state.members.len().to_string())],
+        ))
+        .strong(),
+    );
     if state.members.is_empty() {
-        ui.label(RichText::new("(none)").weak().small());
+        ui.label(RichText::new(tr("inspector.none")).weak().small());
     }
     for member in &state.members {
         ui.horizontal(|ui| {
             ui.label(RichText::new(&member.name).strong());
-            if ui.small_button("Remove").clicked() {
+            if ui.small_button(tr("common.remove")).clicked() {
                 *event = Some(LabelEvent::RemoveMember(member.person_id.clone()));
             }
         });
     }
     ui.separator();
-    ui.label(RichText::new("Add person").strong());
-    ui.add(egui::TextEdit::singleline(&mut state.search).hint_text("Search people…"));
+    ui.label(RichText::new(tr("labels.add_person")).strong());
+    ui.add(egui::TextEdit::singleline(&mut state.search).hint_text(tr("media.search_people_hint")));
     let needle = state.search.trim().to_lowercase();
     let choices: Vec<&Person> = people
         .iter()
@@ -226,12 +242,12 @@ fn label_editor(
         .max_height(150.0)
         .show(ui, |ui| {
             if choices.is_empty() {
-                ui.label(RichText::new("(no matches)").weak().small());
+                ui.label(RichText::new(tr("common.no_matches")).weak().small());
             }
             for person in choices {
                 ui.horizontal(|ui| {
                     ui.label(crate::gui::inspector::person_label(person, surname_first));
-                    if ui.small_button("Add").clicked() {
+                    if ui.small_button(tr("common.add")).clicked() {
                         *event = Some(LabelEvent::AddMember(person.id.clone()));
                     }
                 });

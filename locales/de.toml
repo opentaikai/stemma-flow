@@ -839,6 +839,47 @@ create_source_hint = "Erstellen Sie eine Quelle auf der Registerkarte Quellen, u
 add_source = "Quelle hinzufügen:"
 add_link = "Verknüpfung hinzufügen"
 
+[groups]
+filter_hint = "Gruppenname…"
+new = "+ Neue Gruppe"
+empty = "Noch keine Gruppen."
+list_item = "{name} ({count} Personen)"
+select_prompt = "Wählen Sie eine Gruppe aus oder erstellen Sie eine neue."
+edit_title = "Gruppe bearbeiten"
+new_title = "Neue Gruppe"
+name_required = "Name *"
+description = "Beschreibung:"
+manual_members = "Manuelle Mitglieder"
+rule_members = "Regelbasierte Mitglieder"
+colour_code = "Diese Gruppe farblich markieren"
+rule_need_criterion = "Fügen Sie dieser Regel mindestens ein Kriterium hinzu."
+rule_invalid = "Korrigieren Sie die Regelkriterien vor dem Speichern."
+print = "Gruppe drucken…"
+rule_matches = "Regeltreffer ({count})"
+members = "Mitglieder ({count})"
+add_person = "Person hinzufügen"
+
+[names]
+add = "+ Name hinzufügen"
+type = "Typ:"
+given = "Vorname:"
+middle = "Mittelname:"
+type_examples = "Typbeispiele: aka, married, birth, religious."
+save = "Namen speichern"
+
+[labels]
+filter_hint = "Labelname…"
+new = "+ Neues Label"
+empty = "Noch keine Labels."
+list_item = "{name} ({count} Personen)"
+select_prompt = "Wählen Sie ein Label aus oder erstellen Sie ein neues."
+edit_title = "Label bearbeiten"
+new_title = "Neues Label"
+name_required = "Name *"
+colour = "Farbe:"
+members = "Mitglieder ({count})"
+add_person = "Person hinzufügen"
+
 [replace]
 title = "Suchen und Ersetzen"
 hint = "Wörtlichen Text in Namen, Orten, Notizen oder gespeicherten Medienpfaden ersetzen. Änderungen erfolgen erst nach Vorschau und Bestätigung."

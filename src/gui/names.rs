@@ -2,6 +2,8 @@
 
 use egui::{RichText, Ui};
 
+use crate::i18n::tr;
+
 use crate::db::names::{AlternateName, AlternateNameDraft};
 
 /// Action requested by the names card.
@@ -40,7 +42,7 @@ pub fn draft_from_name(name: &AlternateName) -> AlternateNameDraft {
 pub fn show(ui: &mut Ui, state: &mut NamesState, surname_first: bool) -> Option<NamesEvent> {
     let mut event = None;
     ui.horizontal(|ui| {
-        if ui.small_button("+ Add name").clicked() {
+        if ui.small_button(tr("names.add")).clicked() {
             state.draft = AlternateNameDraft {
                 name_type: "aka".to_string(),
                 ..AlternateNameDraft::default()
@@ -50,19 +52,19 @@ pub fn show(ui: &mut Ui, state: &mut NamesState, surname_first: bool) -> Option<
         }
     });
     if state.names.is_empty() {
-        ui.label(RichText::new("(none)").weak().small());
+        ui.label(RichText::new(tr("inspector.none")).weak().small());
     }
     let mut delete = None;
     for name in &state.names {
         ui.horizontal(|ui| {
             ui.label(RichText::new(name.display_name(surname_first)).strong());
             ui.label(RichText::new(&name.name_type).weak().small());
-            if ui.small_button("Edit").clicked() {
+            if ui.small_button(tr("common.edit")).clicked() {
                 state.draft = draft_from_name(name);
                 state.editing = true;
                 state.error = None;
             }
-            if ui.small_button("Delete").clicked() {
+            if ui.small_button(tr("common.delete")).clicked() {
                 delete = Some(name.id.clone());
             }
         });
@@ -74,39 +76,35 @@ pub fn show(ui: &mut Ui, state: &mut NamesState, surname_first: bool) -> Option<
             .num_columns(2)
             .spacing([10.0, 4.0])
             .show(ui, |ui| {
-                ui.label("Type:");
+                ui.label(tr("names.type"));
                 ui.text_edit_singleline(&mut state.draft.name_type);
                 ui.end_row();
 
-                ui.label("Prefix:");
+                ui.label(tr("inspector.prefix"));
                 ui.text_edit_singleline(&mut state.draft.prefix);
                 ui.end_row();
 
-                ui.label("Given:");
+                ui.label(tr("names.given"));
                 ui.text_edit_singleline(&mut state.draft.given_name);
                 ui.end_row();
 
-                ui.label("Middle:");
+                ui.label(tr("names.middle"));
                 ui.text_edit_singleline(&mut state.draft.middle_name);
                 ui.end_row();
 
-                ui.label("Surname:");
+                ui.label(tr("inspector.surname"));
                 ui.text_edit_singleline(&mut state.draft.surname);
                 ui.end_row();
 
-                ui.label("Suffix:");
+                ui.label(tr("inspector.suffix"));
                 ui.text_edit_singleline(&mut state.draft.suffix);
                 ui.end_row();
 
-                ui.label("Nickname:");
+                ui.label(tr("inspector.nickname"));
                 ui.text_edit_singleline(&mut state.draft.nickname);
                 ui.end_row();
             });
-        ui.label(
-            RichText::new("Type examples: aka, married, birth, religious.")
-                .weak()
-                .small(),
-        );
+        ui.label(RichText::new(tr("names.type_examples")).weak().small());
         if let Some(error) = &state.error {
             ui.label(
                 RichText::new(error)
@@ -118,12 +116,12 @@ pub fn show(ui: &mut Ui, state: &mut NamesState, surname_first: bool) -> Option<
             !state.draft.given_name.trim().is_empty() || !state.draft.surname.trim().is_empty();
         ui.horizontal(|ui| {
             if ui
-                .add_enabled(valid, egui::Button::new("Save name"))
+                .add_enabled(valid, egui::Button::new(tr("names.save")))
                 .clicked()
             {
                 event = Some(NamesEvent::Save(Box::new(state.draft.clone())));
             }
-            if ui.button("Cancel").clicked() {
+            if ui.button(tr("common.cancel")).clicked() {
                 state.editing = false;
                 state.draft = AlternateNameDraft::default();
                 state.error = None;
