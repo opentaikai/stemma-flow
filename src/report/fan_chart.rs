@@ -50,7 +50,7 @@ pub fn svg_file_name(root_name: &str, timestamp: &str) -> String {
 /// Renders the chart as a standalone, printable HTML document.
 pub fn render_html(report: &FanChartReport) -> String {
     let mut html = String::with_capacity(8192 + report.people.len() * 256);
-    html.push_str("<!doctype html>\n<html><head><meta charset=\"utf-8\">");
+    html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>Fan Chart \u{2014} ");
     html.push_str(&escape_html(&report.root_name));

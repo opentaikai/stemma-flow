@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::i18n::{tr, tr_args};
 use crate::report::html::escape_html;
 
 /// One linked person in a website page.
@@ -233,21 +234,30 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
     index.push_str(" \u{00b7} ");
     index.push_str(&escape_html(&report.generated_at));
     index.push_str("</p><p>");
-    index.push_str(&format!(
-        "{} people \u{00b7} {} families \u{00b7} {} places \u{00b7} {} sources \u{00b7} {} media",
-        report.people.len(),
-        report.families.len(),
-        report.places.len(),
-        report.sources.len(),
-        report.media.len()
+    index.push_str(&tr_args(
+        "report.website.index_counts",
+        &[
+            ("people", report.people.len().to_string()),
+            ("families", report.families.len().to_string()),
+            ("places", report.places.len().to_string()),
+            ("sources", report.sources.len().to_string()),
+            ("media", report.media.len().to_string()),
+        ],
     ));
     index.push_str("</p></section>");
-    index.push_str("<section class=\"search\"><h2>Search</h2>");
-    index.push_str(
-        "<input id=\"site-search\" type=\"search\" placeholder=\"Search people\u{2026}\">",
-    );
+    index.push_str(&format!(
+        "<section class=\"search\"><h2>{}</h2>",
+        tr("report.website.search")
+    ));
+    index.push_str(&format!(
+        "<input id=\"site-search\" type=\"search\" placeholder=\"{}\">",
+        tr("report.website.search_people")
+    ));
     index.push_str("<ul id=\"search-results\"></ul></section>");
-    index.push_str("<section><h2>Surnames</h2><ul class=\"columns\">");
+    index.push_str(&format!(
+        "<section><h2>{}</h2><ul class=\"columns\">",
+        tr("report.website.surnames")
+    ));
     for (surname, url) in &surname_pages {
         index.push_str("<li><a href=\"surnames/");
         index.push_str(url);
@@ -302,14 +312,27 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
         body.push_str(&escape_html(&person.name));
         body.push_str("</h1>");
         if person.living {
-            body.push_str("<p class=\"living\">Living</p>");
+            body.push_str(&format!(
+                "<p class=\"living\">{}</p>",
+                tr("report.common.living")
+            ));
         } else {
             body.push_str("<dl class=\"vitals\">");
-            push_vital(&mut body, "Birth", &person.birth, &person.birth_place);
-            push_vital(&mut body, "Death", &person.death, &person.death_place);
+            push_vital(
+                &mut body,
+                &tr("report.common.birth"),
+                &person.birth,
+                &person.birth_place,
+            );
+            push_vital(
+                &mut body,
+                &tr("report.common.death"),
+                &person.death,
+                &person.death_place,
+            );
             body.push_str("</dl>");
             if !person.facts.is_empty() {
-                body.push_str("<section><h2>Facts</h2><table><thead><tr><th>Fact</th><th>Date</th><th>Place</th><th>Details</th></tr></thead><tbody>");
+                body.push_str(&format!("<section><h2>{}</h2><table><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead><tbody>", tr("report.common.facts"), tr("report.common.fact"), tr("report.common.date"), tr("report.common.place"), tr("report.common.details")));
                 for fact in &person.facts {
                     body.push_str("<tr><td>");
                     body.push_str(&escape_html(&fact.label));
@@ -326,27 +349,30 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
         }
         relative_section(
             &mut body,
-            "Parents",
+            &tr("report.common.parents"),
             &person.parents,
             &person_pages,
             "people/",
         );
         relative_section(
             &mut body,
-            "Spouses",
+            &tr("report.common.spouses"),
             &person.spouses,
             &person_pages,
             "people/",
         );
         relative_section(
             &mut body,
-            "Children",
+            &tr("report.common.children"),
             &person.children,
             &person_pages,
             "people/",
         );
         if !person.families.is_empty() {
-            body.push_str("<section><h2>Families</h2><ul>");
+            body.push_str(&format!(
+                "<section><h2>{}</h2><ul>",
+                tr("report.common.families")
+            ));
             for family in &person.families {
                 body.push_str("<li>");
                 if let Some(file) = family_pages.get(family.id.as_str()) {
@@ -366,7 +392,10 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
             && let Some(notes) = &person.notes
             && !notes.trim().is_empty()
         {
-            body.push_str("<section class=\"notes\"><h2>Notes</h2>");
+            body.push_str(&format!(
+                "<section class=\"notes\"><h2>{}</h2>",
+                tr("report.common.notes")
+            ));
             for paragraph in notes.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
                 body.push_str("<p>");
                 body.push_str(&escape_html(paragraph).replace('\n', "<br>"));
@@ -392,7 +421,10 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
         body.push_str(&escape_html(&family.label));
         body.push_str("</h1><dl class=\"vitals\">");
         if let Some(husband) = &family.husband {
-            body.push_str("<div><dt>Husband</dt><dd>");
+            body.push_str(&format!(
+                "<div><dt>{}</dt><dd>",
+                tr("report.common.husband")
+            ));
             person_link(
                 &mut body,
                 &husband.id,
@@ -403,19 +435,25 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
             body.push_str("</dd></div>");
         }
         if let Some(wife) = &family.wife {
-            body.push_str("<div><dt>Wife</dt><dd>");
+            body.push_str(&format!("<div><dt>{}</dt><dd>", tr("report.common.wife")));
             person_link(&mut body, &wife.id, &wife.name, &person_pages, "../people/");
             body.push_str("</dd></div>");
         }
         let marriage = event_cell(&family.marriage_date, &family.marriage_place);
         if !marriage.is_empty() {
-            body.push_str("<div><dt>Marriage</dt><dd>");
+            body.push_str(&format!(
+                "<div><dt>{}</dt><dd>",
+                tr("report.common.marriage")
+            ));
             body.push_str(&escape_html(&marriage));
             body.push_str("</dd></div>");
         }
         body.push_str("</dl>");
         if !family.children.is_empty() {
-            body.push_str("<section><h2>Children</h2><ul>");
+            body.push_str(&format!(
+                "<section><h2>{}</h2><ul>",
+                tr("report.common.children")
+            ));
             for child in &family.children {
                 body.push_str("<li>");
                 person_link(
@@ -438,7 +476,7 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
 
     // Places.
     let mut place_index = String::new();
-    place_index.push_str("<h1>Places</h1><ul>");
+    place_index.push_str(&format!("<h1>{}</h1><ul>", tr("report.website.places")));
     for place in &report.places {
         let Some(file) = place_pages.get(place.id.as_str()) else {
             continue;
@@ -468,10 +506,13 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
             body.push_str("</p>");
         }
         if place.usages.is_empty() {
-            body.push_str("<p class=\"empty\">No recorded events.</p>");
+            body.push_str(&format!(
+                "<p class=\"empty\">{}</p>",
+                tr("report.website.no_events")
+            ));
         } else {
             body.push_str(
-                "<table><thead><tr><th>Event</th><th>Date</th><th>Person</th></tr></thead><tbody>",
+                "&format!(\"<table><thead><tr><th>{}</th><th>{}</th><th>{}</th></tr></thead><tbody>\", tr(\"report.common.event\"), tr(\"report.common.date\"), tr(\"report.common.person\"))",
             );
             for usage in &place.usages {
                 body.push_str("<tr><td>");
@@ -511,13 +552,13 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
     place_index.push_str("</ul>");
     write_page(
         &directory.join("places").join("index.html"),
-        &page("Places", "../", place_index),
+        &page(&tr("report.website.places"), "../", place_index),
         &mut stats,
     )?;
 
     // Sources.
     let mut source_index = String::new();
-    source_index.push_str("<h1>Sources</h1><ul>");
+    source_index.push_str(&format!("<h1>{}</h1><ul>", tr("report.website.sources")));
     for source in &report.sources {
         let Some(file) = source_pages.get(source.id.as_str()) else {
             continue;
@@ -535,17 +576,23 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
         body.push_str(&escape_html(&source.title));
         body.push_str("</h1><dl class=\"vitals\">");
         if !source.author.is_empty() {
-            body.push_str("<div><dt>Author</dt><dd>");
+            body.push_str(&format!("<div><dt>{}</dt><dd>", tr("report.common.author")));
             body.push_str(&escape_html(&source.author));
             body.push_str("</dd></div>");
         }
         if !source.publication.is_empty() {
-            body.push_str("<div><dt>Publication</dt><dd>");
+            body.push_str(&format!(
+                "<div><dt>{}</dt><dd>",
+                tr("report.common.publication")
+            ));
             body.push_str(&escape_html(&source.publication));
             body.push_str("</dd></div>");
         }
         if !source.repositories.is_empty() {
-            body.push_str("<div><dt>Repositories</dt><dd>");
+            body.push_str(&format!(
+                "<div><dt>{}</dt><dd>",
+                tr("report.common.repositories")
+            ));
             body.push_str(&escape_html(&source.repositories));
             body.push_str("</dd></div>");
         }
@@ -559,13 +606,16 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
     source_index.push_str("</ul>");
     write_page(
         &directory.join("sources").join("index.html"),
-        &page("Sources", "../", source_index),
+        &page(&tr("report.website.sources"), "../", source_index),
         &mut stats,
     )?;
 
     // Repositories.
     let mut repository_index = String::new();
-    repository_index.push_str("<h1>Repositories</h1><ul>");
+    repository_index.push_str(&format!(
+        "<h1>{}</h1><ul>",
+        tr("report.website.repositories")
+    ));
     for repository in &report.repositories {
         let Some(file) = repository_pages.get(repository.id.as_str()) else {
             continue;
@@ -586,9 +636,15 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
             body.push_str("</p>");
         }
         if repository.source_titles.is_empty() {
-            body.push_str("<p class=\"empty\">No linked sources.</p>");
+            body.push_str(&format!(
+                "<p class=\"empty\">{}</p>",
+                tr("report.website.no_linked_sources")
+            ));
         } else {
-            body.push_str("<section><h2>Sources</h2><ul>");
+            body.push_str(&format!(
+                "<section><h2>{}</h2><ul>",
+                tr("report.common.sources")
+            ));
             for title in &repository.source_titles {
                 body.push_str("<li>");
                 body.push_str(&escape_html(title));
@@ -605,13 +661,13 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
     repository_index.push_str("</ul>");
     write_page(
         &directory.join("repositories").join("index.html"),
-        &page("Repositories", "../", repository_index),
+        &page(&tr("report.website.repositories"), "../", repository_index),
         &mut stats,
     )?;
 
     // Media gallery.
     let mut gallery = String::new();
-    gallery.push_str("<h1>Media</h1>");
+    gallery.push_str(&format!("<h1>{}</h1>", tr("report.website.media")));
     let copied: Vec<(&SiteMedia, &String)> = report
         .media
         .iter()
@@ -619,7 +675,10 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
         .filter_map(|(media, path)| path.as_ref().map(|path| (media, path)))
         .collect();
     if copied.is_empty() {
-        gallery.push_str("<p class=\"empty\">No media files are available.</p>");
+        gallery.push_str(&format!(
+            "<p class=\"empty\">{}</p>",
+            tr("report.common.no_media")
+        ));
     } else {
         gallery.push_str("<div class=\"gallery\">");
         for (media, path) in &copied {
@@ -649,16 +708,20 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
     }
     write_page(
         &directory.join("media").join("index.html"),
-        &page("Media", "../", gallery),
+        &page(&tr("report.website.media"), "../", gallery),
         &mut stats,
     )?;
 
     // Optional chart.
     if let Some(chart) = &report.chart_svg {
-        let chart_page = "<h1>Pedigree Chart</h1><p><img class=\"chart\" src=\"pedigree.svg\" alt=\"Pedigree chart\"></p>";
+        let chart_page = "&format!(\"<h1>{}</h1><p><img class=\\\"chart\\\" src=\\\"pedigree.svg\\\" alt=\\\"{}\\\"></p>\", tr(\"report.website.pedigree_chart\"), tr(\"report.website.pedigree_chart\"))";
         write_page(
             &directory.join("charts").join("index.html"),
-            &page("Pedigree Chart", "../", chart_page.to_string()),
+            &page(
+                &tr("report.website.pedigree_chart"),
+                "../",
+                chart_page.to_string(),
+            ),
             &mut stats,
         )?;
         fs::write(
@@ -719,7 +782,7 @@ fn write_page(path: &Path, html: &str, stats: &mut WebsiteStats) -> Result<(), S
 
 fn site_page(title: &str, prefix: &str, report: &WebsiteReport, body: String) -> String {
     let mut html = String::with_capacity(body.len() + 2048);
-    html.push_str("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">");
+    html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>");
     html.push_str(&escape_html(title));
@@ -735,21 +798,35 @@ fn site_page(title: &str, prefix: &str, report: &WebsiteReport, body: String) ->
     html.push_str(&escape_html(&report.title));
     html.push_str("</a><nav><a href=\"");
     html.push_str(prefix);
-    html.push_str("index.html\">Home</a><a href=\"");
+    html.push_str("index.html\">");
+    html.push_str(&escape_html(&tr("report.website.home")));
+    html.push_str("</a><a href=\"");
     html.push_str(prefix);
-    html.push_str("surnames/\">Surnames</a><a href=\"");
+    html.push_str("surnames/\">");
+    html.push_str(&escape_html(&tr("report.website.surnames")));
+    html.push_str("</a><a href=\"");
     html.push_str(prefix);
-    html.push_str("places/\">Places</a><a href=\"");
+    html.push_str("places/\">");
+    html.push_str(&escape_html(&tr("report.website.places")));
+    html.push_str("</a><a href=\"");
     html.push_str(prefix);
-    html.push_str("sources/\">Sources</a><a href=\"");
+    html.push_str("sources/\">");
+    html.push_str(&escape_html(&tr("report.website.sources")));
+    html.push_str("</a><a href=\"");
     html.push_str(prefix);
-    html.push_str("repositories/\">Repositories</a><a href=\"");
+    html.push_str("repositories/\">");
+    html.push_str(&escape_html(&tr("report.website.repositories")));
+    html.push_str("</a><a href=\"");
     html.push_str(prefix);
-    html.push_str("media/\">Media</a>");
+    html.push_str("media/\">");
+    html.push_str(&escape_html(&tr("report.website.media")));
+    html.push_str("</a>");
     if report.chart_svg.is_some() {
         html.push_str("<a href=\"");
         html.push_str(prefix);
-        html.push_str("charts/\">Chart</a>");
+        html.push_str("charts/\">");
+        html.push_str(&escape_html(&tr("report.website.chart")));
+        html.push_str("</a>");
     }
     html.push_str("</nav></header><main>");
     html.push_str(&body);
@@ -805,7 +882,10 @@ fn push_vital(html: &mut String, label: &str, date: &str, place: &str) {
     html.push_str(label);
     html.push_str("</dt><dd>");
     if value.is_empty() {
-        html.push_str("<span class=\"unknown\">Unknown</span>");
+        html.push_str(&format!(
+            "<span class=\"unknown\">{}</span>",
+            tr("report.common.unknown")
+        ));
     } else {
         html.push_str(&escape_html(&value));
     }

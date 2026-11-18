@@ -1,6 +1,8 @@
 //! Embedded TOML interface translations with live language switching.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::{Arc, OnceLock, RwLock};
 
 include!(concat!(env!("OUT_DIR"), "/locales.rs"));
@@ -84,6 +86,43 @@ fn active() -> &'static RwLock<Arc<Translator>> {
     })
 }
 
+thread_local! {
+    static LANGUAGE_OVERRIDE: RefCell<Option<Arc<Translator>>> = const { RefCell::new(None) };
+}
+
+fn make_translator(code: &str) -> Arc<Translator> {
+    let code = if is_supported(code) { code } else { "en" };
+    let catalog = catalogs().get(code).expect("supported locale").clone();
+    let fallback = catalogs()
+        .get("en")
+        .expect("English locale is required")
+        .strings
+        .clone();
+    Arc::new(Translator { catalog, fallback })
+}
+
+fn current_translator() -> Arc<Translator> {
+    if let Some(translator) = LANGUAGE_OVERRIDE.with(|current| current.borrow().clone()) {
+        return translator;
+    }
+    active()
+        .read()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .clone()
+}
+
+/// Renders `f` using `code` without changing the process-wide UI language.
+pub fn with_language<T>(code: &str, f: impl FnOnce() -> T) -> T {
+    let translator = make_translator(code);
+    let previous = LANGUAGE_OVERRIDE.with(|current| current.replace(Some(translator)));
+    let result = catch_unwind(AssertUnwindSafe(f));
+    LANGUAGE_OVERRIDE.with(|current| *current.borrow_mut() = previous);
+    match result {
+        Ok(value) => value,
+        Err(payload) => resume_unwind(payload),
+    }
+}
+
 /// Returns the embedded, sorted language list.
 pub fn available_languages() -> Vec<LanguageInfo> {
     let mut languages: Vec<LanguageInfo> = catalogs()
@@ -102,6 +141,9 @@ pub fn is_supported(code: &str) -> bool {
 }
 
 pub fn current_language() -> String {
+    if let Some(translator) = LANGUAGE_OVERRIDE.with(|current| current.borrow().clone()) {
+        return translator.catalog.code.clone();
+    }
     active()
         .read()
         .unwrap_or_else(|poison| poison.into_inner())
@@ -127,10 +169,7 @@ pub fn set_language(code: &str) {
 
 /// Looks up a translated string, falling back to English and then the key.
 pub fn tr(key: &str) -> String {
-    let language = active()
-        .read()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .clone();
+    let language = current_translator();
     if let Some(value) = language.catalog.strings.get(key) {
         return value.clone();
     }
@@ -143,10 +182,7 @@ pub fn tr(key: &str) -> String {
 }
 
 fn maybe_tr(key: &str) -> Option<String> {
-    let language = active()
-        .read()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .clone();
+    let language = current_translator();
     language
         .catalog
         .strings
@@ -273,6 +309,45 @@ pub(crate) mod tests {
         assert_eq!(template_label("book", "Book"), "Buch");
         assert_eq!(fact_label("CUSTOM", "My custom fact"), "My custom fact");
         set_language("en");
+    }
+
+    #[test]
+    fn scoped_language_restores_global_state() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        set_language("en");
+        assert_eq!(with_language("de", || tr("tabs.graph")), "Grafikansicht");
+        assert_eq!(tr("tabs.graph"), "Graph View");
+        assert_eq!(current_language(), "en");
+    }
+
+    #[test]
+    fn scoped_language_does_not_leak_across_threads() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        set_language("en");
+        let other = with_language("de", || {
+            std::thread::spawn(|| tr("tabs.graph"))
+                .join()
+                .expect("thread")
+        });
+        assert_eq!(other, "Graph View");
+        assert_eq!(with_language("de", || tr("tabs.graph")), "Grafikansicht");
+    }
+
+    #[test]
+    fn scoped_language_restores_after_panic() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        set_language("en");
+        let result = std::panic::catch_unwind(|| {
+            with_language("de", || panic!("report panic"));
+        });
+        assert!(result.is_err());
+        assert_eq!(tr("tabs.graph"), "Graph View");
     }
 
     #[test]

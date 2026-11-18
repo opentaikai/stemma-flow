@@ -79,7 +79,7 @@ pub fn file_name(family_label: &str, timestamp: &str) -> String {
 /// Renders the sheet as a standalone, printable HTML document.
 pub fn render_html(report: &FamilyGroupSheetReport) -> String {
     let mut html = String::with_capacity(8192 + report.children.len() * 256);
-    html.push_str("<!doctype html>\n<html><head><meta charset=\"utf-8\">");
+    html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>Family Group Sheet \u{2014} ");
     html.push_str(&escape_html(&report.family_label));

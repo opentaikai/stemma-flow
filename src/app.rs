@@ -2368,7 +2368,9 @@ impl Job {
         report_format: ReportFormat,
     ) {
         crate::report::print::set_profiles(print_profiles.clone());
-        let event = self.run_with(db_path, tx, report_format);
+        let language = crate::i18n::current_language();
+        let event =
+            crate::i18n::with_language(&language, || self.run_with(db_path, tx, report_format));
         let _ = tx.send(event);
     }
 
