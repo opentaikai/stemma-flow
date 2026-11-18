@@ -47,7 +47,10 @@ pub struct RestoreReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShareReport {
     pub path: PathBuf,
+    /// Size of the bundled database snapshot.
     pub database_bytes: u64,
+    /// Size of the whole bundle: database, media, manifest and README.
+    pub total_bytes: u64,
     pub media_included: usize,
     pub media_missing: Vec<String>,
 }
@@ -431,9 +434,24 @@ fn write_share_folder(db_path: &Path, directory: &Path, name: &str) -> Result<Sh
     Ok(ShareReport {
         path: directory.to_path_buf(),
         database_bytes,
+        total_bytes: bundle_bytes(directory)?,
         media_included: archive_paths.values().filter(|path| path.is_some()).count(),
         media_missing: missing_paths,
     })
+}
+
+fn bundle_bytes(path: &Path) -> Result<u64, String> {
+    let mut total = 0;
+    for entry in fs::read_dir(path).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let metadata = entry.metadata().map_err(|error| error.to_string())?;
+        total += if metadata.is_dir() {
+            bundle_bytes(&entry.path())?
+        } else {
+            metadata.len()
+        };
+    }
+    Ok(total)
 }
 
 fn file_name_of(path: &str) -> Option<String> {
@@ -779,6 +797,7 @@ mod tests {
         assert_eq!(report.media_included, 1, "shared media copied once");
         assert!(report.media_missing.is_empty());
         assert!(report.database_bytes > 0);
+        assert!(report.total_bytes > report.database_bytes);
         let bundled_db = report.path.join("Family_Tree.db");
         assert!(bundled_db.is_file());
         let conn = Connection::open(&bundled_db).expect("bundled db");
@@ -834,6 +853,7 @@ mod tests {
         let report = share_folder(&db_path, &parent, "Tree", "20260101").expect("share");
         assert_eq!(report.media_included, 0);
         assert_eq!(report.media_missing, vec!["missing.jpg".to_string()]);
+        assert!(report.total_bytes > report.database_bytes);
         let conn = Connection::open(report.path.join("Tree.db")).expect("db");
         let stored: String = conn
             .query_row("SELECT file_path FROM media WHERE id = 'm1'", [], |row| {
@@ -994,6 +1014,40 @@ mod tests {
                     .any(|component| matches!(component, std::path::Component::ParentDir))
             );
         }
+    }
+
+    #[test]
+    fn share_bundle_total_includes_media_and_metadata() {
+        let dir = temp_dir();
+        let db_path = dir.join("tree.db");
+        let media_path = seed(&db_path);
+        let media_bytes = fs::metadata(&media_path).expect("media metadata").len();
+        let parent = dir.join("usb");
+        fs::create_dir_all(&parent).expect("usb dir");
+        let report = share_folder(&db_path, &parent, "Tree", "20260101").expect("share");
+        let bundled_media: u64 = fs::read_dir(report.path.join("media"))
+            .expect("media dir")
+            .map(|entry| {
+                entry
+                    .expect("media entry")
+                    .metadata()
+                    .expect("media metadata")
+                    .len()
+            })
+            .sum();
+        assert_eq!(bundled_media, media_bytes, "media bytes are counted once");
+        let manifest_bytes = fs::metadata(report.path.join("share-manifest.toml"))
+            .expect("manifest")
+            .len();
+        let readme_bytes = fs::metadata(report.path.join("README.txt"))
+            .expect("readme")
+            .len();
+        assert_eq!(
+            report.total_bytes,
+            report.database_bytes + bundled_media + manifest_bytes + readme_bytes
+        );
+        assert!(report.total_bytes > report.database_bytes);
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
