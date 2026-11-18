@@ -267,14 +267,14 @@ impl TreeWindow {
                 }
             });
             if self.app.active_db().is_some() {
-                let items = self.bookmarks.clone();
+                let items = &self.bookmarks;
                 let mut chosen = None;
                 let mut removed = None;
                 ui.menu_button(tr("bookmarks.menu"), |ui| {
                     if items.is_empty() {
                         ui.label(egui::RichText::new(tr("bookmarks.empty")).weak());
                     }
-                    for bookmark in &items {
+                    for bookmark in items {
                         ui.horizontal(|ui| {
                             if ui.button(&bookmark.name).clicked() {
                                 chosen = Some(bookmark.person_id.clone());
