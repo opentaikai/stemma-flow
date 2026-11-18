@@ -716,7 +716,8 @@ views (the app always launches on Graph View):
   README and a manifest. Media that cannot be found stays visible in the
   bundled database as a relative `missing/…` placeholder, and the manifest
   records file names rather than source paths, so a bundle does not reveal
-  the sender's folder layout. The folder can be copied to USB or another
+  the sender's folder layout. The status line reports total bundle size and
+  database size separately. The folder can be copied to USB or another
   machine; the complete tree, including private and living people, is
   included, so share it only with trusted recipients.
 - **Individual Reports** — **Reports > Individual Summary…** exports one

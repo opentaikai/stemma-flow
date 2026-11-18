@@ -228,7 +228,8 @@ pub enum JobEvent {
     ShareBundleExported {
         path: PathBuf,
         media: usize,
-        bytes: u64,
+        total_bytes: u64,
+        database_bytes: u64,
     },
     GeocodeProgress {
         done: usize,
@@ -2166,8 +2167,14 @@ impl StemmaApp {
                 "Exported {pages} pages and {media} media files ({bytes} bytes) to {}",
                 path.display()
             )),
-            JobEvent::ShareBundleExported { path, media, bytes } => UiStatus::Success(format!(
-                "Shared tree with {media} media files ({bytes} bytes) to {}",
+            JobEvent::ShareBundleExported {
+                path,
+                media,
+                total_bytes,
+                database_bytes,
+            } => UiStatus::Success(format!(
+                "Shared tree with {media} media files ({total_bytes} total bytes, \
+                 {database_bytes} database bytes) to {}",
                 path.display()
             )),
             JobEvent::RelationshipReportExported { path, bytes, steps } => {
@@ -2847,7 +2854,8 @@ impl Job {
                         JobEvent::ShareBundleExported {
                             path: report.path,
                             media: report.media_included,
-                            bytes: report.database_bytes,
+                            total_bytes: report.total_bytes,
+                            database_bytes: report.database_bytes,
                         }
                     }
                     Err(message) => JobEvent::Failed(message),
@@ -3463,6 +3471,27 @@ mod tests {
             None,
             "recent path is consumed once"
         );
+    }
+
+    #[test]
+    fn share_bundle_event_reports_total_and_database_bytes() {
+        let mut app = StemmaApp::new();
+        app.busy = true;
+        app.apply_event(JobEvent::ShareBundleExported {
+            path: PathBuf::from("/tmp/Family-share-20260101"),
+            media: 3,
+            total_bytes: 4096,
+            database_bytes: 1024,
+        });
+        assert!(!app.is_busy());
+        assert!(matches!(
+            app.status(),
+            UiStatus::Success(message)
+                if message.contains("3 media files")
+                    && message.contains("4096 total bytes")
+                    && message.contains("1024 database bytes")
+                    && message.contains("Family-share-20260101")
+        ));
     }
 
     #[test]
