@@ -4,6 +4,14 @@ use std::path::Path;
 
 use base64::Engine as _;
 
+/// Opens a standalone HTML document with the active report language.
+pub fn document_open() -> String {
+    format!(
+        "<!doctype html>\n<html lang=\"{}\"><head><meta charset=\"utf-8\">",
+        escape_html(&crate::i18n::current_language())
+    )
+}
+
 /// Escapes text for safe inclusion in HTML or SVG text.
 pub fn escape_html(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
@@ -55,6 +63,14 @@ pub fn display_name(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn document_language_follows_the_active_catalog() {
+        let html = crate::i18n::with_language("de", document_open);
+        assert!(html.contains("lang=\"de\""), "{html}");
+        let html = crate::i18n::with_language("en", document_open);
+        assert!(html.contains("lang=\"en\""), "{html}");
+    }
 
     #[test]
     fn escapes_markup_characters() {

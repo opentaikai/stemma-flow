@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::i18n::tr;
 use crate::report::html::{escape_html, image_data_uri};
 
 /// One non-vital fact on an individual summary.
@@ -53,14 +54,20 @@ pub fn file_name(name: &str, timestamp: &str) -> String {
 /// Renders the summary as a standalone, printable HTML document.
 pub fn render_html(report: &IndividualSummaryReport) -> String {
     let mut html = String::with_capacity(8192 + report.facts.len() * 256);
-    html.push_str("<!doctype html>\n<html><head><meta charset=\"utf-8\">");
+    html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-    html.push_str("<title>Individual Summary \u{2014} ");
+    html.push_str("<title>");
+    html.push_str(&escape_html(&tr("report.individual_summary.title")));
+    html.push_str(" \u{2014} ");
     html.push_str(&escape_html(&report.name));
     html.push_str("</title><style>");
     html.push_str(CSS);
     html.push_str("</style></head><body>");
-    html.push_str("<div class=\"toolbar\"><button type=\"button\" onclick=\"window.print()\">Print</button><span>Print or save as PDF from the browser.</span></div>");
+    html.push_str(&format!(
+        "<div class=\"toolbar\"><button type=\"button\" onclick=\"window.print()\">{}</button><span>{}</span></div>",
+        escape_html(&tr("report.common.print")),
+        escape_html(&tr("report.common.print_hint")),
+    ));
 
     html.push_str("<header class=\"person\">");
     if let Some(photo) = report.photo.as_deref()
@@ -76,7 +83,10 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
         html.push_str(&escape_html(&initial(&report.name)));
         html.push_str("</div>");
     }
-    html.push_str("<div><p class=\"kind\">Individual Summary</p><h1>");
+    html.push_str(&format!(
+        "<div><p class=\"kind\">{}</p><h1>",
+        escape_html(&tr("report.individual_summary.title")),
+    ));
     html.push_str(&escape_html(&report.name));
     html.push_str("</h1><p class=\"muted\">");
     html.push_str(&escape_html(&report.tree_name));
@@ -85,16 +95,41 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
     html.push_str("</p></div></header>");
 
     html.push_str("<main>");
-    html.push_str("<section><h2>Vital data</h2><dl class=\"vitals\">");
-    push_vital(&mut html, "Birth", &report.birth, &report.birth_place);
-    push_vital(&mut html, "Death", &report.death, &report.death_place);
+    html.push_str(&format!(
+        "<section><h2>{}</h2><dl class=\"vitals\">",
+        escape_html(&tr("report.individual_summary.vital_data")),
+    ));
+    push_vital(
+        &mut html,
+        &tr("report.common.birth"),
+        &report.birth,
+        &report.birth_place,
+    );
+    push_vital(
+        &mut html,
+        &tr("report.common.death"),
+        &report.death,
+        &report.death_place,
+    );
     html.push_str("</dl></section>");
 
-    html.push_str("<section><h2>Facts</h2>");
+    html.push_str(&format!(
+        "<section><h2>{}</h2>",
+        escape_html(&tr("report.common.facts")),
+    ));
     if report.facts.is_empty() {
-        html.push_str("<p class=\"empty\">No additional facts recorded.</p>");
+        html.push_str(&format!(
+            "<p class=\"empty\">{}</p>",
+            escape_html(&tr("report.individual_summary.no_facts")),
+        ));
     } else {
-        html.push_str("<table><thead><tr><th>Fact</th><th>Date</th><th>Place</th><th>Details</th></tr></thead><tbody>");
+        html.push_str(&format!(
+            "<table><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead><tbody>",
+            escape_html(&tr("report.common.fact")),
+            escape_html(&tr("report.common.date")),
+            escape_html(&tr("report.common.place")),
+            escape_html(&tr("report.common.details")),
+        ));
         for fact in &report.facts {
             html.push_str("<tr><td>");
             html.push_str(&escape_html(&fact.label));
@@ -110,9 +145,24 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
     }
     html.push_str("</section>");
 
-    relative_section(&mut html, "Parents", &report.parents, false);
-    relative_section(&mut html, "Spouses", &report.spouses, true);
-    relative_section(&mut html, "Children", &report.children, false);
+    relative_section(
+        &mut html,
+        &tr("report.common.parents"),
+        &report.parents,
+        false,
+    );
+    relative_section(
+        &mut html,
+        &tr("report.common.spouses"),
+        &report.spouses,
+        true,
+    );
+    relative_section(
+        &mut html,
+        &tr("report.common.children"),
+        &report.children,
+        false,
+    );
 
     if let Some(notes) = report
         .notes
@@ -120,7 +170,10 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
         .map(str::trim)
         .filter(|notes| !notes.is_empty())
     {
-        html.push_str("<section class=\"notes\"><h2>Notes</h2>");
+        html.push_str(&format!(
+            "<section class=\"notes\"><h2>{}</h2>",
+            escape_html(&tr("report.common.notes")),
+        ));
         for paragraph in notes.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
             html.push_str("<p>");
             html.push_str(&escape_html(paragraph).replace('\n', "<br>"));
@@ -143,7 +196,7 @@ fn relative_section(
     html.push_str("</h2>");
     if relatives.is_empty() {
         html.push_str("<p class=\"empty\">No ");
-        html.push_str(&title.to_lowercase());
+        html.push_str(&escape_html(&title.to_lowercase()));
         html.push_str(" recorded.</p></section>");
         return;
     }
@@ -177,7 +230,10 @@ fn push_vital(html: &mut String, label: &str, date: &str, place: &str) {
     html.push_str("</dt><dd>");
     let value = event_cell(date, place);
     if value.is_empty() {
-        html.push_str("<span class=\"unknown\">Unknown</span>");
+        html.push_str(&format!(
+            "<span class=\"unknown\">{}</span>",
+            escape_html(&tr("report.common.unknown")),
+        ));
     } else {
         html.push_str(&escape_html(&value));
     }

@@ -119,7 +119,7 @@ impl CleanupReport {
             CleanupMode::MissingInformation => format!("{} open problems", self.row_count()),
         };
         let mut html = String::with_capacity(4096 + self.row_count() * 192);
-        html.push_str("<!doctype html>\n<html><head><meta charset=\"utf-8\">");
+        html.push_str(&crate::report::html::document_open());
         html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
         html.push_str("<title>");
         html.push_str(mode.label());

@@ -34,7 +34,7 @@ pub fn render_html(report: &ResearchLogReport) -> String {
         .count();
     let done = report.tasks.len().saturating_sub(open);
     let mut html = String::with_capacity(4096 + report.tasks.len() * 512);
-    html.push_str("<!doctype html>\n<html><head><meta charset=\"utf-8\">");
+    html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>");
     html.push_str(&escape_html(&tr("research_report.title")));

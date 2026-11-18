@@ -127,7 +127,7 @@ pub fn svg_file_name(mode: WallChartMode, root_name: &str, timestamp: &str) -> S
 /// Renders the chart as a standalone, printable HTML document.
 pub fn render_html(report: &WallChartReport) -> String {
     let mut html = String::with_capacity(8192 + report.scene.nodes.len() * 384);
-    html.push_str("<!doctype html>\n<html><head><meta charset=\"utf-8\">");
+    html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>");
     html.push_str(report.mode.label());

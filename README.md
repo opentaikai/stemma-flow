@@ -1004,8 +1004,10 @@ config codes fall back to English. Tests enforce key and placeholder parity
 between English and German.
 
 Core editors, status messages and chart/report dialogs use the catalogs.
-Generated report HTML and a few utility dialogs still carry English labels;
-those areas remain part of the ongoing localization work.
+Background report jobs snapshot the UI language and report documents declare
+it with `<html lang="…">`; the static website and individual summary use the
+catalogs. Other report writers still carry English labels and remain part of
+the ongoing localization work.
 
 Theme changes apply to the context immediately and persist to
 `<config_dir>/stemma-flow/config.toml` resolved with `dirs::config_dir()`
