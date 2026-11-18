@@ -69,12 +69,15 @@ struct BackupManifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ShareMediaEntry {
+    /// Stable media record identifier from the source tree.
     id: String,
     /// Original file name only; never a filesystem path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     file_name: Option<String>,
+    /// Relative slash-separated path inside the bundle for included media.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     bundle_path: Option<String>,
+    /// Whether the source file was missing and no media was copied.
     missing: bool,
 }
 
@@ -349,7 +352,7 @@ fn copy_media(
 ) -> Result<MediaCopy, String> {
     let media_dir = directory.join("media");
     fs::create_dir_all(&media_dir).map_err(|error| error.to_string())?;
-    let mut archive_paths: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
+    let mut bundle_paths: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
     let mut entries = Vec::with_capacity(media.len());
     let mut missing: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut rewritten_paths: Vec<(String, String)> = Vec::with_capacity(media.len());
@@ -366,7 +369,7 @@ fn copy_media(
                 file_name_of(&stored_path).unwrap_or_else(|| "unknown media".to_string())
             });
         }
-        let bundle_path = match archive_paths.get(&key) {
+        let bundle_path = match bundle_paths.get(&key) {
             Some(path) => path.clone(),
             None => {
                 if exists {
@@ -374,17 +377,18 @@ fn copy_media(
                         .file_name()
                         .and_then(|name| name.to_str())
                         .unwrap_or("media");
-                    let stored = format!(
-                        "media/{}_{}",
+                    let relative = Path::new("media").join(format!(
+                        "{}_{}",
                         sanitize_filename(&id),
                         sanitize_filename(file_name)
-                    );
-                    fs::copy(&resolved, directory.join(&stored))
+                    ));
+                    let stored = portable_path(&relative);
+                    fs::copy(&resolved, directory.join(&relative))
                         .map_err(|error| error.to_string())?;
-                    archive_paths.insert(key, Some(stored.clone()));
+                    bundle_paths.insert(key, Some(stored.clone()));
                     Some(stored)
                 } else {
-                    archive_paths.insert(key, None);
+                    bundle_paths.insert(key, None);
                     None
                 }
             }
@@ -402,7 +406,7 @@ fn copy_media(
         });
     }
     Ok(MediaCopy {
-        included: archive_paths.values().filter(|path| path.is_some()).count(),
+        included: bundle_paths.values().filter(|path| path.is_some()).count(),
         entries,
         rewritten_paths,
         missing: missing.into_values().collect(),
@@ -500,12 +504,18 @@ fn file_name_of(path: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Converts a relative path into the slash-separated form used in bundles.
+fn portable_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 fn missing_media_path(id: &str, stored: &str) -> String {
     let name = file_name_of(stored)
         .as_deref()
         .map(sanitize_filename)
         .unwrap_or_else(|| "file".to_string());
-    format!("missing/{}_{}", sanitize_filename(id), name)
+    let relative = Path::new("missing").join(format!("{}_{}", sanitize_filename(id), name));
+    portable_path(&relative)
 }
 
 fn snapshot_database(db_path: &Path, dest: &Path) -> Result<(), String> {
@@ -1055,6 +1065,12 @@ mod tests {
     }
 
     #[test]
+    fn bundle_paths_are_slash_separated() {
+        let path = Path::new("media").join("m1_photo.jpg");
+        assert_eq!(portable_path(&path), "media/m1_photo.jpg");
+    }
+
+    #[test]
     fn copy_media_deduplicates_and_marks_missing() {
         let dir = temp_dir();
         let db_path = dir.join("tree.db");
@@ -1085,6 +1101,7 @@ mod tests {
             .bundle_path
             .as_deref()
             .expect("bundled path");
+        assert!(!bundle_path.contains('\\'), "bundle paths use slashes");
         let copied = crate::media_path::resolve(Some(&bundle), bundle_path);
         assert!(copied.is_file());
         assert_eq!(fs::read(copied).expect("copied bytes"), b"photo");
