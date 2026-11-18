@@ -1,7 +1,12 @@
 //! Scene reload, framing and the interactive canvas.
 
+use crate::app::UiStatus;
 use crate::db;
 use crate::db::FamilyTree;
+use crate::db::MarriageInfo;
+use crate::db::facts::PersonFact;
+use crate::db::people::{PersonExtras, VitalDates};
+use crate::db::settings::TreeSettings;
 use crate::gui::connectors::{ConnectorCache, paint_connectors};
 use crate::gui::inspector;
 use crate::gui::layout;
@@ -26,6 +31,40 @@ use std::path::Path;
 use super::{HINT_COLOR, HINT_TEXT};
 
 use super::TreeWindow;
+
+#[derive(Default)]
+struct LoadedData {
+    tree: FamilyTree,
+    dates: HashMap<String, VitalDates>,
+    extras: HashMap<String, PersonExtras>,
+    marriages: HashMap<String, MarriageInfo>,
+    facts: HashMap<String, Vec<PersonFact>>,
+    settings: TreeSettings,
+}
+
+fn load_scene_data(path: &Path) -> Result<LoadedData, String> {
+    let conn = db::open_connection(path).map_err(|error| error.to_string())?;
+    let tree = db::load_family_tree(&conn).map_err(|error| error.to_string())?;
+    let dates = db::people::load_vital_dates(&conn).map_err(|error| error.to_string())?;
+    let marriages = db::load_marriage_details(&conn).map_err(|error| error.to_string())?;
+    let mut settings = db::settings::load_tree_settings(&conn)?;
+    if let Some(root) = settings.root_person_id.as_deref()
+        && !tree.people.iter().any(|person| person.id == root)
+    {
+        let _ = db::settings::set_root_person(&conn, None);
+        settings.root_person_id = None;
+    }
+    let extras = db::people::load_person_extras(&conn)?;
+    let facts = db::facts::load_person_facts(&conn, settings.surname_first)?;
+    Ok(LoadedData {
+        tree,
+        dates,
+        extras,
+        marriages,
+        facts,
+        settings,
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CanvasClick {
@@ -76,37 +115,32 @@ impl TreeWindow {
     }
 
     pub(super) fn reload_data(&mut self) {
-        self.tree_revision = self.tree_revision.wrapping_add(1);
-        let switched = self.seen_db != self.app.active_db().map(Path::to_path_buf);
-        let loaded = self
-            .app
-            .active_db()
-            .and_then(|path| db::open_connection(path).ok())
-            .and_then(|conn| {
-                let tree = db::load_family_tree(&conn).ok()?;
-                let dates = db::people::load_vital_dates(&conn).ok()?;
-                let marriages = db::load_marriage_details(&conn).ok()?;
-                let mut settings = db::settings::load_tree_settings(&conn).ok()?;
-                if let Some(root) = settings.root_person_id.as_deref()
-                    && !tree.people.iter().any(|person| person.id == root)
-                {
-                    let _ = db::settings::set_root_person(&conn, None);
-                    settings.root_person_id = None;
+        let active = self.app.active_db().map(Path::to_path_buf);
+        let switched = self.seen_db != active;
+        let data = match active.as_deref() {
+            Some(path) => match load_scene_data(path) {
+                Ok(data) => data,
+                Err(message) => {
+                    self.app.set_status(UiStatus::Error(format!(
+                        "Could not load {}: {message}",
+                        path.display()
+                    )));
+                    self.seen_db = active;
+                    self.seen_generation = self.app.import_generation();
+                    return;
                 }
-                let extras = db::people::load_person_extras(&conn).ok()?;
-                let facts = db::facts::load_person_facts(&conn, settings.surname_first).ok()?;
-                Some((tree, dates, extras, marriages, facts, settings))
-            });
-        let (tree, dates, extras, marriages, facts, settings) = loaded.unwrap_or_else(|| {
-            (
-                FamilyTree::default(),
-                HashMap::new(),
-                HashMap::new(),
-                HashMap::new(),
-                HashMap::new(),
-                crate::db::settings::TreeSettings::default(),
-            )
-        });
+            },
+            None => LoadedData::default(),
+        };
+        self.tree_revision = self.tree_revision.wrapping_add(1);
+        let LoadedData {
+            tree,
+            dates,
+            extras,
+            marriages,
+            facts,
+            settings,
+        } = data;
         self.rows = watchlist::rows(
             &tree,
             &dates,

@@ -1727,6 +1727,42 @@ mod tests {
     }
 
     #[test]
+    fn failed_reload_preserves_the_scene_and_reports_an_error() {
+        let db_file = temp_path("db");
+        import_people(&db_file, "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /King/\n0 TRLR\n");
+        let mut app = StemmaApp::new();
+        app.activate_tree(&db_file);
+        let mut window = TreeWindow::new(app, None);
+        let person_id = window.rows.first().expect("row").id.clone();
+        let revision = window.tree_revision;
+
+        std::fs::write(&db_file, b"not a sqlite database").expect("corrupt database");
+        window.reload_data();
+
+        assert!(
+            matches!(
+                window.app.status(),
+                UiStatus::Error(message) if message.contains("Could not load")
+            ),
+            "load failures reach the status bar"
+        );
+        assert_eq!(window.tree.people.len(), 1, "the current scene is kept");
+        assert_eq!(window.rows.len(), 1);
+        assert_eq!(window.rows[0].id, person_id);
+        assert_eq!(
+            window.tree_revision, revision,
+            "failed loads do not advance the relationship cache revision"
+        );
+        assert_eq!(
+            window.seen_db.as_deref(),
+            Some(db_file.as_path()),
+            "the failed path is marked seen to avoid retrying every frame"
+        );
+
+        let _ = std::fs::remove_file(&db_file);
+    }
+
+    #[test]
     fn couple_rows_open_the_exact_family_in_family_graph_mode() {
         let db_file = temp_path("db");
         import_people(
