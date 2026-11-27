@@ -1012,9 +1012,11 @@ only requires a new file with the same key set as `locales/en.toml`.
 Catalogs use nested tables flattened to namespaced keys, `{name}`
 placeholders and `_one`/`_other` plural variants. The active catalog is
 process-wide and read every frame, which makes the Settings language
-selector update all windows without a restart. Missing keys and unsupported
-config codes fall back to English. Tests enforce key and placeholder parity
-between English and German.
+selector update all windows without a restart. `tr` borrows the text from
+the embedded catalogs, so UI lookups allocate nothing; `tr_args`, `trn`
+and runtime keys return an owned string when substitution is involved.
+Missing keys and unsupported config codes fall back to English. Tests
+enforce key and placeholder parity between English and German.
 
 Core editors, status messages and chart/report dialogs use the catalogs.
 Background report jobs snapshot the UI language and report documents declare
