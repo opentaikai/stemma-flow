@@ -27,6 +27,19 @@ uuid = { version = "1.29.2", features = ["v4"] }
 zip = { version = "9.5.0", default-features = false, features = ["deflate-flate2"] }
 open = "5"
 
+[lints.rust]
+# The crate is safe Rust end to end; keep it that way.
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Tests may unwrap and panic; production targets may not (see `src/lib.rs`).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+
 [profile.release]
 strip = true
 lto = true
