@@ -5703,10 +5703,12 @@ impl TreeWindow {
             });
         }
 
-        let chart_svg = if include_chart
-            && root_id.is_some_and(|root| visible.contains(root) && !living.contains(root))
-        {
-            let root = root_id.expect("checked above");
+        let chart_root = if include_chart {
+            root_id.filter(|root| visible.contains(root) && !living.contains(root))
+        } else {
+            None
+        };
+        let chart_svg = if let Some(root) = chart_root {
             let report = self.build_pedigree_report(root, 5, false)?;
             let mut report = report;
             report.people.retain(|person| {
