@@ -328,19 +328,22 @@ pub fn show(
                                         before_id: Some(media.id.clone()),
                                     });
                                 }
-                                MediaDrag::AlbumEntry { media_id, .. } if album_id.is_some() => {
-                                    event = Some(MediaEvent::AddToAlbum {
-                                        album_id: album_id.clone().expect("album"),
-                                        media_id: media_id.clone(),
-                                    });
+                                MediaDrag::AlbumEntry { media_id, .. } => {
+                                    if let Some(target) = &album_id {
+                                        event = Some(MediaEvent::AddToAlbum {
+                                            album_id: target.clone(),
+                                            media_id: media_id.clone(),
+                                        });
+                                    }
                                 }
-                                MediaDrag::Media(media_id) if album_id.is_some() => {
-                                    event = Some(MediaEvent::AddToAlbum {
-                                        album_id: album_id.clone().expect("album"),
-                                        media_id: media_id.clone(),
-                                    });
+                                MediaDrag::Media(media_id) => {
+                                    if let Some(target) = &album_id {
+                                        event = Some(MediaEvent::AddToAlbum {
+                                            album_id: target.clone(),
+                                            media_id: media_id.clone(),
+                                        });
+                                    }
                                 }
-                                _ => {}
                             }
                         }
                         ui.separator();

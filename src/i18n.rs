@@ -26,6 +26,10 @@ struct Translator {
     fallback: HashMap<String, String>,
 }
 
+#[expect(
+    clippy::panic,
+    reason = "malformed embedded locale TOML is a build defect caught by the catalog tests"
+)]
 fn load_catalog(code: &str, text: &str) -> Catalog {
     let value: toml::Value =
         toml::from_str(text).unwrap_or_else(|error| panic!("invalid locale {code}: {error}"));
@@ -74,13 +78,25 @@ fn catalogs() -> &'static HashMap<&'static str, Catalog> {
     })
 }
 
+/// The embedded English catalog, guaranteed by the build script and the
+/// catalog tests.
+#[expect(
+    clippy::expect_used,
+    reason = "en.toml is embedded at build time and verified by the catalog tests"
+)]
+fn english() -> &'static Catalog {
+    catalogs().get("en").expect("English locale is embedded")
+}
+
+/// The catalog for `code`, falling back to English when it is unsupported.
+fn catalog_for(code: &str) -> &'static Catalog {
+    catalogs().get(code).unwrap_or_else(english)
+}
+
 fn active() -> &'static RwLock<Arc<Translator>> {
     static ACTIVE: OnceLock<RwLock<Arc<Translator>>> = OnceLock::new();
     ACTIVE.get_or_init(|| {
-        let catalog = catalogs()
-            .get("en")
-            .expect("English locale is required")
-            .clone();
+        let catalog = english().clone();
         let fallback = catalog.strings.clone();
         RwLock::new(Arc::new(Translator { catalog, fallback }))
     })
@@ -91,14 +107,10 @@ thread_local! {
 }
 
 fn make_translator(code: &str) -> Arc<Translator> {
-    let code = if is_supported(code) { code } else { "en" };
-    let catalog = catalogs().get(code).expect("supported locale").clone();
-    let fallback = catalogs()
-        .get("en")
-        .expect("English locale is required")
-        .strings
-        .clone();
-    Arc::new(Translator { catalog, fallback })
+    Arc::new(Translator {
+        catalog: catalog_for(code).clone(),
+        fallback: english().strings.clone(),
+    })
 }
 
 fn current_translator() -> Arc<Translator> {
@@ -154,13 +166,8 @@ pub fn current_language() -> String {
 
 /// Switches the process-wide UI language; unknown codes fall back to English.
 pub fn set_language(code: &str) {
-    let code = if is_supported(code) { code } else { "en" };
-    let catalog = catalogs().get(code).expect("supported locale").clone();
-    let fallback = catalogs()
-        .get("en")
-        .expect("English locale is required")
-        .strings
-        .clone();
+    let catalog = catalog_for(code).clone();
+    let fallback = english().strings.clone();
     let mut language = active()
         .write()
         .unwrap_or_else(|poison| poison.into_inner());

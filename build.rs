@@ -1,3 +1,6 @@
+// Build-time failures must be loud; build scripts are not shipped code.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::fs;
 use std::path::Path;
 

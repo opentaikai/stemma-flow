@@ -234,6 +234,9 @@ long research sessions.
 - Performance budgets for 10,000+ person trees in layout, search and
   rendering.
 - Data safety: transactions, backups and recoverable failures throughout.
+- Compile-enforced safety invariants: `unsafe` is forbidden, and production
+  code denies panicking primitives (`unwrap`, `expect`, `panic!`); test code
+  is exempt.
 
 ## Non-goals
 

@@ -68,11 +68,11 @@ impl CalendarEvent {
 ///
 /// 29 February becomes 28 February in non-leap years.
 pub fn next_occurrence(month: u32, day: u32, today: NaiveDate) -> NaiveDate {
-    let this_year = date_in_year(today.year(), month, day);
+    let this_year = date_in_year(today.year(), month, day).unwrap_or(today);
     if this_year >= today {
         this_year
     } else {
-        date_in_year(today.year().saturating_add(1), month, day)
+        date_in_year(today.year().saturating_add(1), month, day).unwrap_or(today)
     }
 }
 
@@ -110,10 +110,10 @@ pub fn upcoming(
     rows
 }
 
-fn date_in_year(year: i32, month: u32, day: u32) -> NaiveDate {
+fn date_in_year(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month, day)
         .or_else(|| NaiveDate::from_ymd_opt(year, month, day.min(28)))
-        .unwrap_or_else(|| NaiveDate::from_ymd_opt(year, 1, 1).expect("year is in range"))
+        .or_else(|| NaiveDate::from_ymd_opt(year, month, 1))
 }
 
 #[cfg(test)]

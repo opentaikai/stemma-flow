@@ -14,6 +14,18 @@ cargo test    # run the unit tests
 cargo run     # open the desktop window (reopens the last tree, welcome dashboard otherwise)
 ```
 
+Quality gates for changes:
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+```
+
+The crate is safe Rust end to end: the `[lints]` table in `Cargo.toml`
+forbids `unsafe` and denies panicking primitives (`unwrap`, `expect`,
+`panic!`, `todo!`, `unimplemented!`) in production code. Test modules are
+exempt so a failing test still fails loudly.
+
 ## Storage layer
 
 `src/db` is the local storage layer:

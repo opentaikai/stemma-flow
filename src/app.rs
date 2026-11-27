@@ -2216,9 +2216,8 @@ impl StemmaApp {
                 database_bytes,
             }),
             JobEvent::Geocoded(report) => self.apply_geocoded(*report),
-            JobEvent::GeocodeProgress { .. } => {
-                unreachable!("geocode progress is handled before the status update")
-            }
+            // Already returned above; this arm keeps the match exhaustive.
+            JobEvent::GeocodeProgress { .. } => return,
             JobEvent::Cancelled => {
                 if was_geocoding {
                     self.geocode_progress = None;
