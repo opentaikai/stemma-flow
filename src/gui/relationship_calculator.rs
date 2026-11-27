@@ -67,7 +67,7 @@ pub fn show(
                 ui.vertical(|ui| {
                     person_picker(
                         ui,
-                        &tr("calculator.first"),
+                        tr("calculator.first"),
                         &mut state.from,
                         &mut state.from_search,
                         tree,
@@ -78,7 +78,7 @@ pub fn show(
                 ui.vertical(|ui| {
                     person_picker(
                         ui,
-                        &tr("calculator.second"),
+                        tr("calculator.second"),
                         &mut state.to,
                         &mut state.to_search,
                         tree,
@@ -163,7 +163,7 @@ fn person_picker(
     let selected_label = selected
         .as_deref()
         .map(|id| person_name(tree, id, surname_first))
-        .unwrap_or_else(|| tr("calculator.none"));
+        .unwrap_or_else(|| tr("calculator.none").to_string());
     ui.label(selected_label);
     ui.add(egui::TextEdit::singleline(search).hint_text(tr("calculator.search")));
     let needle = search.trim().to_lowercase();
@@ -210,7 +210,7 @@ fn path_text(
     parts.join(crate::gui::symbols::ARROW_RIGHT)
 }
 
-fn path_kind(kind: PathKind) -> String {
+fn path_kind(kind: PathKind) -> &'static str {
     tr(match kind {
         PathKind::Parent => "calculator.parent_step",
         PathKind::Child => "calculator.child_step",
@@ -223,7 +223,7 @@ fn person_name(tree: &FamilyTree, id: &str, surname_first: bool) -> String {
         .iter()
         .find(|person| person.id == id)
         .map(|person| person_label(person, surname_first))
-        .unwrap_or_else(|| tr("calculator.none"))
+        .unwrap_or_else(|| tr("calculator.none").to_string())
 }
 
 #[cfg(test)]

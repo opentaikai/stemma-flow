@@ -98,7 +98,7 @@ impl GazetteerState {
                 self.running = false;
                 self.rx = None;
                 self.active_query = None;
-                self.error = Some(tr("gazetteer.search_failed"));
+                self.error = Some(tr("gazetteer.search_failed").to_string());
             }
         }
     }

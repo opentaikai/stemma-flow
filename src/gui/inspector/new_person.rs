@@ -68,7 +68,7 @@ pub fn show(
                 query.has_name(),
                 tree,
                 surname_first,
-                &tr("duplicates.use_existing"),
+                tr("duplicates.use_existing"),
             ) {
                 outcome = Some(NewPersonOutcome::SelectExisting(person_id));
             }

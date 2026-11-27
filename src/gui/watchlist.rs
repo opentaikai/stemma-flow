@@ -584,7 +584,7 @@ pub fn show(
                         }
                     });
                     if *column != PeopleColumn::Labels {
-                        cell.on_hover_text(edit_hint.as_str());
+                        cell.on_hover_text(edit_hint);
                     }
                 }
                 let mut action_used = false;

@@ -357,7 +357,7 @@ impl TreeWindow {
                             other
                                 .and_then(person_label)
                                 .map(|name| crate::i18n::tr_args("family.with", &[("name", name)]))
-                                .unwrap_or_else(|| crate::i18n::tr("family.family"))
+                                .unwrap_or_else(|| crate::i18n::tr("family.family").to_string())
                         } else {
                             let parents = [family.husband_id.as_deref(), family.wife_id.as_deref()]
                                 .into_iter()
@@ -454,7 +454,7 @@ impl TreeWindow {
                 pedigree::GraphMode::Pedigree => crate::i18n::tr("pedigree.no_root"),
                 pedigree::GraphMode::Family => crate::i18n::tr("family.no_root"),
                 pedigree::GraphMode::Descendants => crate::i18n::tr("descendants.no_root"),
-                pedigree::GraphMode::All => HINT_TEXT.to_string(),
+                pedigree::GraphMode::All => HINT_TEXT,
             };
             painter.text(
                 viewport_rect.center(),

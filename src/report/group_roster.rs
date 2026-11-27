@@ -40,16 +40,16 @@ pub fn render_html(report: &GroupRosterReport) -> String {
     html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>");
-    html.push_str(&escape_html(&tr("group_report.title")));
+    html.push_str(&escape_html(tr("group_report.title")));
     html.push_str(" — ");
     html.push_str(&escape_html(&report.group_name));
     html.push_str("</title><style>");
     html.push_str(CSS);
     html.push_str("</style></head><body>");
     html.push_str("<div class=\"toolbar\"><button type=\"button\" onclick=\"window.print()\">");
-    html.push_str(&escape_html(&tr("group_report.print")));
+    html.push_str(&escape_html(tr("group_report.print")));
     html.push_str("</button><span>");
-    html.push_str(&escape_html(&tr("group_report.print_hint")));
+    html.push_str(&escape_html(tr("group_report.print_hint")));
     html.push_str("</span></div>");
     html.push_str("<header><h1>");
     html.push_str(&escape_html(&tr_args(
@@ -81,7 +81,7 @@ pub fn render_html(report: &GroupRosterReport) -> String {
         let lines = describe_criteria(rule);
         if !lines.is_empty() {
             html.push_str("<div class=\"rule\"><strong>");
-            html.push_str(&escape_html(&tr("group_report.rule")));
+            html.push_str(&escape_html(tr("group_report.rule")));
             html.push_str("</strong><ul>");
             for line in lines {
                 html.push_str("<li>");
@@ -94,7 +94,7 @@ pub fn render_html(report: &GroupRosterReport) -> String {
     html.push_str("</header><main>");
     if report.members.is_empty() {
         html.push_str("<p class=\"empty\">");
-        html.push_str(&escape_html(&tr("group_report.empty")));
+        html.push_str(&escape_html(tr("group_report.empty")));
         html.push_str("</p>");
     } else {
         html.push_str("<table><thead><tr>");
@@ -106,7 +106,7 @@ pub fn render_html(report: &GroupRosterReport) -> String {
             "group_report.column_death_place",
         ] {
             html.push_str("<th>");
-            html.push_str(&escape_html(&tr(key)));
+            html.push_str(&escape_html(tr(key)));
             html.push_str("</th>");
         }
         html.push_str("</tr></thead><tbody>");

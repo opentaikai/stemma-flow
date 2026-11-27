@@ -169,7 +169,7 @@ pub fn show(ui: &mut Ui, state: &mut TasksState) -> Option<TaskEvent> {
         let folder_label = state
             .folder_filter
             .clone()
-            .unwrap_or_else(|| tr("tasks.all_folders"));
+            .unwrap_or_else(|| tr("tasks.all_folders").to_string());
         egui::ComboBox::from_id_salt("task_folder_filter")
             .selected_text(folder_label)
             .show_ui(ui, |ui| {
@@ -365,7 +365,7 @@ fn task_editor(ui: &mut Ui, state: &mut TasksState, event: &mut Option<TaskEvent
             ui.label(
                 RichText::new(tr_args(
                     "tasks.owner_line",
-                    &[("kind", owner_type_label(&link.owner_type))],
+                    &[("kind", owner_type_label(&link.owner_type).to_string())],
                 ))
                 .weak()
                 .small(),
@@ -385,25 +385,25 @@ pub fn priority_label(priority: i64) -> String {
     PRIORITIES
         .iter()
         .find(|(value, _)| *value == Some(priority))
-        .map(|(_, key)| tr(key))
+        .map(|(_, key)| tr(key).to_string())
         .unwrap_or_else(|| priority.to_string())
 }
 
 fn priority_text(priority: Option<i64>) -> String {
     match priority {
         Some(value) => priority_label(value),
-        None => tr("tasks.priority_none"),
+        None => tr("tasks.priority_none").to_string(),
     }
 }
 
-fn task_status_label(status: TaskStatus) -> String {
+fn task_status_label(status: TaskStatus) -> &'static str {
     tr(match status {
         TaskStatus::Open => "tasks.status_open",
         TaskStatus::Done => "tasks.status_done",
     })
 }
 
-fn owner_type_label(kind: &str) -> String {
+fn owner_type_label(kind: &str) -> &'static str {
     tr(match kind {
         "person" => "tasks.owner.person",
         "family" => "tasks.owner.family",

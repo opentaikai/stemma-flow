@@ -67,7 +67,7 @@ pub fn show(
                     .as_deref()
                     .and_then(|id| people.iter().find(|person| person.id == id))
                     .map(|person| person_label(person, surname_first))
-                    .unwrap_or_else(|| tr("website_export.no_chart"));
+                    .unwrap_or_else(|| tr("website_export.no_chart").to_string());
                 egui::ComboBox::from_id_salt("website_root")
                     .selected_text(current)
                     .show_ui(ui, |ui| {

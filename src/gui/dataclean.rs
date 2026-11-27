@@ -228,7 +228,7 @@ fn place_row(ui: &mut egui::Ui, place: &PlaceCleanup, selected: &mut HashSet<Str
 fn before_name(parts: &crate::model::dataclean::NameParts) -> String {
     let name = parts.display_name();
     if name.is_empty() {
-        tr("dataclean.unnamed")
+        tr("dataclean.unnamed").to_string()
     } else {
         name
     }

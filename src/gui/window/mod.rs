@@ -958,7 +958,7 @@ mod tests {
 
         assert_eq!(
             window.merge.error.as_deref(),
-            Some(crate::i18n::tr("merge.editor_dirty").as_str())
+            Some(crate::i18n::tr("merge.editor_dirty"))
         );
         assert!(
             window

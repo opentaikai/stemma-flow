@@ -187,78 +187,78 @@ impl TreeWindow {
                     ui.add_enabled(can_report, egui::Button::new(label))
                         .clicked()
                 };
-                if report(ui, &tr("tools.photo_tree")) {
+                if report(ui, tr("tools.photo_tree")) {
                     ui.close();
                     self.open_photo_tree();
                 }
-                if report(ui, &tr("tools.scrapbook")) {
+                if report(ui, tr("tools.scrapbook")) {
                     ui.close();
                     self.open_scrapbook();
                 }
                 ui.separator();
-                if report(ui, &tr("tools.pedigree_chart")) {
+                if report(ui, tr("tools.pedigree_chart")) {
                     ui.close();
                     self.open_pedigree_chart();
                 }
-                if report(ui, &tr("tools.fan_chart")) {
+                if report(ui, tr("tools.fan_chart")) {
                     ui.close();
                     self.open_fan_chart();
                 }
-                if report(ui, &tr("tools.hourglass_chart")) {
+                if report(ui, tr("tools.hourglass_chart")) {
                     ui.close();
                     self.open_hourglass_chart();
                 }
-                if report(ui, &tr("tools.wall_chart")) {
+                if report(ui, tr("tools.wall_chart")) {
                     ui.close();
                     self.open_wall_chart();
                 }
                 ui.separator();
-                if report(ui, &tr("tools.ahnentafel_list")) {
+                if report(ui, tr("tools.ahnentafel_list")) {
                     ui.close();
                     self.open_ahnentafel_list();
                 }
-                if report(ui, &tr("tools.descendant_list")) {
+                if report(ui, tr("tools.descendant_list")) {
                     ui.close();
                     self.open_descendant_list();
                 }
-                if report(ui, &tr("tools.family_sheet")) {
+                if report(ui, tr("tools.family_sheet")) {
                     ui.close();
                     self.open_family_sheet();
                 }
-                if report(ui, &tr("tools.individual_summary")) {
+                if report(ui, tr("tools.individual_summary")) {
                     ui.close();
                     self.open_individual_summary();
                 }
-                if report(ui, &tr("tools.individual_list")) {
+                if report(ui, tr("tools.individual_list")) {
                     ui.close();
                     self.open_individual_list();
                 }
-                if report(ui, &tr("tools.kinship_report")) {
+                if report(ui, tr("tools.kinship_report")) {
                     ui.close();
                     self.open_kinship_report();
                 }
-                if report(ui, &tr("tools.calendar_reports")) {
+                if report(ui, tr("tools.calendar_reports")) {
                     ui.close();
                     self.open_calendar_report();
                 }
-                if report(ui, &tr("tools.timeline")) {
+                if report(ui, tr("tools.timeline")) {
                     ui.close();
                     self.open_timeline();
                 }
-                if report(ui, &tr("tools.administrative_lists")) {
+                if report(ui, tr("tools.administrative_lists")) {
                     ui.close();
                     self.open_administrative_lists();
                 }
-                if report(ui, &tr("tools.cleanup_reports")) {
+                if report(ui, tr("tools.cleanup_reports")) {
                     ui.close();
                     self.open_cleanup_reports();
                 }
                 ui.separator();
-                if report(ui, &tr("tools.family_book")) {
+                if report(ui, tr("tools.family_book")) {
                     ui.close();
                     self.open_family_book();
                 }
-                if report(ui, &tr("tools.website")) {
+                if report(ui, tr("tools.website")) {
                     ui.close();
                     self.open_website_export();
                 }
@@ -431,7 +431,7 @@ fn status_message_text(message: &StatusMessage) -> String {
     }
 }
 
-fn running_text(job: RunningJob) -> String {
+fn running_text(job: RunningJob) -> &'static str {
     tr(match job {
         RunningJob::ChoosingImportFile => "running.choosing_import_file",
         RunningJob::ChoosingExportDestination => "running.choosing_export_destination",
@@ -548,7 +548,7 @@ fn job_outcome_text(outcome: &JobOutcome) -> String {
                     ("foreign_keys", foreign_keys.to_string()),
                 ],
             ),
-            MaintenanceKind::Integrity => tr("status.integrity_passed"),
+            MaintenanceKind::Integrity => tr("status.integrity_passed").to_string(),
             MaintenanceKind::RebuildIndexes => tr_args(
                 "status.indexes_rebuilt",
                 &[("count", indexes_rebuilt.to_string())],

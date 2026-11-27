@@ -1040,9 +1040,9 @@ impl TreeWindow {
             .unwrap_or("family_tree")
             .to_string();
         let status_filter = match self.research.tasks.status_filter {
-            task_ui::TaskFilter::All => crate::i18n::tr("research_report.filter_all"),
-            task_ui::TaskFilter::Open => crate::i18n::tr("research_report.filter_open"),
-            task_ui::TaskFilter::Done => crate::i18n::tr("research_report.filter_done"),
+            task_ui::TaskFilter::All => crate::i18n::tr("research_report.filter_all").to_string(),
+            task_ui::TaskFilter::Open => crate::i18n::tr("research_report.filter_open").to_string(),
+            task_ui::TaskFilter::Done => crate::i18n::tr("research_report.filter_done").to_string(),
         };
         let report = ResearchLogReport {
             tree_name,
@@ -3588,7 +3588,7 @@ impl TreeWindow {
         }
         let headings = columns
             .iter()
-            .map(|column| crate::i18n::tr(column.label_key()))
+            .map(|column| crate::i18n::tr(column.label_key()).to_string())
             .collect();
         let rows = self
             .watch
@@ -4012,7 +4012,8 @@ impl TreeWindow {
                     PathKind::Parent => "calculator.parent_step",
                     PathKind::Child => "calculator.child_step",
                     PathKind::Spouse => "calculator.spouse_step",
-                }),
+                })
+                .to_string(),
                 person: self
                     .tree
                     .people
@@ -4742,8 +4743,8 @@ impl TreeWindow {
                             person.to_lowercase(),
                             crate::report::cleanup::MissingRow {
                                 person,
-                                problem: crate::i18n::tr(alert.kind.label_key()),
-                                severity: crate::i18n::tr(alert.severity.label_key()),
+                                problem: crate::i18n::tr(alert.kind.label_key()).to_string(),
+                                severity: crate::i18n::tr(alert.severity.label_key()).to_string(),
                                 details: alert.details.join(" \u{00b7} "),
                                 related,
                             },
@@ -5775,7 +5776,7 @@ impl TreeWindow {
         if let (Some(keep), Some(merge)) = (self.merge.keep.clone(), self.merge.merge.clone()) {
             if keep == merge {
                 self.merge.clear_preview();
-                self.merge.error = Some(crate::i18n::tr("merge.blocked_same"));
+                self.merge.error = Some(crate::i18n::tr("merge.blocked_same").to_string());
             } else if self.merge.preview_pair.as_ref() != Some(&(keep.clone(), merge.clone())) {
                 match self.app.preview_people_merge(&keep, &merge) {
                     Ok(preview) => self.merge.set_preview(preview),
@@ -5811,7 +5812,7 @@ impl TreeWindow {
             && editor.is_dirty()
             && (editor.person_id == draft.keep_id || editor.person_id == draft.merge_id)
         {
-            self.merge.error = Some(crate::i18n::tr("merge.editor_dirty"));
+            self.merge.error = Some(crate::i18n::tr("merge.editor_dirty").to_string());
             self.merge.confirm = false;
             return;
         }

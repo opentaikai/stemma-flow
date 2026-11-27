@@ -57,7 +57,7 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
     html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>");
-    html.push_str(&escape_html(&tr("report.individual_summary.title")));
+    html.push_str(&escape_html(tr("report.individual_summary.title")));
     html.push_str(" \u{2014} ");
     html.push_str(&escape_html(&report.name));
     html.push_str("</title><style>");
@@ -65,8 +65,8 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
     html.push_str("</style></head><body>");
     html.push_str(&format!(
         "<div class=\"toolbar\"><button type=\"button\" onclick=\"window.print()\">{}</button><span>{}</span></div>",
-        escape_html(&tr("report.common.print")),
-        escape_html(&tr("report.common.print_hint")),
+        escape_html(tr("report.common.print")),
+        escape_html(tr("report.common.print_hint")),
     ));
 
     html.push_str("<header class=\"person\">");
@@ -85,7 +85,7 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
     }
     html.push_str(&format!(
         "<div><p class=\"kind\">{}</p><h1>",
-        escape_html(&tr("report.individual_summary.title")),
+        escape_html(tr("report.individual_summary.title")),
     ));
     html.push_str(&escape_html(&report.name));
     html.push_str("</h1><p class=\"muted\">");
@@ -97,17 +97,17 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
     html.push_str("<main>");
     html.push_str(&format!(
         "<section><h2>{}</h2><dl class=\"vitals\">",
-        escape_html(&tr("report.individual_summary.vital_data")),
+        escape_html(tr("report.individual_summary.vital_data")),
     ));
     push_vital(
         &mut html,
-        &tr("report.common.birth"),
+        tr("report.common.birth"),
         &report.birth,
         &report.birth_place,
     );
     push_vital(
         &mut html,
-        &tr("report.common.death"),
+        tr("report.common.death"),
         &report.death,
         &report.death_place,
     );
@@ -115,20 +115,20 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
 
     html.push_str(&format!(
         "<section><h2>{}</h2>",
-        escape_html(&tr("report.common.facts")),
+        escape_html(tr("report.common.facts")),
     ));
     if report.facts.is_empty() {
         html.push_str(&format!(
             "<p class=\"empty\">{}</p>",
-            escape_html(&tr("report.individual_summary.no_facts")),
+            escape_html(tr("report.individual_summary.no_facts")),
         ));
     } else {
         html.push_str(&format!(
             "<table><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead><tbody>",
-            escape_html(&tr("report.common.fact")),
-            escape_html(&tr("report.common.date")),
-            escape_html(&tr("report.common.place")),
-            escape_html(&tr("report.common.details")),
+            escape_html(tr("report.common.fact")),
+            escape_html(tr("report.common.date")),
+            escape_html(tr("report.common.place")),
+            escape_html(tr("report.common.details")),
         ));
         for fact in &report.facts {
             html.push_str("<tr><td>");
@@ -147,19 +147,19 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
 
     relative_section(
         &mut html,
-        &tr("report.common.parents"),
+        tr("report.common.parents"),
         &report.parents,
         false,
     );
     relative_section(
         &mut html,
-        &tr("report.common.spouses"),
+        tr("report.common.spouses"),
         &report.spouses,
         true,
     );
     relative_section(
         &mut html,
-        &tr("report.common.children"),
+        tr("report.common.children"),
         &report.children,
         false,
     );
@@ -172,7 +172,7 @@ pub fn render_html(report: &IndividualSummaryReport) -> String {
     {
         html.push_str(&format!(
             "<section class=\"notes\"><h2>{}</h2>",
-            escape_html(&tr("report.common.notes")),
+            escape_html(tr("report.common.notes")),
         ));
         for paragraph in notes.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
             html.push_str("<p>");
@@ -232,7 +232,7 @@ fn push_vital(html: &mut String, label: &str, date: &str, place: &str) {
     if value.is_empty() {
         html.push_str(&format!(
             "<span class=\"unknown\">{}</span>",
-            escape_html(&tr("report.common.unknown")),
+            escape_html(tr("report.common.unknown")),
         ));
     } else {
         html.push_str(&escape_html(&value));

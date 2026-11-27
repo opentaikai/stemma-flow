@@ -134,13 +134,7 @@ fn phonetic_codes(name: &str) -> Option<PhoneticCodes> {
     Some(phonetics::codes(name))
 }
 
-fn row(
-    ui: &mut egui::Ui,
-    method: String,
-    first: &str,
-    second: Option<&str>,
-    matched: Option<bool>,
-) {
+fn row(ui: &mut egui::Ui, method: &str, first: &str, second: Option<&str>, matched: Option<bool>) {
     ui.label(method);
     ui.label(if first.is_empty() { "—" } else { first });
     if let Some(second) = second {

@@ -306,7 +306,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
             .as_deref()
             .and_then(|id| sources.iter().find(|source| source.id == id))
             .map(|source| source.title.clone())
-            .unwrap_or_else(|| tr("citations.select_source"));
+            .unwrap_or_else(|| tr("citations.select_source").to_string());
         ui.horizontal(|ui| {
             ui.label(tr("citations.event"));
             egui::ComboBox::from_id_salt("citation_add_target")
@@ -442,9 +442,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut CitationsState) -> Option<CitationsEv
 
 fn event_label(event_type: &str) -> String {
     match event_type {
-        "DEATH" => tr("citations.death"),
-        "MARRIAGE" => tr("citations.marriage"),
-        "BIRTH" => tr("citations.birth"),
+        "DEATH" => tr("citations.death").to_string(),
+        "MARRIAGE" => tr("citations.marriage").to_string(),
+        "BIRTH" => tr("citations.birth").to_string(),
         other => other.to_string(),
     }
 }
@@ -457,7 +457,7 @@ fn use_label(event_type: &str, date: Option<&str>) -> String {
     }
 }
 
-fn quality_source_label(value: SourceQuality) -> String {
+fn quality_source_label(value: SourceQuality) -> &'static str {
     tr(match value {
         SourceQuality::Original => "citations.quality.original",
         SourceQuality::Derivative => "citations.quality.derivative",
@@ -465,7 +465,7 @@ fn quality_source_label(value: SourceQuality) -> String {
     })
 }
 
-fn quality_information_label(value: InformationQuality) -> String {
+fn quality_information_label(value: InformationQuality) -> &'static str {
     tr(match value {
         InformationQuality::Primary => "citations.information_quality.primary",
         InformationQuality::Secondary => "citations.information_quality.secondary",
@@ -473,7 +473,7 @@ fn quality_information_label(value: InformationQuality) -> String {
     })
 }
 
-fn quality_evidence_label(value: EvidenceQuality) -> String {
+fn quality_evidence_label(value: EvidenceQuality) -> &'static str {
     tr(match value {
         EvidenceQuality::Direct => "citations.evidence_quality.direct",
         EvidenceQuality::Indirect => "citations.evidence_quality.indirect",
@@ -481,7 +481,7 @@ fn quality_evidence_label(value: EvidenceQuality) -> String {
     })
 }
 
-fn certainty_label(value: Certainty) -> String {
+fn certainty_label(value: Certainty) -> &'static str {
     tr(match value {
         Certainty::Unreliable => "citations.certainty_level_unreliable",
         Certainty::Questionable => "citations.certainty_level_questionable",
@@ -490,7 +490,7 @@ fn certainty_label(value: Certainty) -> String {
     })
 }
 
-fn certainty_description(value: Certainty) -> String {
+fn certainty_description(value: Certainty) -> &'static str {
     tr(match value {
         Certainty::Unreliable => "citations.certainty_hint_unreliable",
         Certainty::Questionable => "citations.certainty_hint_questionable",
@@ -507,15 +507,16 @@ fn quality_summary(citation: &SourceCitation) -> String {
     ]
     .into_iter()
     .flatten()
+    .map(str::to_string)
     .collect();
     if let Some(certainty) = citation.quality_certainty {
         parts.push(tr_args(
             "citations.certainty_prefix",
-            &[("certainty", certainty_label(certainty))],
+            &[("certainty", certainty_label(certainty).to_string())],
         ));
     }
     if parts.is_empty() {
-        tr("citations.no_quality")
+        tr("citations.no_quality").to_string()
     } else {
         parts.join(" · ")
     }
@@ -612,7 +613,7 @@ fn certainty_combo(ui: &mut egui::Ui, value: &mut Option<Certainty>) -> bool {
     let mut changed = false;
     let selected = value
         .map(|certainty| format!("{} ({})", certainty_label(certainty), certainty.value()))
-        .unwrap_or_else(|| tr("citations.dont_know"));
+        .unwrap_or_else(|| tr("citations.dont_know").to_string());
     egui::ComboBox::from_id_salt("citation_quality_certainty")
         .selected_text(selected)
         .show_ui(ui, |ui| {

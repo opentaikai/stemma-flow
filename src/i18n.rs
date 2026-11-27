@@ -1,9 +1,9 @@
 //! Embedded TOML interface translations with live language switching.
 
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock};
 
 include!(concat!(env!("OUT_DIR"), "/locales.rs"));
 
@@ -13,17 +13,11 @@ pub struct LanguageInfo {
     pub name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Catalog {
     code: String,
     name: String,
     strings: HashMap<String, String>,
-}
-
-#[derive(Debug)]
-struct Translator {
-    catalog: Catalog,
-    fallback: HashMap<String, String>,
 }
 
 #[expect(
@@ -93,42 +87,37 @@ fn catalog_for(code: &str) -> &'static Catalog {
     catalogs().get(code).unwrap_or_else(english)
 }
 
-fn active() -> &'static RwLock<Arc<Translator>> {
-    static ACTIVE: OnceLock<RwLock<Arc<Translator>>> = OnceLock::new();
-    ACTIVE.get_or_init(|| {
-        let catalog = english().clone();
-        let fallback = catalog.strings.clone();
-        RwLock::new(Arc::new(Translator { catalog, fallback }))
-    })
+/// The process-wide active catalog, swapped by [`set_language`].
+fn active() -> &'static RwLock<&'static Catalog> {
+    static ACTIVE: OnceLock<RwLock<&'static Catalog>> = OnceLock::new();
+    ACTIVE.get_or_init(|| RwLock::new(english()))
 }
 
 thread_local! {
-    static LANGUAGE_OVERRIDE: RefCell<Option<Arc<Translator>>> = const { RefCell::new(None) };
+    /// Catalog used by [`with_language`] on this thread (background report jobs).
+    static LANGUAGE_OVERRIDE: Cell<Option<&'static Catalog>> = const { Cell::new(None) };
 }
 
-fn make_translator(code: &str) -> Arc<Translator> {
-    Arc::new(Translator {
-        catalog: catalog_for(code).clone(),
-        fallback: english().strings.clone(),
-    })
-}
-
-fn current_translator() -> Arc<Translator> {
-    if let Some(translator) = LANGUAGE_OVERRIDE.with(|current| current.borrow().clone()) {
-        return translator;
+fn current_catalog() -> &'static Catalog {
+    if let Some(catalog) = LANGUAGE_OVERRIDE.with(|current| current.get()) {
+        return catalog;
     }
-    active()
-        .read()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .clone()
+    *active().read().unwrap_or_else(|poison| poison.into_inner())
+}
+
+fn lookup(key: &str) -> Option<&'static str> {
+    current_catalog()
+        .strings
+        .get(key)
+        .or_else(|| english().strings.get(key))
+        .map(String::as_str)
 }
 
 /// Renders `f` using `code` without changing the process-wide UI language.
 pub fn with_language<T>(code: &str, f: impl FnOnce() -> T) -> T {
-    let translator = make_translator(code);
-    let previous = LANGUAGE_OVERRIDE.with(|current| current.replace(Some(translator)));
+    let previous = LANGUAGE_OVERRIDE.with(|current| current.replace(Some(catalog_for(code))));
     let result = catch_unwind(AssertUnwindSafe(f));
-    LANGUAGE_OVERRIDE.with(|current| *current.borrow_mut() = previous);
+    LANGUAGE_OVERRIDE.with(|current| current.set(previous));
     match result {
         Ok(value) => value,
         Err(payload) => resume_unwind(payload),
@@ -153,64 +142,52 @@ pub fn is_supported(code: &str) -> bool {
 }
 
 pub fn current_language() -> String {
-    if let Some(translator) = LANGUAGE_OVERRIDE.with(|current| current.borrow().clone()) {
-        return translator.catalog.code.clone();
-    }
-    active()
-        .read()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .catalog
-        .code
-        .clone()
+    current_catalog().code.clone()
 }
 
 /// Switches the process-wide UI language; unknown codes fall back to English.
 pub fn set_language(code: &str) {
-    let catalog = catalog_for(code).clone();
-    let fallback = english().strings.clone();
-    let mut language = active()
+    *active()
         .write()
-        .unwrap_or_else(|poison| poison.into_inner());
-    *language = Arc::new(Translator { catalog, fallback });
+        .unwrap_or_else(|poison| poison.into_inner()) = catalog_for(code);
 }
 
-/// Looks up a translated string, falling back to English and then the key.
-pub fn tr(key: &str) -> String {
-    let language = current_translator();
-    if let Some(value) = language.catalog.strings.get(key) {
-        return value.clone();
-    }
-    if let Some(value) = language.fallback.get(key) {
-        debug_assert!(false, "missing translation for {key}");
-        return value.clone();
-    }
-    debug_assert!(false, "unknown translation key {key}");
-    key.to_string()
+/// Looks up a compile-time key, borrowing the text from the embedded catalogs.
+///
+/// Falls back to English and then the key itself; the fallback is a static
+/// string, so the lookup never allocates.
+pub fn tr(key: &'static str) -> &'static str {
+    lookup(key).unwrap_or_else(|| {
+        debug_assert!(false, "unknown translation key {key}");
+        key
+    })
 }
 
-fn maybe_tr(key: &str) -> Option<String> {
-    let language = current_translator();
-    language
-        .catalog
-        .strings
-        .get(key)
-        .or_else(|| language.fallback.get(key))
-        .cloned()
+/// Looks up a key built at runtime, returning owned text.
+pub fn tr_dynamic(key: &str) -> String {
+    lookup(key).map(str::to_string).unwrap_or_else(|| {
+        debug_assert!(false, "unknown translation key {key}");
+        key.to_string()
+    })
 }
 
 /// Localized built-in fact label with the stored DB label as fallback.
 pub fn fact_label(key: &str, fallback: &str) -> String {
-    maybe_tr(&format!("facts.{key}")).unwrap_or_else(|| fallback.to_string())
+    lookup(&format!("facts.{key}"))
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 /// Localized built-in source-template name with the stored DB name as fallback.
 pub fn template_label(key: &str, fallback: &str) -> String {
-    maybe_tr(&format!("templates.{key}")).unwrap_or_else(|| fallback.to_string())
+    lookup(&format!("templates.{key}"))
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 /// Looks up a string and replaces `{name}` placeholders.
 pub fn tr_args(key: &str, args: &[(&str, String)]) -> String {
-    let mut text = tr(key);
+    let mut text = tr_dynamic(key);
     for (name, value) in args {
         text = text.replace(&format!("{{{name}}}"), value);
     }
@@ -286,6 +263,18 @@ pub(crate) mod tests {
         set_language("xx");
         assert_eq!(current_language(), "en");
         assert_eq!(tr("tabs.graph"), "Graph View");
+    }
+
+    #[test]
+    fn translations_borrow_from_the_static_catalogs() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        set_language("en");
+        // The type annotation is the regression test: `tr` must borrow, not allocate.
+        let value: &'static str = tr("tabs.graph");
+        assert_eq!(value, "Graph View");
+        assert_eq!(tr_dynamic("tabs.graph"), "Graph View");
     }
 
     #[test]

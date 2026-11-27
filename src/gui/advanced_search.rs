@@ -48,12 +48,12 @@ impl AdvancedSearchState {
     pub fn saved_search(&mut self) -> Option<SavedPersonSearch> {
         let name = self.save_name.trim().to_string();
         if name.is_empty() {
-            self.error = Some(tr("people.search_saved_name_required"));
+            self.error = Some(tr("people.search_saved_name_required").to_string());
             return None;
         }
         let criteria = self.fields.criteria()?;
         if criteria.is_empty() {
-            self.error = Some(tr("people.search_saved_empty"));
+            self.error = Some(tr("people.search_saved_empty").to_string());
             return None;
         }
         Some(SavedPersonSearch::new(name, criteria))
@@ -99,7 +99,7 @@ pub fn show(
                 let selected_text = state
                     .selected_saved
                     .clone()
-                    .unwrap_or_else(|| tr("people.search_saved_none"));
+                    .unwrap_or_else(|| tr("people.search_saved_none").to_string());
                 egui::ComboBox::from_id_salt("advanced_saved_search")
                     .selected_text(selected_text)
                     .width(200.0)

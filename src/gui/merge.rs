@@ -199,7 +199,7 @@ pub fn show(
                 ui.vertical(|ui| {
                     person_picker(
                         ui,
-                        &tr("merge.keep_label"),
+                        tr("merge.keep_label"),
                         &mut state.keep,
                         &mut state.keep_search,
                         tree,
@@ -210,7 +210,7 @@ pub fn show(
                 ui.vertical(|ui| {
                     person_picker(
                         ui,
-                        &tr("merge.merge_label"),
+                        tr("merge.merge_label"),
                         &mut state.merge,
                         &mut state.merge_search,
                         tree,
@@ -221,7 +221,7 @@ pub fn show(
 
             let same = state.keep.is_some() && state.keep == state.merge;
             if same {
-                state.error = Some(tr("merge.blocked_same"));
+                state.error = Some(tr("merge.blocked_same").to_string());
             }
 
             ui.horizontal(|ui| {
@@ -301,77 +301,77 @@ pub fn show(
                             ui.end_row();
                             choice_row(
                                 ui,
-                                &tr("merge.field_prefix"),
+                                tr("merge.field_prefix"),
                                 &preview.keep.details.name_prefix,
                                 &preview.merge.details.name_prefix,
                                 &mut state.choices.name_prefix,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_given"),
+                                tr("merge.field_given"),
                                 &preview.keep.details.given_name,
                                 &preview.merge.details.given_name,
                                 &mut state.choices.given_name,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_middle"),
+                                tr("merge.field_middle"),
                                 &preview.keep.details.middle_name,
                                 &preview.merge.details.middle_name,
                                 &mut state.choices.middle_name,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_surname"),
+                                tr("merge.field_surname"),
                                 &preview.keep.details.surname,
                                 &preview.merge.details.surname,
                                 &mut state.choices.surname,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_suffix"),
+                                tr("merge.field_suffix"),
                                 &preview.keep.details.name_suffix,
                                 &preview.merge.details.name_suffix,
                                 &mut state.choices.name_suffix,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_nickname"),
+                                tr("merge.field_nickname"),
                                 &preview.keep.details.nickname,
                                 &preview.merge.details.nickname,
                                 &mut state.choices.nickname,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_gender"),
-                                &gender_label(&preview.keep.details.gender),
-                                &gender_label(&preview.merge.details.gender),
+                                tr("merge.field_gender"),
+                                gender_label(&preview.keep.details.gender),
+                                gender_label(&preview.merge.details.gender),
                                 &mut state.choices.gender,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_birth_date"),
+                                tr("merge.field_birth_date"),
                                 preview.keep.details.birth_date.as_deref().unwrap_or(""),
                                 preview.merge.details.birth_date.as_deref().unwrap_or(""),
                                 &mut state.choices.birth_date,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_birth_place"),
+                                tr("merge.field_birth_place"),
                                 preview.keep.details.birth_place.as_deref().unwrap_or(""),
                                 preview.merge.details.birth_place.as_deref().unwrap_or(""),
                                 &mut state.choices.birth_place,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_death_date"),
+                                tr("merge.field_death_date"),
                                 preview.keep.details.death_date.as_deref().unwrap_or(""),
                                 preview.merge.details.death_date.as_deref().unwrap_or(""),
                                 &mut state.choices.death_date,
                             );
                             choice_row(
                                 ui,
-                                &tr("merge.field_death_place"),
+                                tr("merge.field_death_place"),
                                 preview.keep.details.death_place.as_deref().unwrap_or(""),
                                 preview.merge.details.death_place.as_deref().unwrap_or(""),
                                 &mut state.choices.death_place,
@@ -382,7 +382,7 @@ pub fn show(
                                 privacy_label(preview.merge.private, preview.merge.living_override);
                             choice_row(
                                 ui,
-                                &tr("merge.field_privacy"),
+                                tr("merge.field_privacy"),
                                 &keep_privacy,
                                 &merge_privacy,
                                 &mut state.choices.privacy,
@@ -479,7 +479,7 @@ fn person_picker(
                 .find(|person| person.id == id)
                 .map(|person| person_label(person, surname_first))
         })
-        .unwrap_or_else(|| tr("merge.none"));
+        .unwrap_or_else(|| tr("merge.none").to_string());
     ui.label(selected_label);
     ui.add(egui::TextEdit::singleline(search).hint_text(tr("merge.search")));
     let needle = search.trim().to_lowercase();
@@ -516,12 +516,12 @@ fn choice_row(ui: &mut Ui, label: &str, keep: &str, merge: &str, pick: &mut Merg
         ui.visuals().text_color()
     };
     let keep_text = if keep.trim().is_empty() {
-        tr("merge.empty")
+        tr("merge.empty").to_string()
     } else {
         keep.to_string()
     };
     let merge_text = if merge.trim().is_empty() {
-        tr("merge.empty")
+        tr("merge.empty").to_string()
     } else {
         merge.to_string()
     };
@@ -598,10 +598,10 @@ fn person_label_by_id(tree: &FamilyTree, id: &str, surname_first: bool) -> Strin
         .iter()
         .find(|person| person.id == id)
         .map(|person| person_label(person, surname_first))
-        .unwrap_or_else(|| tr("merge.none"))
+        .unwrap_or_else(|| tr("merge.none").to_string())
 }
 
-fn gender_label(code: &str) -> String {
+fn gender_label(code: &str) -> &'static str {
     tr(match code {
         "M" => "merge.gender_male",
         "F" => "merge.gender_female",
@@ -623,7 +623,7 @@ fn privacy_label(private: bool, living_override: Option<bool>) -> String {
     format!("{private}, {living}")
 }
 
-fn blocker_text(blocker: MergeBlocker) -> String {
+fn blocker_text(blocker: MergeBlocker) -> &'static str {
     tr(match blocker {
         MergeBlocker::SamePerson => "merge.blocked_same",
         MergeBlocker::DirectParentChild => "merge.blocked_parent_child",

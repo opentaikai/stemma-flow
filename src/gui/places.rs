@@ -86,8 +86,8 @@ impl PlaceEdit {
         Ok(PlaceDraft {
             id: self.id.clone(),
             name: self.name.clone(),
-            latitude: parse_coordinate(&self.latitude, 90.0, &tr("places.latitude"))?,
-            longitude: parse_coordinate(&self.longitude, 180.0, &tr("places.longitude"))?,
+            latitude: parse_coordinate(&self.latitude, 90.0, tr("places.latitude"))?,
+            longitude: parse_coordinate(&self.longitude, 180.0, tr("places.longitude"))?,
         })
     }
 }
@@ -391,9 +391,8 @@ fn editor(ui: &mut Ui, state: &mut PlacesState, event: &mut Option<PlacesEvent>,
                 );
             }
 
-            let latitude = parse_coordinate(&state.draft.latitude, 90.0, &tr("places.latitude"));
-            let longitude =
-                parse_coordinate(&state.draft.longitude, 180.0, &tr("places.longitude"));
+            let latitude = parse_coordinate(&state.draft.latitude, 90.0, tr("places.latitude"));
+            let longitude = parse_coordinate(&state.draft.longitude, 180.0, tr("places.longitude"));
             for error in [latitude.as_ref().err(), longitude.as_ref().err()]
                 .into_iter()
                 .flatten()

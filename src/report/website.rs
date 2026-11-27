@@ -320,13 +320,13 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
             body.push_str("<dl class=\"vitals\">");
             push_vital(
                 &mut body,
-                &tr("report.common.birth"),
+                tr("report.common.birth"),
                 &person.birth,
                 &person.birth_place,
             );
             push_vital(
                 &mut body,
-                &tr("report.common.death"),
+                tr("report.common.death"),
                 &person.death,
                 &person.death_place,
             );
@@ -349,21 +349,21 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
         }
         relative_section(
             &mut body,
-            &tr("report.common.parents"),
+            tr("report.common.parents"),
             &person.parents,
             &person_pages,
             "people/",
         );
         relative_section(
             &mut body,
-            &tr("report.common.spouses"),
+            tr("report.common.spouses"),
             &person.spouses,
             &person_pages,
             "people/",
         );
         relative_section(
             &mut body,
-            &tr("report.common.children"),
+            tr("report.common.children"),
             &person.children,
             &person_pages,
             "people/",
@@ -552,7 +552,7 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
     place_index.push_str("</ul>");
     write_page(
         &directory.join("places").join("index.html"),
-        &page(&tr("report.website.places"), "../", place_index),
+        &page(tr("report.website.places"), "../", place_index),
         &mut stats,
     )?;
 
@@ -606,7 +606,7 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
     source_index.push_str("</ul>");
     write_page(
         &directory.join("sources").join("index.html"),
-        &page(&tr("report.website.sources"), "../", source_index),
+        &page(tr("report.website.sources"), "../", source_index),
         &mut stats,
     )?;
 
@@ -661,7 +661,7 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
     repository_index.push_str("</ul>");
     write_page(
         &directory.join("repositories").join("index.html"),
-        &page(&tr("report.website.repositories"), "../", repository_index),
+        &page(tr("report.website.repositories"), "../", repository_index),
         &mut stats,
     )?;
 
@@ -708,7 +708,7 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
     }
     write_page(
         &directory.join("media").join("index.html"),
-        &page(&tr("report.website.media"), "../", gallery),
+        &page(tr("report.website.media"), "../", gallery),
         &mut stats,
     )?;
 
@@ -718,7 +718,7 @@ pub fn write_site(directory: &Path, report: &WebsiteReport) -> Result<WebsiteSta
         write_page(
             &directory.join("charts").join("index.html"),
             &page(
-                &tr("report.website.pedigree_chart"),
+                tr("report.website.pedigree_chart"),
                 "../",
                 chart_page.to_string(),
             ),
@@ -799,33 +799,33 @@ fn site_page(title: &str, prefix: &str, report: &WebsiteReport, body: String) ->
     html.push_str("</a><nav><a href=\"");
     html.push_str(prefix);
     html.push_str("index.html\">");
-    html.push_str(&escape_html(&tr("report.website.home")));
+    html.push_str(&escape_html(tr("report.website.home")));
     html.push_str("</a><a href=\"");
     html.push_str(prefix);
     html.push_str("surnames/\">");
-    html.push_str(&escape_html(&tr("report.website.surnames")));
+    html.push_str(&escape_html(tr("report.website.surnames")));
     html.push_str("</a><a href=\"");
     html.push_str(prefix);
     html.push_str("places/\">");
-    html.push_str(&escape_html(&tr("report.website.places")));
+    html.push_str(&escape_html(tr("report.website.places")));
     html.push_str("</a><a href=\"");
     html.push_str(prefix);
     html.push_str("sources/\">");
-    html.push_str(&escape_html(&tr("report.website.sources")));
+    html.push_str(&escape_html(tr("report.website.sources")));
     html.push_str("</a><a href=\"");
     html.push_str(prefix);
     html.push_str("repositories/\">");
-    html.push_str(&escape_html(&tr("report.website.repositories")));
+    html.push_str(&escape_html(tr("report.website.repositories")));
     html.push_str("</a><a href=\"");
     html.push_str(prefix);
     html.push_str("media/\">");
-    html.push_str(&escape_html(&tr("report.website.media")));
+    html.push_str(&escape_html(tr("report.website.media")));
     html.push_str("</a>");
     if report.chart_svg.is_some() {
         html.push_str("<a href=\"");
         html.push_str(prefix);
         html.push_str("charts/\">");
-        html.push_str(&escape_html(&tr("report.website.chart")));
+        html.push_str(&escape_html(tr("report.website.chart")));
         html.push_str("</a>");
     }
     html.push_str("</nav></header><main>");
