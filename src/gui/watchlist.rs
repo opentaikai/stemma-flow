@@ -524,8 +524,16 @@ pub fn show(
         state.dirty = true;
     }
 
+    let edit_hint = tr("watchlist.double_click_edit");
     let mut sort_clicked: Option<PeopleColumn> = None;
-    let mut builder = TableBuilder::new(ui).striped(true).resizable(true);
+    // A record grid, not selectable text: keep the arrow cursor and let
+    // clicks land on the full cell background instead of the label glyphs.
+    let selectable_labels = ui.style().interaction.selectable_labels;
+    ui.style_mut().interaction.selectable_labels = false;
+    let mut builder = TableBuilder::new(ui)
+        .striped(true)
+        .resizable(true)
+        .sense(Sense::click());
     for config in columns.iter().filter(|config| config.visible) {
         builder = builder.column(Column::initial(config.width).at_least(60.0));
     }
@@ -568,51 +576,68 @@ pub fn show(
                 };
                 row.set_selected(selected == Some(person.id.as_str()));
                 for column in &visible {
-                    row.col(|ui| {
+                    let (_, cell) = row.col(|ui| {
                         if *column == PeopleColumn::Labels {
-                            badge_cell(ui, person, &mut events);
+                            badge_cell(ui, person);
                         } else {
-                            clickable_cell(
-                                ui,
-                                &cell_value(person, *column),
-                                &person.id,
-                                &mut events,
-                            );
+                            ui.label(cell_value(person, *column));
                         }
                     });
+                    if *column != PeopleColumn::Labels {
+                        cell.on_hover_text(edit_hint.as_str());
+                    }
                 }
+                let mut action_used = false;
                 row.col(|ui| {
                     ui.horizontal(|ui| {
                         if root_id == Some(person.id.as_str()) {
                             if ui.small_button(tr("root.clear")).clicked() {
                                 events.push(WatchEvent::ClearRoot);
+                                action_used = true;
                             }
                         } else if ui.small_button(tr("root.set")).clicked() {
                             events.push(WatchEvent::SetRoot(person.id.clone()));
+                            action_used = true;
                         }
                         if ui.small_button(tr("people.merge")).clicked() {
                             events.push(WatchEvent::Merge(person.id.clone()));
+                            action_used = true;
                         }
                         if ui.small_button(tr("common.edit")).clicked() {
                             events.push(WatchEvent::Edit(person.id.clone()));
+                            action_used = true;
                         }
-                        ui.menu_button(tr("common.delete"), |ui| {
-                            ui.label(crate::i18n::tr_args(
-                                "people.delete_confirm",
-                                &[("name", person.display_name())],
-                            ));
-                            if ui.button(tr("people.confirm")).clicked() {
-                                events.push(WatchEvent::Delete(person.id.clone()));
-                                ui.close();
-                            }
-                            if ui.button(tr("common.cancel")).clicked() {
-                                ui.close();
-                            }
-                        });
+                        if ui
+                            .menu_button(tr("common.delete"), |ui| {
+                                ui.label(crate::i18n::tr_args(
+                                    "people.delete_confirm",
+                                    &[("name", person.display_name())],
+                                ));
+                                if ui.button(tr("people.confirm")).clicked() {
+                                    events.push(WatchEvent::Delete(person.id.clone()));
+                                    ui.close();
+                                }
+                                if ui.button(tr("common.cancel")).clicked() {
+                                    ui.close();
+                                }
+                            })
+                            .response
+                            .clicked()
+                        {
+                            action_used = true;
+                        }
                     });
                 });
+                let response = row.response();
+                if !action_used
+                    && let Some(event) =
+                        watch_click(&person.id, response.double_clicked(), response.clicked())
+                {
+                    events.push(event);
+                }
             });
         });
+    ui.style_mut().interaction.selectable_labels = selectable_labels;
     if let Some(column) = sort_clicked {
         state.toggle_sort(column);
     }
@@ -693,7 +718,7 @@ fn columns_dialog(ui: &mut Ui, state: &mut WatchState, events: &mut Vec<WatchEve
     }
 }
 
-fn badge_cell(ui: &mut Ui, person: &PersonRow, events: &mut Vec<WatchEvent>) {
+fn badge_cell(ui: &mut Ui, person: &PersonRow) {
     let inner = ui.horizontal(|ui| {
         for badge in person.badges.iter().take(2) {
             let color = badge
@@ -711,10 +736,6 @@ fn badge_cell(ui: &mut Ui, person: &PersonRow, events: &mut Vec<WatchEvent>) {
             );
         }
     });
-    let response = inner.response.interact(Sense::click());
-    if let Some(event) = watch_click(&person.id, response.double_clicked(), response.clicked()) {
-        events.push(event);
-    }
     let all = person
         .badges
         .iter()
@@ -722,16 +743,8 @@ fn badge_cell(ui: &mut Ui, person: &PersonRow, events: &mut Vec<WatchEvent>) {
         .collect::<Vec<_>>()
         .join(", ");
     if !all.is_empty() {
-        response.on_hover_text(all);
+        inner.response.on_hover_text(all);
     }
-}
-
-fn clickable_cell(ui: &mut Ui, text: &str, person_id: &str, events: &mut Vec<WatchEvent>) {
-    let response = ui.add(egui::Label::new(text).sense(Sense::click()));
-    if let Some(event) = watch_click(person_id, response.double_clicked(), response.clicked()) {
-        events.push(event);
-    }
-    response.on_hover_text(tr("watchlist.double_click_edit"));
 }
 
 fn watch_click(person_id: &str, double_clicked: bool, clicked: bool) -> Option<WatchEvent> {
@@ -993,5 +1006,65 @@ mod tests {
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty(), "the grid paints");
         assert!(captured.is_empty());
+    }
+
+    #[test]
+    fn clicking_a_row_background_selects_the_person() {
+        // Twenty rows keep the click point inside the body regardless of the
+        // toolbar height, and "Ada" is narrow so x = 100 is blank cell space.
+        let names = vec![("Ada", "King"); 20];
+        let rows = rows_for(&names);
+        let columns = default_columns();
+        let mut state = WatchState::default();
+        let mut events = Vec::new();
+        let position = egui::pos2(100.0, 210.0);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let ctx = Context::default();
+
+        let press = RawInput {
+            screen_rect: Some(screen),
+            events: vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..RawInput::default()
+        };
+        let release = RawInput {
+            screen_rect: Some(screen),
+            events: vec![egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            ..RawInput::default()
+        };
+
+        // egui hit-tests against the previous frame's widget rects, so warm up.
+        let mut render = |input: RawInput, events: &mut Vec<WatchEvent>| {
+            let mut output = ctx.run_ui(input, |ui| {
+                events.extend(show(ui, &mut state, &rows, None, &columns, None));
+            });
+            output.textures_delta.clear();
+        };
+        render(
+            RawInput {
+                screen_rect: Some(screen),
+                ..RawInput::default()
+            },
+            &mut events,
+        );
+        render(press, &mut events);
+        render(release, &mut events);
+
+        assert!(
+            matches!(events.first(), Some(WatchEvent::Select(_))),
+            "a click away from the text must select the row: {events:?}"
+        );
     }
 }

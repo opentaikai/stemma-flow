@@ -581,9 +581,10 @@ views (the app always launches on Graph View):
   death, notes preview, event/citation/media/task/group/association counts,
   coloured Labels, and last-updated time; Actions always stays last. Defaults preserve the
   former Watch List layout. Filtering matches all name pieces plus notes;
-  header clicks sort any visible column. Clicking selects, double-clicking
-  or **Edit** opens the pinned editor, and **Delete** confirms before
-  cascading. **+ Add Independent Person** inserts an unnamed draft.
+  header clicks sort any visible column. Clicking anywhere in a row selects
+  it, double-clicking or **Edit** opens the pinned editor, and **Delete**
+  confirms before cascading. **+ Add Independent Person** inserts an unnamed
+  draft.
   **Advanced…** opens a modeless criteria dialog that filters the same grid.
   Name, alternate-name, gender, birth/death year range, place, fact type,
   fact text and full-note criteria are combined with AND semantics; an
