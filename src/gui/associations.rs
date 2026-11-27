@@ -76,7 +76,7 @@ pub fn show(
 ) -> Option<AssociationOutcome> {
     let title = match &form.editing_label {
         Some(name) => tr_args("associations.edit_title", &[("name", name.to_string())]),
-        None => tr("associations.add_title"),
+        None => tr("associations.add_title").to_string(),
     };
     let mut open = true;
     let mut outcome = None;

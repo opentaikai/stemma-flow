@@ -89,7 +89,7 @@ impl DateCalculatorState {
                         Err(error) => self.error = Some(error),
                     }
                 }
-                Err(_) => self.error = Some(tr("datecalc.invalid_amount")),
+                Err(_) => self.error = Some(tr("datecalc.invalid_amount").to_string()),
             },
         }
     }
@@ -230,7 +230,7 @@ pub fn show(ctx: &Context, state: &mut DateCalculatorState) {
                         )));
                         ui.label(RichText::new(tr_args(
                             "datecalc.weekday",
-                            &[("weekday", weekday_label(*weekday))],
+                            &[("weekday", weekday_label(*weekday).to_string())],
                         )));
                     }
                 }
@@ -243,7 +243,7 @@ pub fn show(ctx: &Context, state: &mut DateCalculatorState) {
     }
 }
 
-fn unit_label(unit: ShiftUnit) -> String {
+fn unit_label(unit: ShiftUnit) -> &'static str {
     tr(match unit {
         ShiftUnit::Days => "datecalc.days",
         ShiftUnit::Months => "datecalc.months",
@@ -251,7 +251,7 @@ fn unit_label(unit: ShiftUnit) -> String {
     })
 }
 
-fn weekday_label(weekday: Weekday) -> String {
+fn weekday_label(weekday: Weekday) -> &'static str {
     tr(match weekday {
         Weekday::Mon => "date_picker.monday",
         Weekday::Tue => "date_picker.tuesday",

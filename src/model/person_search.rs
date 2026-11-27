@@ -263,7 +263,7 @@ pub fn describe_criteria(criteria: &PersonSearchCriteria) -> Vec<String> {
     lines
 }
 
-fn push_range(lines: &mut Vec<String>, label: String, from: Option<i32>, to: Option<i32>) {
+fn push_range(lines: &mut Vec<String>, label: &str, from: Option<i32>, to: Option<i32>) {
     if from.is_none() && to.is_none() {
         return;
     }
@@ -276,7 +276,7 @@ fn push_range(lines: &mut Vec<String>, label: String, from: Option<i32>, to: Opt
     lines.push(format!("{label}: {from}\u{2013}{to}"));
 }
 
-fn gender_label(gender: GenderFilter) -> String {
+fn gender_label(gender: GenderFilter) -> &'static str {
     match gender {
         GenderFilter::Any => tr("people.search_gender_any"),
         GenderFilter::Male => tr("people.search_gender_male"),

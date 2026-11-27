@@ -107,7 +107,7 @@ fn editor(ui: &mut egui::Ui, state: &mut SourcesState, event: &mut Option<Source
                 template_label(&template.key, &template.name)
             )
         })
-        .unwrap_or_else(|| tr("sources.free_form"));
+        .unwrap_or_else(|| tr("sources.free_form").to_string());
     let choices: Vec<(String, String)> = state
         .templates
         .iter()

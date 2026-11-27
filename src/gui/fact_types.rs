@@ -511,7 +511,7 @@ fn auto_tag(label: &str) -> String {
     tag
 }
 
-fn scope_label(scope: FactScope) -> String {
+fn scope_label(scope: FactScope) -> &'static str {
     tr(match scope {
         FactScope::Person => "fact_types.scope_person",
         FactScope::Family => "fact_types.scope_family",
@@ -519,7 +519,7 @@ fn scope_label(scope: FactScope) -> String {
     })
 }
 
-fn kind_label(kind: FactKind) -> String {
+fn kind_label(kind: FactKind) -> &'static str {
     tr(match kind {
         FactKind::Event => "fact_types.kind_event",
         FactKind::Attribute => "fact_types.kind_attribute",

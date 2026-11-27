@@ -79,7 +79,7 @@ pub enum DuplicateReason {
 }
 
 impl DuplicateReason {
-    pub fn label(self) -> String {
+    pub fn label(self) -> &'static str {
         tr(match self {
             Self::ExactName => "duplicates.reason_exact_name",
             Self::SimilarName => "duplicates.reason_similar_name",

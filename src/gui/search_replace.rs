@@ -153,9 +153,9 @@ pub fn show(ctx: &Context, state: &mut SearchReplaceState) -> Option<SearchRepla
             ui.horizontal(|ui| {
                 if ui.button(tr("replace.preview")).clicked() {
                     if state.find.is_empty() {
-                        state.error = Some(tr("replace.empty_find"));
+                        state.error = Some(tr("replace.empty_find").to_string());
                     } else if !state.has_scope() {
-                        state.error = Some(tr("replace.no_scopes"));
+                        state.error = Some(tr("replace.no_scopes").to_string());
                     } else {
                         event = Some(SearchReplaceEvent::Preview(Box::new(state.request())));
                     }
@@ -224,7 +224,7 @@ pub fn show(ctx: &Context, state: &mut SearchReplaceState) -> Option<SearchRepla
                                     RichText::new(format!(
                                         "{} — {}",
                                         change.owner,
-                                        tr(&change.field)
+                                        crate::i18n::tr_dynamic(&change.field)
                                     ))
                                     .strong(),
                                 );

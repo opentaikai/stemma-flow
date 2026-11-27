@@ -40,7 +40,7 @@ pub fn render_html(report: &RelationshipReport) -> String {
     html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>");
-    html.push_str(&escape_html(&tr("relationship_report.title")));
+    html.push_str(&escape_html(tr("relationship_report.title")));
     html.push_str(" \u{2014} ");
     html.push_str(&escape_html(&report.from_name));
     html.push_str(" \u{2192} ");
@@ -49,12 +49,12 @@ pub fn render_html(report: &RelationshipReport) -> String {
     html.push_str(CSS);
     html.push_str("</style></head><body>");
     html.push_str("<div class=\"toolbar\"><button type=\"button\" onclick=\"window.print()\">");
-    html.push_str(&escape_html(&tr("relationship_report.print")));
+    html.push_str(&escape_html(tr("relationship_report.print")));
     html.push_str("</button><span>");
-    html.push_str(&escape_html(&tr("relationship_report.print_hint")));
+    html.push_str(&escape_html(tr("relationship_report.print_hint")));
     html.push_str("</span></div>");
     html.push_str("<header><h1>");
-    html.push_str(&escape_html(&tr("relationship_report.title")));
+    html.push_str(&escape_html(tr("relationship_report.title")));
     html.push_str("</h1><p class=\"pair\">");
     html.push_str(&escape_html(&report.from_name));
     html.push_str(" \u{2192} ");
@@ -72,7 +72,7 @@ pub fn render_html(report: &RelationshipReport) -> String {
     html.push_str("</p></header><main>");
 
     html.push_str("<section class=\"result\"><h2>");
-    html.push_str(&escape_html(&tr("relationship_report.relationship")));
+    html.push_str(&escape_html(tr("relationship_report.relationship")));
     html.push_str("</h2><p class=\"kinship\">");
     html.push_str(&escape_html(&report.kinship));
     html.push_str("</p>");
@@ -87,11 +87,11 @@ pub fn render_html(report: &RelationshipReport) -> String {
     html.push_str("</section>");
 
     html.push_str("<section><h2>");
-    html.push_str(&escape_html(&tr("relationship_report.path")));
+    html.push_str(&escape_html(tr("relationship_report.path")));
     html.push_str("</h2>");
     if report.hops.is_empty() {
         html.push_str("<p class=\"empty\">");
-        html.push_str(&escape_html(&tr("relationship_report.empty_path")));
+        html.push_str(&escape_html(tr("relationship_report.empty_path")));
         html.push_str("</p>");
     } else {
         html.push_str("<ol class=\"path\">");

@@ -224,10 +224,10 @@ pub fn show(
                     action = Some(InspectorAction::SetRoot);
                 }
             });
-            card(ui, &tr("inspector.card_profile"), |ui| {
+            card(ui, tr("inspector.card_profile"), |ui| {
                 name_editors(ui, form)
             });
-            card(ui, &tr("inspector.card_names"), |ui| {
+            card(ui, tr("inspector.card_names"), |ui| {
                 if let Some(event) = names::show(ui, names, surname_first) {
                     action = Some(match event {
                         NamesEvent::Save(draft) => InspectorAction::SaveAlternateName(draft),
@@ -235,7 +235,7 @@ pub fn show(
                     });
                 }
             });
-            card(ui, &tr("inspector.card_vital"), |ui| {
+            card(ui, tr("inspector.card_vital"), |ui| {
                 vital_editors(ui, form);
                 if let Some(dates) = dates {
                     for (label, event_id) in [
@@ -246,7 +246,7 @@ pub fn show(
                             && ui
                                 .small_button(tr_args(
                                     "inspector.event_notes_button",
-                                    &[("label", label.clone())],
+                                    &[("label", label.to_string())],
                                 ))
                                 .clicked()
                         {
@@ -262,7 +262,7 @@ pub fn show(
                 }
             });
             if !connections.families.is_empty() {
-                card(ui, &tr("inspector.card_families"), |ui| {
+                card(ui, tr("inspector.card_families"), |ui| {
                     for family in &connections.families {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(&family.label).strong());
@@ -279,7 +279,7 @@ pub fn show(
                     }
                 });
             }
-            card(ui, &tr("inspector.card_associations"), |ui| {
+            card(ui, tr("inspector.card_associations"), |ui| {
                 if associations.is_empty() {
                     ui.label(RichText::new(tr("inspector.none")).weak().size(12.0));
                 }
@@ -307,7 +307,7 @@ pub fn show(
                 }
             });
             if !groups.is_empty() {
-                card(ui, &tr("editor.groups"), |ui| {
+                card(ui, tr("editor.groups"), |ui| {
                     for group in groups {
                         ui.horizontal(|ui| {
                             if let Some(color) = group.color {
@@ -325,7 +325,7 @@ pub fn show(
                 });
             }
             if !labels.is_empty() {
-                card(ui, &tr("editor.labels"), |ui| {
+                card(ui, tr("editor.labels"), |ui| {
                     for label in labels {
                         ui.horizontal(|ui| {
                             crate::gui::symbols::color_swatch(
@@ -340,7 +340,7 @@ pub fn show(
                     }
                 });
             }
-            card(ui, &tr("inspector.card_other_facts"), |ui| {
+            card(ui, tr("inspector.card_other_facts"), |ui| {
                 if facts.is_empty() {
                     ui.label(RichText::new(tr("inspector.none")).weak().size(12.0));
                 }
@@ -440,7 +440,7 @@ pub fn show(
                 }
             });
             if let Some(privacy) = privacy {
-                card(ui, &tr("inspector.card_privacy"), |ui| {
+                card(ui, tr("inspector.card_privacy"), |ui| {
                     let mut private = privacy.private;
                     if ui
                         .checkbox(&mut private, tr("inspector.private_person"))
@@ -454,14 +454,14 @@ pub fn show(
                             &[(
                                 "status",
                                 if privacy.auto_living {
-                                    tr("inspector.living")
+                                    tr("inspector.living").to_string()
                                 } else {
-                                    tr("inspector.deceased")
+                                    tr("inspector.deceased").to_string()
                                 },
                             )],
                         ),
-                        Some(true) => tr("inspector.living"),
-                        Some(false) => tr("inspector.deceased"),
+                        Some(true) => tr("inspector.living").to_string(),
+                        Some(false) => tr("inspector.deceased").to_string(),
                     };
                     ui.horizontal(|ui| {
                         ui.label(tr("inspector.living_status"));
@@ -476,9 +476,9 @@ pub fn show(
                                             &[(
                                                 "status",
                                                 if privacy.auto_living {
-                                                    tr("inspector.living")
+                                                    tr("inspector.living").to_string()
                                                 } else {
-                                                    tr("inspector.deceased")
+                                                    tr("inspector.deceased").to_string()
                                                 },
                                             )],
                                         ),
@@ -513,9 +513,9 @@ pub fn show(
                             &[(
                                 "status",
                                 if privacy.effective_living {
-                                    tr("inspector.living")
+                                    tr("inspector.living").to_string()
                                 } else {
-                                    tr("inspector.deceased")
+                                    tr("inspector.deceased").to_string()
                                 },
                             )],
                         ))
@@ -554,7 +554,7 @@ pub fn show(
                     }
                 });
             }
-            card(ui, &tr("inspector.card_citations"), |ui| {
+            card(ui, tr("inspector.card_citations"), |ui| {
                 if let Some(event) = citations::show(ui, citations) {
                     action = Some(match event {
                         CitationsEvent::Save(edits) => {
@@ -602,7 +602,7 @@ pub fn show(
                     });
                 }
             });
-            card(ui, &tr("inspector.card_relationships"), |ui| {
+            card(ui, tr("inspector.card_relationships"), |ui| {
                 for (title, relatives, kind) in [
                     (
                         tr("inspector.parents"),
@@ -720,7 +720,7 @@ pub fn show(
                     }
                 }
             });
-            card(ui, &tr("inspector.card_media"), |ui| {
+            card(ui, tr("inspector.card_media"), |ui| {
                 if ui.button(tr("inspector.manage_media")).clicked() {
                     action = Some(InspectorAction::ManageMedia {
                         owner: MediaOwner::Person(person.id.clone()),
@@ -731,7 +731,7 @@ pub fn show(
                     });
                 }
             });
-            card(ui, &tr("inspector.card_notes"), |ui| {
+            card(ui, tr("inspector.card_notes"), |ui| {
                 if ui.button(tr("inspector.edit_notes")).clicked() {
                     action = Some(InspectorAction::OpenNotes {
                         owner: NoteOwner::Person(person.id.clone()),
@@ -774,7 +774,7 @@ fn card(ui: &mut Ui, title: &str, body: impl FnOnce(&mut Ui)) {
         });
 }
 
-fn gender_word(code: &str) -> String {
+fn gender_word(code: &str) -> &'static str {
     tr(match code {
         "M" => "inspector.male",
         "F" => "inspector.female",

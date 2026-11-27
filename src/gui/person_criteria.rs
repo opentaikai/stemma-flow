@@ -144,8 +144,8 @@ impl PersonCriteriaFields {
         }
     }
 
-    fn fail(&mut self, key: &str) -> Option<PersonSearchCriteria> {
-        self.error = Some(tr(key));
+    fn fail(&mut self, key: &'static str) -> Option<PersonSearchCriteria> {
+        self.error = Some(tr(key).to_string());
         None
     }
 }
@@ -166,7 +166,7 @@ fn year_range_row(ui: &mut Ui, from: &mut String, to: &mut String) {
     });
 }
 
-fn gender_label(gender: GenderFilter) -> String {
+fn gender_label(gender: GenderFilter) -> &'static str {
     match gender {
         GenderFilter::Any => tr("people.search_gender_any"),
         GenderFilter::Male => tr("inspector.gender_male"),

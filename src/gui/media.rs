@@ -453,7 +453,7 @@ pub fn show(
                 ui.label(
                     RichText::new(tr_args(
                         "media.owner_line",
-                        &[("kind", owner_type_label(&link.owner_type))],
+                        &[("kind", owner_type_label(&link.owner_type).to_string())],
                     ))
                     .weak()
                     .small(),
@@ -537,7 +537,7 @@ pub fn show(
     event
 }
 
-fn owner_type_label(kind: &str) -> String {
+fn owner_type_label(kind: &str) -> &'static str {
     tr(match kind {
         "person" => "media.owner.person",
         "family" => "media.owner.family",

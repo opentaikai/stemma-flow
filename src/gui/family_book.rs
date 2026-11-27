@@ -34,7 +34,7 @@ impl ChapterKind {
     }
 }
 
-fn chapter_kind_label(chapter: &BookChapter) -> String {
+fn chapter_kind_label(chapter: &BookChapter) -> &'static str {
     tr(match chapter {
         BookChapter::Text { .. } => "family_book.kind_text",
         BookChapter::Person { .. } => "family_book.kind_person",
@@ -480,7 +480,7 @@ pub fn show(
                         ChapterKind::Person => {
                             person_picker(
                                 ui,
-                                &tr("report_dialog.person"),
+                                tr("report_dialog.person"),
                                 people,
                                 surname_first,
                                 &mut state.chapter_person,
@@ -489,7 +489,7 @@ pub fn show(
                         ChapterKind::Timeline => {
                             person_picker(
                                 ui,
-                                &tr("report_dialog.person"),
+                                tr("report_dialog.person"),
                                 people,
                                 surname_first,
                                 &mut state.chapter_person,
@@ -498,7 +498,7 @@ pub fn show(
                         ChapterKind::Family => {
                             choice_picker(
                                 ui,
-                                &tr("family_book.family"),
+                                tr("family_book.family"),
                                 &state.families,
                                 &mut state.chapter_family,
                             );
@@ -511,7 +511,7 @@ pub fn show(
                                 .collect();
                             choice_picker(
                                 ui,
-                                &tr("family_book.album"),
+                                tr("family_book.album"),
                                 &choices,
                                 &mut state.chapter_album,
                             );
@@ -524,7 +524,7 @@ pub fn show(
                                 .collect();
                             choice_picker(
                                 ui,
-                                &tr("family_book.group"),
+                                tr("family_book.group"),
                                 &choices,
                                 &mut state.chapter_group,
                             );
@@ -589,7 +589,7 @@ fn person_picker(
             .as_deref()
             .and_then(|id| people.iter().find(|person| person.id == id))
             .map(|person| person_label(person, surname_first))
-            .unwrap_or_else(|| tr("family_book.select"));
+            .unwrap_or_else(|| tr("family_book.select").to_string());
         egui::ComboBox::from_id_salt(format!("book_{label}"))
             .selected_text(current)
             .show_ui(ui, |ui| {
@@ -618,7 +618,7 @@ fn choice_picker(
             .as_deref()
             .and_then(|id| choices.iter().find(|(choice, _)| choice == id))
             .map(|(_, name)| name.clone())
-            .unwrap_or_else(|| tr("family_book.select"));
+            .unwrap_or_else(|| tr("family_book.select").to_string());
         egui::ComboBox::from_id_salt(format!("book_{label}"))
             .selected_text(current)
             .show_ui(ui, |ui| {

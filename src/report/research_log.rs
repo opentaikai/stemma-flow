@@ -37,19 +37,19 @@ pub fn render_html(report: &ResearchLogReport) -> String {
     html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>");
-    html.push_str(&escape_html(&tr("research_report.title")));
+    html.push_str(&escape_html(tr("research_report.title")));
     html.push_str(" — ");
     html.push_str(&escape_html(&report.tree_name));
     html.push_str("</title><style>");
     html.push_str(CSS);
     html.push_str("</style></head><body>");
     html.push_str("<div class=\"toolbar\"><button type=\"button\" onclick=\"window.print()\">");
-    html.push_str(&escape_html(&tr("research_report.print")));
+    html.push_str(&escape_html(tr("research_report.print")));
     html.push_str("</button><span>");
-    html.push_str(&escape_html(&tr("research_report.print_hint")));
+    html.push_str(&escape_html(tr("research_report.print_hint")));
     html.push_str("</span></div>");
     html.push_str("<header><h1>");
-    html.push_str(&escape_html(&tr("research_report.title")));
+    html.push_str(&escape_html(tr("research_report.title")));
     html.push_str("</h1><p>");
     html.push_str(&escape_html(&tr_args(
         "research_report.tree",
@@ -71,14 +71,14 @@ pub fn render_html(report: &ResearchLogReport) -> String {
         &[("open", open.to_string()), ("done", done.to_string())],
     )));
     html.push_str("</p><div class=\"filters\"><strong>");
-    html.push_str(&escape_html(&tr("research_report.filters")));
+    html.push_str(&escape_html(tr("research_report.filters")));
     html.push_str("</strong><br><span>");
     html.push_str(&escape_html(&tr_args(
         "research_report.filter_text",
         &[(
             "value",
             if report.text_filter.is_empty() {
-                tr("research_report.none")
+                tr("research_report.none").to_string()
             } else {
                 report.text_filter.clone()
             },
@@ -102,13 +102,13 @@ pub fn render_html(report: &ResearchLogReport) -> String {
 
     if report.tasks.is_empty() {
         html.push_str("<p class=\"empty\">");
-        html.push_str(&escape_html(&tr("research_report.empty")));
+        html.push_str(&escape_html(tr("research_report.empty")));
         html.push_str("</p>");
     } else {
         for (folder, tasks) in grouped_tasks(&report.tasks) {
             html.push_str("<section><h2>");
             let title = if folder.is_empty() {
-                tr("research_report.no_folder")
+                tr("research_report.no_folder").to_string()
             } else {
                 folder.clone()
             };
@@ -123,7 +123,7 @@ pub fn render_html(report: &ResearchLogReport) -> String {
                 "research_report.column_links",
             ] {
                 html.push_str("<th>");
-                html.push_str(&escape_html(&tr(key)));
+                html.push_str(&escape_html(tr(key)));
                 html.push_str("</th>");
             }
             html.push_str("</tr></thead><tbody>");
@@ -131,9 +131,9 @@ pub fn render_html(report: &ResearchLogReport) -> String {
                 html.push_str("<tr class=\"task\"><td>");
                 html.push_str(&escape_html(&task.title));
                 html.push_str("</td><td>");
-                html.push_str(&escape_html(&status_label(task.status)));
+                html.push_str(&escape_html(status_label(task.status)));
                 html.push_str("</td><td>");
-                html.push_str(&escape_html(&priority_label(task.priority)));
+                html.push_str(&escape_html(priority_label(task.priority)));
                 html.push_str("</td><td>");
                 html.push_str(&escape_html(task.due_date.as_deref().unwrap_or("—")));
                 html.push_str("</td><td>");
@@ -149,7 +149,7 @@ pub fn render_html(report: &ResearchLogReport) -> String {
                     }
                     _ => {
                         html.push_str("<span class=\"muted\">");
-                        html.push_str(&escape_html(&tr("research_report.no_log")));
+                        html.push_str(&escape_html(tr("research_report.no_log")));
                         html.push_str("</span>");
                     }
                 }
@@ -196,14 +196,14 @@ fn grouped_tasks(tasks: &[TaskSummary]) -> Vec<(String, Vec<&TaskSummary>)> {
         .collect()
 }
 
-fn status_label(status: TaskStatus) -> String {
+fn status_label(status: TaskStatus) -> &'static str {
     tr(match status {
         TaskStatus::Open => "research_report.status_open",
         TaskStatus::Done => "research_report.status_done",
     })
 }
 
-fn priority_label(priority: Option<i64>) -> String {
+fn priority_label(priority: Option<i64>) -> &'static str {
     tr(match priority {
         None => "research_report.priority_none",
         Some(1) => "research_report.priority_low",

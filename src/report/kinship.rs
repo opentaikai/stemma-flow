@@ -40,19 +40,19 @@ pub fn render_html(report: &KinshipReport) -> String {
     html.push_str(&crate::report::html::document_open());
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>");
-    html.push_str(&escape_html(&tr("kinship_report.title")));
+    html.push_str(&escape_html(tr("kinship_report.title")));
     html.push_str(" \u{2014} ");
     html.push_str(&escape_html(&report.subject_name));
     html.push_str("</title><style>");
     html.push_str(CSS);
     html.push_str("</style></head><body>");
     html.push_str("<div class=\"toolbar\"><button type=\"button\" onclick=\"window.print()\">");
-    html.push_str(&escape_html(&tr("kinship_report.print")));
+    html.push_str(&escape_html(tr("kinship_report.print")));
     html.push_str("</button><span>");
-    html.push_str(&escape_html(&tr("kinship_report.print_hint")));
+    html.push_str(&escape_html(tr("kinship_report.print_hint")));
     html.push_str("</span></div>");
     html.push_str("<header><h1>");
-    html.push_str(&escape_html(&tr("kinship_report.title")));
+    html.push_str(&escape_html(tr("kinship_report.title")));
     html.push_str("</h1><p>");
     html.push_str(&escape_html(&tr_args(
         "kinship_report.subject",
@@ -60,7 +60,7 @@ pub fn render_html(report: &KinshipReport) -> String {
     )));
     if report.only_relatives {
         html.push_str(" \u{00b7} ");
-        html.push_str(&escape_html(&tr("kinship_report.only_relatives")));
+        html.push_str(&escape_html(tr("kinship_report.only_relatives")));
     }
     html.push_str("</p><p class=\"muted\">");
     html.push_str(&escape_html(&tr_args(
@@ -81,7 +81,7 @@ pub fn render_html(report: &KinshipReport) -> String {
 
     if report.rows.is_empty() {
         html.push_str("<p class=\"empty\">");
-        html.push_str(&escape_html(&tr("kinship_report.empty")));
+        html.push_str(&escape_html(tr("kinship_report.empty")));
         html.push_str("</p>");
     } else {
         html.push_str("<table><thead><tr>");
@@ -92,7 +92,7 @@ pub fn render_html(report: &KinshipReport) -> String {
             "kinship_report.column_died",
         ] {
             html.push_str("<th>");
-            html.push_str(&escape_html(&tr(key)));
+            html.push_str(&escape_html(tr(key)));
             html.push_str("</th>");
         }
         html.push_str("</tr></thead><tbody>");

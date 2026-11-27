@@ -64,24 +64,24 @@ pub struct RelationshipResult {
 impl Kinship {
     pub fn label(&self) -> String {
         match self {
-            Self::Root => tr("relationship.root"),
-            Self::Spouse(sex) => tr(match sex {
+            Self::Root => text("relationship.root"),
+            Self::Spouse(sex) => text(match sex {
                 Sex::Male => "relationship.husband",
                 Sex::Female => "relationship.wife",
                 Sex::Unknown => "relationship.spouse",
             }),
             Self::Ancestor { sex, generations } => match generations {
-                1 => tr(match sex {
+                1 => text(match sex {
                     Sex::Male => "relationship.father",
                     Sex::Female => "relationship.mother",
                     Sex::Unknown => "relationship.parent",
                 }),
-                2 => tr(match sex {
+                2 => text(match sex {
                     Sex::Male => "relationship.grandfather",
                     Sex::Female => "relationship.grandmother",
                     Sex::Unknown => "relationship.grandparent",
                 }),
-                3 => tr(match sex {
+                3 => text(match sex {
                     Sex::Male => "relationship.great_grandfather",
                     Sex::Female => "relationship.great_grandmother",
                     Sex::Unknown => "relationship.great_grandparent",
@@ -92,17 +92,17 @@ impl Kinship {
                 ),
             },
             Self::Descendant { sex, generations } => match generations {
-                1 => tr(match sex {
+                1 => text(match sex {
                     Sex::Male => "relationship.son",
                     Sex::Female => "relationship.daughter",
                     Sex::Unknown => "relationship.child",
                 }),
-                2 => tr(match sex {
+                2 => text(match sex {
                     Sex::Male => "relationship.grandson",
                     Sex::Female => "relationship.granddaughter",
                     Sex::Unknown => "relationship.grandchild",
                 }),
-                3 => tr(match sex {
+                3 => text(match sex {
                     Sex::Male => "relationship.great_grandson",
                     Sex::Female => "relationship.great_granddaughter",
                     Sex::Unknown => "relationship.great_grandchild",
@@ -112,17 +112,17 @@ impl Kinship {
                     &[("count", generations.to_string())],
                 ),
             },
-            Self::Sibling(sex) => tr(match sex {
+            Self::Sibling(sex) => text(match sex {
                 Sex::Male => "relationship.brother",
                 Sex::Female => "relationship.sister",
                 Sex::Unknown => "relationship.sibling",
             }),
-            Self::AuntUncle(sex) => tr(match sex {
+            Self::AuntUncle(sex) => text(match sex {
                 Sex::Male => "relationship.uncle",
                 Sex::Female => "relationship.aunt",
                 Sex::Unknown => "relationship.aunt_uncle",
             }),
-            Self::NieceNephew(sex) => tr(match sex {
+            Self::NieceNephew(sex) => text(match sex {
                 Sex::Male => "relationship.nephew",
                 Sex::Female => "relationship.niece",
                 Sex::Unknown => "relationship.niece_nephew",
@@ -140,8 +140,8 @@ impl Kinship {
                     )
                 }
             }
-            Self::RelatedByMarriage => tr("relationship.by_marriage"),
-            Self::Unrelated => tr("relationship.unrelated"),
+            Self::RelatedByMarriage => text("relationship.by_marriage"),
+            Self::Unrelated => text("relationship.unrelated"),
         }
     }
 }
@@ -398,6 +398,11 @@ fn cousin(
             let degree = root_depth.min(person_depth).saturating_sub(1).max(1);
             (degree, root_depth.abs_diff(person_depth))
         })
+}
+
+/// Owned translation text for call sites that need a `String`.
+fn text(key: &'static str) -> String {
+    tr(key).to_string()
 }
 
 #[cfg(test)]

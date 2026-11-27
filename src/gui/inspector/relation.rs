@@ -287,7 +287,7 @@ pub fn relation_window(
                         query.has_name(),
                         tree,
                         surname_first,
-                        &tr("duplicates.link_existing"),
+                        tr("duplicates.link_existing"),
                     ) {
                         outcome = Some(RelationOutcome::Link(person_id));
                     }

@@ -334,7 +334,7 @@ fn place_row(ui: &mut Ui, place: &PlaceSummary, selected: &mut HashSet<String>) 
             (true, true) => tr("geocode.missing_both"),
             (true, false) => tr("geocode.missing_latitude"),
             (false, true) => tr("geocode.missing_longitude"),
-            (false, false) => String::new(),
+            (false, false) => "",
         };
         if !missing.is_empty() {
             ui.label(RichText::new(missing).weak().small());

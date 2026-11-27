@@ -127,9 +127,9 @@ pub fn show(
 
 fn tool_section(
     ui: &mut Ui,
-    title: &str,
-    hint: &str,
-    action: &str,
+    title: &'static str,
+    hint: &'static str,
+    action: &'static str,
     disabled: bool,
     mut run: impl FnMut(),
 ) {
@@ -149,10 +149,10 @@ fn destructive_section(
     state: &mut DatabaseToolsState,
     disabled: bool,
     kind: MaintenanceKind,
-    title: &str,
-    hint: &str,
-    action: &str,
-    confirm: &str,
+    title: &'static str,
+    hint: &'static str,
+    action: &'static str,
+    confirm: &'static str,
     event: &mut Option<DatabaseToolsEvent>,
 ) {
     ui.separator();

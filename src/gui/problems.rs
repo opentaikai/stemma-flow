@@ -23,7 +23,7 @@ pub enum SeverityFilter {
 }
 
 impl SeverityFilter {
-    fn label(self) -> String {
+    fn label(self) -> &'static str {
         tr(match self {
             Self::All => "problems.filter_all",
             Self::Errors => "problems.filter_errors",
@@ -220,7 +220,7 @@ fn person_name(people: &[Person], id: &str, surname_first: bool) -> String {
         .iter()
         .find(|person| person.id == id)
         .map(|person| person_label(person, surname_first))
-        .unwrap_or_else(|| tr("problems.unknown_person"))
+        .unwrap_or_else(|| tr("problems.unknown_person").to_string())
 }
 
 #[cfg(test)]
